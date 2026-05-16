@@ -20,9 +20,7 @@ app.use(express.static(path.join(__dirname, '..', 'frontend')));
 // Sessions store: { userId: { client, qr, ready, state } }
 const waSessions = {};
 
-const SESSION_BASE = process.env.NODE_ENV === 'production'
-  ? '/data/wa_sessions'
-  : path.join(__dirname, 'data', 'wa_sessions');
+const SESSION_BASE = path.join(__dirname, 'data', 'wa_sessions');
 
 if (!fs.existsSync(SESSION_BASE)) fs.mkdirSync(SESSION_BASE, { recursive: true });
 
