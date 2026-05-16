@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: tattoo-os
+    runtime: node
+    buildCommand: npm install
+    startCommand: node backend/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/google-chrome-stable
+      - key: SUPABASE_URL
+        value: https://svremmknodxnaekzrunw.supabase.co
+      - key: SUPABASE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2cmVtbWtub2R4bmFla3pydW53Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MjM0NjksImV4cCI6MjA5NDQ5OTQ2OX0.CdXcxj2aoR1TOhnt524zPeHLsLvIkcnVqLLDcdJUB3E
+      - key: RENDER_URL
+        value: https://tattoo-os.onrender.com
+    disk:
+      name: tattoo-os-data
+      mountPath: /data
+      sizeGB: 1
