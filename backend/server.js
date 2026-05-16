@@ -20,15 +20,15 @@ app.use(express.static(path.join(__dirname, '..', 'frontend')));
 // Sessions store: { userId: { client, qr, ready, state } }
 const waSessions = {};
 
-const SESSION_BASE = path.join(__dirname, 'data', 'wa_sessions');
+const SESSION_BASE = process.env.NODE_ENV === 'production' ? '/tmp/wa_sessions' : path.join(__dirname, 'data', 'wa_sessions');
 
 if (!fs.existsSync(SESSION_BASE)) fs.mkdirSync(SESSION_BASE, { recursive: true });
 
 // Get Chrome path based on environment
 function getChromePath() {
   if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
-  // Linux (Render)
-  if (process.platform === 'linux') return '/usr/bin/google-chrome-stable';
+  // Linux (Render) - use bundled chromium from whatsapp-web.js
+  if (process.platform === 'linux') return undefined; // let puppeteer find its own
   // Windows - prefer Chrome 119 which works with whatsapp-web.js
   if (process.platform === 'win32') {
     var userProfile = process.env.USERPROFILE || 'C:\\Users\\Usuario';
