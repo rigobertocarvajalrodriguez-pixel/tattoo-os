@@ -49,7 +49,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;op
 .light body::after{opacity:.05}
 
 /* ── SIDEBAR ── */
-.sidebar{width:var(--sw);flex-shrink:0;background:var(--base);border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden;position:relative;z-index:20;transition:background .3s,border-color .3s,transform .3s}
+.sidebar{width:var(--sw);flex-shrink:0;background:var(--base);border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden;position:fixed;top:0;left:0;bottom:0;z-index:200;transform:translateX(-110%);transition:background .3s,border-color .3s,transform .3s}
 .sidebar::before{content:'';position:absolute;top:-80px;left:-60px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,rgba(124,92,252,.1),transparent 70%);pointer-events:none}
 .logo{padding:16px 14px 18px;display:flex;align-items:center;gap:10px;flex-shrink:0}
 .logo-ic{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--v),var(--vl));display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;font-size:13px;color:#fff;box-shadow:0 0 14px var(--vg);flex-shrink:0}
