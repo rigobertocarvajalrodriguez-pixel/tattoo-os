@@ -834,6 +834,30 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;op
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+<!-- TOS SPLASH -->
+<div id="tos-splash">
+  <canvas id="tos-canvas"></canvas>
+  <div id="tos-logo">
+    <svg width="220" height="110" viewBox="0 0 220 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="og" x1="72" y1="10" x2="148" y2="100" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#aaa"/>
+          <stop offset="55%" stop-color="#7c5cfc"/>
+          <stop offset="100%" stop-color="#aaa"/>
+        </linearGradient>
+      </defs>
+      <!-- T -->
+      <line x1="8" y1="12" x2="62" y2="12" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+      <line x1="35" y1="12" x2="35" y2="98" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+      <!-- O -->
+      <circle cx="110" cy="55" r="40" stroke="url(#og)" stroke-width="1.8" fill="none"/>
+      <!-- S -->
+      <path d="M162 18 C195 14 200 40 175 52 C150 64 155 88 188 92" stroke="white" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+    </svg>
+  </div>
+  <div id="tos-tag">Tattoo OS</div>
+</div>
+
 <div class="app" id="app">
 
 <!-- SIDEBAR OVERLAY (mobile) -->
@@ -4124,6 +4148,122 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
     });
   });
 }
+
+// ── TOS PARTICLE SPLASH ──
+(function(){
+  var splash = document.getElementById('tos-splash');
+  var canvas = document.getElementById('tos-canvas');
+  var ctx = canvas.getContext('2d');
+  var W, H;
+
+  function resize(){
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  var pts = [], particles = [], NUM = 140;
+
+  function buildTargets(){
+    pts = [];
+    var cx = W/2, cy = H/2;
+    var sc = Math.min(W,H)/500;
+    var i, a;
+
+    // T bar
+    for(i=0;i<12;i++) pts.push({x:cx-75*sc+i*12.5*sc, y:cy-43*sc});
+    // T stem
+    for(i=0;i<18;i++) pts.push({x:cx-47*sc, y:cy-43*sc+i*7.6*sc});
+    // O circle
+    for(i=0;i<55;i++){
+      a=(i/55)*Math.PI*2;
+      pts.push({x:cx+Math.cos(a)*40*sc, y:cy+Math.sin(a)*40*sc});
+    }
+    // S curve
+    for(i=0;i<35;i++){
+      var t=i/34;
+      var bx = cx+62*sc + Math.sin(t*Math.PI)*18*sc*(t<0.5?1:-1);
+      var by = cy-40*sc + t*80*sc;
+      pts.push({x:bx, y:by});
+    }
+  }
+
+  function initParticles(){
+    buildTargets();
+    particles = [];
+    for(var i=0;i<NUM;i++){
+      var tgt = pts[i%pts.length];
+      particles.push({
+        x: Math.random()*W, y: Math.random()*H,
+        tx: tgt.x, ty: tgt.y,
+        size: Math.random()*1.8+0.4,
+        alpha: Math.random()*0.4+0.3,
+        col: Math.random()>0.65?'#7c5cfc':'#ffffff',
+        ph: Math.random()*6.28
+      });
+    }
+  }
+
+  var t0 = Date.now(), dead = false;
+
+  function frame(){
+    if(dead) return;
+    var el = (Date.now()-t0)/1000;
+    ctx.clearRect(0,0,W,H);
+
+    var g = Math.min(el/1.6,1);
+    var ease = g<0.5?2*g*g:-1+(4-2*g)*g;
+
+    for(var i=0;i<particles.length;i++){
+      var p=particles[i];
+      var spd = 0.05*(1+ease*2);
+      p.x += (p.tx-p.x)*spd;
+      p.y += (p.ty-p.y)*spd;
+      if(el<1.2){
+        p.x += Math.sin(el*2.5+p.ph)*1.2;
+        p.y += Math.cos(el*2+p.ph)*1.2;
+      }
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.size,0,6.28);
+      ctx.fillStyle=p.col;
+      ctx.globalAlpha=p.alpha*Math.min(el*2.5,1);
+      ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Lines
+    if(el>0.9){
+      var la=Math.min((el-0.9)/0.6,1)*0.12;
+      ctx.strokeStyle='rgba(124,92,252,'+la+')';
+      ctx.lineWidth=0.4;
+      for(var j=0;j<particles.length;j++){
+        for(var k=j+1;k<particles.length;k++){
+          var dx=particles[j].x-particles[k].x;
+          var dy=particles[j].y-particles[k].y;
+          if(dx*dx+dy*dy<1600){
+            ctx.beginPath();
+            ctx.moveTo(particles[j].x,particles[j].y);
+            ctx.lineTo(particles[k].x,particles[k].y);
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
+    if(el>3.4){
+      dead=true;
+      splash.classList.add('out');
+      setTimeout(function(){splash.style.display='none';},1000);
+      return;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  initParticles();
+  frame();
+})();
+
 </script>
 </body>
 </html>
