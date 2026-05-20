@@ -693,6 +693,9 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;op
 
 /* ── MOBILE (600px) ── */
 @media(max-width:640px){
+  .main{padding-top:0!important}
+  .page.on{padding-top:0!important}
+
   :root{--sw:280px;--bnav-h:60px}
   html,body{font-size:14px}
 
@@ -2999,7 +3002,7 @@ function buildConsentHTML(c) {
     '</div></div>',
     '<div class="section"><div class="section-title">6. Firmas</div>' + signSection + '</div>',
     '<div class="footer">Documento generado por Tattoo OS &middot; ' + studioName + ' &middot; ' + docNum + ' &middot; ' + new Date().toLocaleDateString('es-ES') + '</div>',
-    '</div></body></html>'
+    '</div><script>document.addEventListener("click",function(e){var sb=document.querySelector(".sidebar");if(sb&&sb.classList.contains("mobile-open")){if(!sb.contains(e.target)){closeMobileSidebar();}}});</script></body></html>'
   ];
   return parts.join('\n');
 }
