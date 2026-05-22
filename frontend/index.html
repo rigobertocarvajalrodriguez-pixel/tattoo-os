@@ -882,10 +882,8 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;op
 
 /* ── PWA STANDALONE MODE ── */
 @media(display-mode:standalone){
-  .mobile-topbar{padding-top:calc(var(--safe-top) + 12px)!important;margin-top:0!important}
+  .mobile-topbar{padding-top:calc(16px + var(--safe-top))!important}
   .pwa-banner{display:none!important}
-  .app{padding-top:0!important}
-  body{padding-top:env(safe-area-inset-top)!important}
 }
 
 #tos-splash{position:fixed;inset:0;background:#000;z-index:99999;overflow:hidden;display:flex;align-items:center;justify-content:center}
