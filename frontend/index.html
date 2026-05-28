@@ -4443,10 +4443,21 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   var audioCtx = null, analyser = null, freqData = null, micStream = null;
 
   // ── Groq IA (Llama 3.3 — gratis) ──
-  // La API key vive en Netlify env vars; el cliente llama a los proxies /.netlify/functions/*
-  var GROQ_CHAT_URL = '/.netlify/functions/groq-chat';
-  var GROQ_STT_URL  = '/.netlify/functions/groq-stt';
-  var GROQ_MODEL    = 'llama-3.3-70b-versatile';
+  // En Netlify (HTTPS) → proxy serverless (key oculta en env vars).
+  // En local file:// → directo a Groq con key guardada solo en localStorage del navegador.
+  var GROQ_MODEL = 'llama-3.3-70b-versatile';
+  var USE_PROXY  = window.location.protocol !== 'file:';
+  var GROQ_CHAT_URL = USE_PROXY ? '/.netlify/functions/groq-chat' : 'https://api.groq.com/openai/v1/chat/completions';
+  var GROQ_STT_URL  = USE_PROXY ? '/.netlify/functions/groq-stt'  : 'https://api.groq.com/openai/v1/audio/transcriptions';
+
+  function getLocalKey() {
+    var k = localStorage.getItem('nova_groq_key');
+    if (!k) {
+      k = prompt('🔑 Introduce tu Groq API Key para el modo local:\n(Solo se guarda en tu navegador — nunca en el código)');
+      if (k) localStorage.setItem('nova_groq_key', k);
+    }
+    return k || null;
+  }
   var NOVA_PROMPT = 'Eres Nova, la asistente virtual de un estudio de tatuaje profesional. ' +
     'Respondes SIEMPRE en español, de forma amigable y natural, como si hablaras por teléfono. ' +
     'Eres experta en: precios (piezas pequeñas desde 80€, medianas desde 150€, grandes se presupuestan en consulta personal), ' +
@@ -4463,9 +4474,14 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   function askGroq(userText, onDone) {
     history.push({ role: 'user', content: userText });
     var msgs = [{ role: 'system', content: NOVA_PROMPT }].concat(history.slice(-16));
+    var headers = { 'Content-Type': 'application/json' };
+    if (!USE_PROXY) {
+      var k = getLocalKey(); if (!k) { onDone(new Error('no key'), null); return; }
+      headers['Authorization'] = 'Bearer ' + k;
+    }
     fetch(GROQ_CHAT_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify({ model: GROQ_MODEL, messages: msgs, max_tokens: 180, temperature: 0.72 })
     })
     .then(function(r) { return r.json(); })
@@ -4514,20 +4530,39 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
     if (!blob || blob.size < 800) return;
     var ext = (blob.type||'').includes('mp4') ? 'mp4' : (blob.type||'').includes('ogg') ? 'ogg' : 'webm';
     var filename = 'audio.' + ext;
-    // Convierte el blob a base64 y lo manda al proxy Netlify (evita exponer la API key)
-    var reader = new FileReader();
-    reader.onloadend = function() {
-      var b64 = reader.result.split(',')[1];
+
+    if (!USE_PROXY) {
+      // Modo local file:// → llamada directa a Groq Whisper con FormData
+      var k = getLocalKey(); if (!k) return;
+      var form = new FormData();
+      form.append('file', blob, filename);
+      form.append('model', 'whisper-large-v3-turbo');
+      form.append('language', 'es');
+      form.append('response_format', 'json');
       fetch(GROQ_STT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audio: b64, mimeType: blob.type || 'audio/webm', filename: filename })
+        headers: { 'Authorization': 'Bearer ' + k },
+        body: form
       })
       .then(function(r){ return r.json(); })
       .then(function(d){ var t=(d.text||'').trim(); if(t) sendMessage(t); })
       .catch(function(){});
-    };
-    reader.readAsDataURL(blob);
+    } else {
+      // Modo Netlify → convierte a base64 y usa el proxy serverless
+      var reader = new FileReader();
+      reader.onloadend = function() {
+        var b64 = reader.result.split(',')[1];
+        fetch(GROQ_STT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audio: b64, mimeType: blob.type || 'audio/webm', filename: filename })
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(d){ var t=(d.text||'').trim(); if(t) sendMessage(t); })
+        .catch(function(){});
+      };
+      reader.readAsDataURL(blob);
+    }
   }
 
   function restartRecorder() {
