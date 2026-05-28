@@ -4595,11 +4595,13 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
     var mime = getMime();
     try { mediaRec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
     catch(e) { mediaRec = new MediaRecorder(stream); }
+    // Captura el mimeType AHORA — mediaRec puede ser null cuando onstop se dispare de forma asíncrona
+    var recMime = mediaRec.mimeType || mime || 'audio/webm';
     audioChunks = []; hadSpeech = false;
     mediaRec.ondataavailable = function(e){ if(e.data && e.data.size>0) audioChunks.push(e.data); };
     mediaRec.onstop = function(){
       var chunks = audioChunks.slice(); audioChunks = [];
-      if (chunks.length) transcribeAudio(new Blob(chunks, { type: mediaRec.mimeType || mime || 'audio/webm' }));
+      if (chunks.length) transcribeAudio(new Blob(chunks, { type: recMime }));
       setTimeout(restartRecorder, 120);
     };
     mediaRec.start(200);
