@@ -934,6 +934,11 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 @keyframes aiwBlink{0%,80%,100%{transform:scale(.7);opacity:.4}40%{transform:scale(1);opacity:1}}
 /* Input */
 #aiw-input-row{display:flex;gap:8px;padding:10px 14px 14px;border-top:1px solid rgba(255,255,255,.06);flex-shrink:0;align-items:center}
+#aiw-key-row{display:none;gap:6px;padding:0 14px 12px;flex-shrink:0;align-items:center}
+#aiw-key-row span{font-size:15px;flex-shrink:0}
+#aiw-key-inp{flex:1;min-width:0;padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;font-size:11px;outline:none}
+#aiw-key-inp::placeholder{color:rgba(255,255,255,.25);font-size:10px}
+#aiw-key-save{padding:5px 10px;border-radius:8px;background:#5eeaff;color:#08080c;border:0;cursor:pointer;font-size:11px;font-weight:700;flex-shrink:0;white-space:nowrap}
 #aiw-inp{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:8px 12px;color:#fff;font-size:12px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s}
 #aiw-inp::placeholder{color:rgba(255,255,255,.28)}
 #aiw-inp:focus{border-color:rgba(94,234,255,.35);background:rgba(255,255,255,.09)}
@@ -4425,6 +4430,12 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
       <input id="aiw-inp" type="text" placeholder="Escribe tu pregunta…" autocomplete="off"/>
       <button id="aiw-send" aria-label="Enviar">➜</button>
     </div>
+    <!-- API key (solo local file://) -->
+    <div id="aiw-key-row">
+      <span title="Groq API Key">🔑</span>
+      <input id="aiw-key-inp" type="password" placeholder="Pega tu Groq API Key — gsk_…" autocomplete="off"/>
+      <button id="aiw-key-save">Guardar</button>
+    </div>
   </div>
   <!-- Floating bubble -->
   <button id="aiw-bubble" aria-label="Abrir asistente Nova">
@@ -4441,7 +4452,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   // ── Estado ──
   var open = false, listening = false;
   var audioCtx = null, analyser = null, freqData = null, micStream = null;
-  var recognition = null; // Web Speech API (modo local)
+  var localGroqKey = ''; // clave en memoria para modo local (no va a GitHub)
 
   // ── Groq IA (Llama 3.3 — gratis) ──
   // En Netlify (HTTPS) → proxy serverless (key oculta en env vars).
@@ -4477,9 +4488,8 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
     var msgs = [{ role: 'system', content: NOVA_PROMPT }].concat(history.slice(-16));
     var headers = { 'Content-Type': 'application/json' };
     if (!USE_PROXY) {
-      var k = localStorage.getItem('nova_groq_key');
-      if (!k) { onDone(new Error('no key'), null); return; }
-      headers['Authorization'] = 'Bearer ' + k;
+      if (!localGroqKey) { onDone(new Error('no key'), null); return; }
+      headers['Authorization'] = 'Bearer ' + localGroqKey;
     }
     fetch(GROQ_CHAT_URL, {
       method: 'POST',
@@ -4545,7 +4555,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
 
     if (!USE_PROXY) {
       // Modo local file:// → llamada directa a Groq Whisper
-      var k = localStorage.getItem('nova_groq_key'); if (!k) { onErr('no key'); return; }
+      var k = localGroqKey; if (!k) { onErr('no key'); return; }
       var form = new FormData();
       form.append('file', blob, filename);
       form.append('model', 'whisper-large-v3-turbo');
@@ -4618,10 +4628,11 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   // ── Micrófono ──
 
   function startMic() {
-    // Modo local: si no hay clave mostrar el formulario inline y abortar
-    if (!USE_PROXY && !localStorage.getItem('nova_groq_key')) {
-      if (!open) { open = true; } // abrir panel si estaba cerrado
-      showKeySetup();
+    // Modo local: si no hay clave guardada, abrir panel y pedir que la pongan
+    if (!USE_PROXY && !localGroqKey) {
+      open = true; render();
+      var ki = document.getElementById('aiw-key-inp');
+      if (ki) ki.focus();
       listening = false; render(); return;
     }
     if (!navigator.mediaDevices) { listening = false; render(); return; }
@@ -4770,8 +4781,6 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   setTimeout(function() {
     if (!chatEl) return;
     addMsg('¡Hola! Soy Nova 🖤 Pregúntame sobre precios, citas, estilos o cualquier duda del estudio.', false);
-    // En modo local: mostrar setup de clave siempre (con o sin clave guardada)
-    if (!USE_PROXY) showKeySetup();
   }, 600);
 
   // ── NeuralBloom SVG (conversión vanilla JS del componente React) ──
@@ -4933,6 +4942,22 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   var sendEl = document.getElementById('aiw-send');
 
   // ── Render ──
+  var keyRowEl  = document.getElementById('aiw-key-row');
+  var keyInpEl  = document.getElementById('aiw-key-inp');
+  var keySaveEl = document.getElementById('aiw-key-save');
+
+  // Guardar clave al hacer click (o Enter)
+  function saveKey() {
+    var k = (keyInpEl.value || '').trim();
+    if (!k) return;
+    localGroqKey = k;
+    keySaveEl.textContent = '✔ OK';
+    keySaveEl.style.background = '#4ade80';
+    setTimeout(function(){ keySaveEl.textContent='Guardar'; keySaveEl.style.background='#5eeaff'; }, 2000);
+  }
+  if (keySaveEl) keySaveEl.addEventListener('click', saveKey);
+  if (keyInpEl)  keyInpEl.addEventListener('keydown', function(e){ if(e.key==='Enter') saveKey(); });
+
   function render() {
     if (open) {
       panel.style.display = 'flex';
@@ -4942,6 +4967,8 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
       panel.style.display = 'none';
       panel.classList.remove('open');
     }
+    // Mostrar fila de clave solo en modo local
+    if (keyRowEl) keyRowEl.style.display = !USE_PROXY ? 'flex' : 'none';
     var col = listening ? '#ff5ec8' : '#5eeaff';
     nova.style.color     = col;
     dot.style.background = col;
