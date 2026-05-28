@@ -4441,6 +4441,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   // ── Estado ──
   var open = false, listening = false;
   var audioCtx = null, analyser = null, freqData = null, micStream = null;
+  var recognition = null; // Web Speech API (modo local)
 
   // ── Groq IA (Llama 3.3 — gratis) ──
   // En Netlify (HTTPS) → proxy serverless (key oculta en env vars).
@@ -4609,6 +4610,26 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   }
 
   // ── Micrófono ──
+
+  // Modo local (file://): Web Speech API — sin llamadas de red, funciona en Chrome/Edge/Safari
+  function startSpeechRecognition() {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return false;
+    recognition = new SR();
+    recognition.lang = 'es-ES';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.onresult = function(e) {
+      var r = e.results[e.results.length - 1];
+      if (r.isFinal) { var t = r[0].transcript.trim(); if (t) sendMessage(t); }
+    };
+    recognition.onerror = function(e) {
+      if (e.error === 'not-allowed' || e.error === 'audio-capture') { listening = false; render(); }
+    };
+    recognition.onend = function() { if (listening) { try { recognition.start(); } catch(ex){} } };
+    try { recognition.start(); return true; } catch(ex) { return false; }
+  }
+
   function startMic() {
     if (!navigator.mediaDevices) return;
     navigator.mediaDevices.getUserMedia({ audio: true, video: false })
@@ -4620,12 +4641,23 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
         analyser.fftSize = 512; analyser.smoothingTimeConstant = 0.82;
         src.connect(analyser);
         freqData = new Uint8Array(analyser.frequencyBinCount);
-        startRecorder(stream);
+        if (!USE_PROXY) {
+          // Local: usa Web Speech API del navegador (sin CORS, sin API key para STT)
+          if (!startSpeechRecognition()) {
+            // Fallback: MediaRecorder + Groq directo (puede fallar CORS en file://)
+            startRecorder(stream);
+          }
+          // vadLoop solo para la animación del orbe (sin grabar)
+        } else {
+          startRecorder(stream); // Netlify: MediaRecorder + Groq Whisper vía proxy
+        }
+        vadLoop();
       })
       .catch(function(){ listening = false; render(); });
   }
 
   function stopMic() {
+    if (recognition) { try { recognition.stop(); } catch(ex){} recognition = null; }
     if (silTimer) { clearTimeout(silTimer); silTimer = null; }
     if (mediaRec) { try { mediaRec.stop(); } catch(x){} mediaRec = null; }
     audioChunks = []; hadSpeech = false;
