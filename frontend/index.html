@@ -4611,27 +4611,42 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
 
   // ── Micrófono ──
 
-  // Modo local (file://): Web Speech API — sin llamadas de red, funciona en Chrome/Edge/Safari
-  function startSpeechRecognition() {
-    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return false;
-    recognition = new SR();
-    recognition.lang = 'es-ES';
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.onresult = function(e) {
-      var r = e.results[e.results.length - 1];
-      if (r.isFinal) { var t = r[0].transcript.trim(); if (t) sendMessage(t); }
-    };
-    recognition.onerror = function(e) {
-      if (e.error === 'not-allowed' || e.error === 'audio-capture') { listening = false; render(); }
-    };
-    recognition.onend = function() { if (listening) { try { recognition.start(); } catch(ex){} } };
-    try { recognition.start(); return true; } catch(ex) { return false; }
-  }
-
   function startMic() {
-    if (!navigator.mediaDevices) return;
+    if (!USE_PROXY) {
+      // ── Modo local (file://) ── Web Speech API del navegador
+      // Una sola petición de permiso, sin CORS, funciona en Chrome/Edge
+      var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        addMsg('Voz no disponible en este navegador en modo local. Usa Chrome, o abre la versión online.', false);
+        listening = false; render(); return;
+      }
+      recognition = new SR();
+      recognition.lang = 'es-ES';
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.onresult = function(e) {
+        var r = e.results[e.results.length - 1];
+        if (r.isFinal) { var t = r[0].transcript.trim(); if (t) sendMessage(t); }
+      };
+      recognition.onerror = function(e) {
+        // 'no-speech' es normal (silencio), ignorarlo; el resto detiene el micrófono
+        if (e.error !== 'no-speech') { listening = false; render(); }
+      };
+      var recStart = 0;
+      recognition.onend = function() {
+        // Reinicia solo si sigue escuchando y han pasado >500 ms (evita bucle de permisos)
+        if (listening && Date.now() - recStart > 500) {
+          recStart = Date.now();
+          try { recognition.start(); } catch(ex) {}
+        }
+      };
+      recStart = Date.now();
+      try { recognition.start(); } catch(ex) { listening = false; render(); }
+      return;
+    }
+
+    // ── Modo Netlify (HTTPS) ── getUserMedia + MediaRecorder + Groq Whisper proxy
+    if (!navigator.mediaDevices) { listening = false; render(); return; }
     navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       .then(function(stream) {
         micStream = stream;
@@ -4641,16 +4656,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
         analyser.fftSize = 512; analyser.smoothingTimeConstant = 0.82;
         src.connect(analyser);
         freqData = new Uint8Array(analyser.frequencyBinCount);
-        if (!USE_PROXY) {
-          // Local: usa Web Speech API del navegador (sin CORS, sin API key para STT)
-          if (!startSpeechRecognition()) {
-            // Fallback: MediaRecorder + Groq directo (puede fallar CORS en file://)
-            startRecorder(stream);
-          }
-          // vadLoop solo para la animación del orbe (sin grabar)
-        } else {
-          startRecorder(stream); // Netlify: MediaRecorder + Groq Whisper vía proxy
-        }
+        startRecorder(stream);
         vadLoop();
       })
       .catch(function(){ listening = false; render(); });
