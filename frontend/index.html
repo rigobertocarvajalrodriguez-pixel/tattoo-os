@@ -4732,38 +4732,46 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   // ── Configuración de API key (solo en modo local file://) ──
   function showKeySetup() {
     if (document.getElementById('nova-key-setup')) return; // no duplicar
+    var existing = localStorage.getItem('nova_groq_key');
     var wrap = document.createElement('div');
     wrap.id = 'nova-key-setup';
     wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin:4px 0';
     var lbl = document.createElement('div');
     lbl.className = 'aiw-mn';
-    lbl.textContent = '🔑 Para activar la voz en modo local introduce tu Groq API Key:';
+    lbl.style.fontSize = '12px';
+    lbl.textContent = existing
+      ? '🔑 Clave guardada. Puedes cambiarla aquí:'
+      : '🔑 Introduce tu Groq API Key para activar la voz:';
     var inp = document.createElement('input');
     inp.type = 'password';
     inp.placeholder = 'gsk_…';
-    inp.style.cssText = 'width:100%;box-sizing:border-box;padding:7px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.07);color:#fff;font-size:13px;outline:none';
+    inp.value = existing || '';
+    inp.style.cssText = 'width:100%;box-sizing:border-box;padding:7px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.07);color:#fff;font-size:12px;outline:none';
     var btn = document.createElement('button');
-    btn.textContent = 'Guardar clave';
-    btn.style.cssText = 'padding:7px 14px;border-radius:8px;background:#5eeaff;color:#08080c;border:0;cursor:pointer;font-size:13px;font-weight:700;align-self:flex-start';
+    btn.textContent = existing ? '✔ Actualizar clave' : '✔ Guardar clave';
+    btn.style.cssText = 'padding:6px 12px;border-radius:8px;background:#5eeaff;color:#08080c;border:0;cursor:pointer;font-size:12px;font-weight:700;align-self:flex-start';
     btn.onclick = function() {
       var k = inp.value.trim();
       if (!k) return;
       localStorage.setItem('nova_groq_key', k);
-      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
-      addMsg('✅ Clave guardada. Pulsa el orbe para hablar con Nova.', false);
+      lbl.textContent = '✅ Clave guardada. Pulsa el orbe para hablar.';
+      btn.style.background = '#4ade80';
+      btn.textContent = '✔ Guardada';
+      btn.disabled = true;
     };
     inp.addEventListener('keydown', function(e){ if(e.key==='Enter') btn.click(); });
     wrap.appendChild(lbl); wrap.appendChild(inp); wrap.appendChild(btn);
     chatEl.appendChild(wrap);
     chatEl.scrollTop = chatEl.scrollHeight;
-    setTimeout(function(){ inp.focus(); }, 100);
+    if (!existing) setTimeout(function(){ inp.focus(); }, 150);
   }
 
   // Mensaje de bienvenida
   setTimeout(function() {
     if (!chatEl) return;
     addMsg('¡Hola! Soy Nova 🖤 Pregúntame sobre precios, citas, estilos o cualquier duda del estudio.', false);
-    if (!USE_PROXY && !localStorage.getItem('nova_groq_key')) showKeySetup();
+    // En modo local: mostrar setup de clave siempre (con o sin clave guardada)
+    if (!USE_PROXY) showKeySetup();
   }, 600);
 
   // ── NeuralBloom SVG (conversión vanilla JS del componente React) ──
