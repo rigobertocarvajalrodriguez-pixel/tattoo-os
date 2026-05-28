@@ -4478,10 +4478,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
     var headers = { 'Content-Type': 'application/json' };
     if (!USE_PROXY) {
       var k = localStorage.getItem('nova_groq_key');
-      if (!k) {
-        k = prompt('🔑 Groq API Key:');
-        if (k) localStorage.setItem('nova_groq_key', k.trim()); else { onDone(new Error('no key'), null); return; }
-      }
+      if (!k) { onDone(new Error('no key'), null); return; }
       headers['Authorization'] = 'Bearer ' + k;
     }
     fetch(GROQ_CHAT_URL, {
@@ -4621,11 +4618,11 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   // ── Micrófono ──
 
   function startMic() {
-    // Modo local: pedir la clave ANTES de abrir el mic para evitar prompt inesperado
+    // Modo local: si no hay clave mostrar el formulario inline y abortar
     if (!USE_PROXY && !localStorage.getItem('nova_groq_key')) {
-      var k = prompt('🔑 Introduce tu Groq API Key:\n(Solo se guarda en tu navegador)');
-      if (!k) { listening = false; render(); return; }
-      localStorage.setItem('nova_groq_key', k.trim());
+      if (!open) { open = true; } // abrir panel si estaba cerrado
+      showKeySetup();
+      listening = false; render(); return;
     }
     if (!navigator.mediaDevices) { listening = false; render(); return; }
     navigator.mediaDevices.getUserMedia({ audio: true, video: false })
@@ -4732,9 +4729,41 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
     });
   }
 
+  // ── Configuración de API key (solo en modo local file://) ──
+  function showKeySetup() {
+    if (document.getElementById('nova-key-setup')) return; // no duplicar
+    var wrap = document.createElement('div');
+    wrap.id = 'nova-key-setup';
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin:4px 0';
+    var lbl = document.createElement('div');
+    lbl.className = 'aiw-mn';
+    lbl.textContent = '🔑 Para activar la voz en modo local introduce tu Groq API Key:';
+    var inp = document.createElement('input');
+    inp.type = 'password';
+    inp.placeholder = 'gsk_…';
+    inp.style.cssText = 'width:100%;box-sizing:border-box;padding:7px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.07);color:#fff;font-size:13px;outline:none';
+    var btn = document.createElement('button');
+    btn.textContent = 'Guardar clave';
+    btn.style.cssText = 'padding:7px 14px;border-radius:8px;background:#5eeaff;color:#08080c;border:0;cursor:pointer;font-size:13px;font-weight:700;align-self:flex-start';
+    btn.onclick = function() {
+      var k = inp.value.trim();
+      if (!k) return;
+      localStorage.setItem('nova_groq_key', k);
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      addMsg('✅ Clave guardada. Pulsa el orbe para hablar con Nova.', false);
+    };
+    inp.addEventListener('keydown', function(e){ if(e.key==='Enter') btn.click(); });
+    wrap.appendChild(lbl); wrap.appendChild(inp); wrap.appendChild(btn);
+    chatEl.appendChild(wrap);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    setTimeout(function(){ inp.focus(); }, 100);
+  }
+
   // Mensaje de bienvenida
   setTimeout(function() {
-    if (chatEl) addMsg('¡Hola! Soy Nova 🖤 Pregúntame sobre precios, citas, estilos o cualquier duda del estudio.', false);
+    if (!chatEl) return;
+    addMsg('¡Hola! Soy Nova 🖤 Pregúntame sobre precios, citas, estilos o cualquier duda del estudio.', false);
+    if (!USE_PROXY && !localStorage.getItem('nova_groq_key')) showKeySetup();
   }, 600);
 
   // ── NeuralBloom SVG (conversión vanilla JS del componente React) ──
