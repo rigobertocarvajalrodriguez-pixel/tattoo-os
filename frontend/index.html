@@ -4477,7 +4477,11 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
     var msgs = [{ role: 'system', content: NOVA_PROMPT }].concat(history.slice(-16));
     var headers = { 'Content-Type': 'application/json' };
     if (!USE_PROXY) {
-      var k = getLocalKey(); if (!k) { onDone(new Error('no key'), null); return; }
+      var k = localStorage.getItem('nova_groq_key');
+      if (!k) {
+        k = prompt('🔑 Groq API Key:');
+        if (k) localStorage.setItem('nova_groq_key', k.trim()); else { onDone(new Error('no key'), null); return; }
+      }
       headers['Authorization'] = 'Bearer ' + k;
     }
     fetch(GROQ_CHAT_URL, {
@@ -4531,36 +4535,41 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
     if (!blob || blob.size < 800) return;
     var ext = (blob.type||'').includes('mp4') ? 'mp4' : (blob.type||'').includes('ogg') ? 'ogg' : 'webm';
     var filename = 'audio.' + ext;
+    if (hint) hint.textContent = '⏳ transcribiendo…';
+
+    function onText(t) {
+      if (hint) hint.textContent = listening ? 'toca para detener' : 'pulsa para hablar';
+      if (t) sendMessage(t);
+    }
+    function onErr(e) {
+      if (hint) hint.textContent = listening ? 'toca para detener' : 'pulsa para hablar';
+      console.warn('[Nova STT]', e);
+    }
 
     if (!USE_PROXY) {
-      // Modo local file:// → llamada directa a Groq Whisper con FormData
-      var k = getLocalKey(); if (!k) return;
+      // Modo local file:// → llamada directa a Groq Whisper
+      var k = localStorage.getItem('nova_groq_key'); if (!k) { onErr('no key'); return; }
       var form = new FormData();
       form.append('file', blob, filename);
       form.append('model', 'whisper-large-v3-turbo');
       form.append('language', 'es');
       form.append('response_format', 'json');
-      fetch(GROQ_STT_URL, {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + k },
-        body: form
-      })
-      .then(function(r){ return r.json(); })
-      .then(function(d){ var t=(d.text||'').trim(); if(t) sendMessage(t); })
-      .catch(function(){});
+      fetch(GROQ_STT_URL, { method:'POST', headers:{ 'Authorization':'Bearer '+k }, body:form })
+        .then(function(r){ return r.json(); })
+        .then(function(d){ onText((d.text||'').trim()); })
+        .catch(onErr);
     } else {
-      // Modo Netlify → convierte a base64 y usa el proxy serverless
+      // Modo Netlify → base64 JSON → proxy serverless
       var reader = new FileReader();
       reader.onloadend = function() {
-        var b64 = reader.result.split(',')[1];
         fetch(GROQ_STT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ audio: b64, mimeType: blob.type || 'audio/webm', filename: filename })
+          method:'POST',
+          headers:{ 'Content-Type':'application/json' },
+          body: JSON.stringify({ audio: reader.result.split(',')[1], mimeType: blob.type||'audio/webm', filename: filename })
         })
         .then(function(r){ return r.json(); })
-        .then(function(d){ var t=(d.text||'').trim(); if(t) sendMessage(t); })
-        .catch(function(){});
+        .then(function(d){ onText((d.text||'').trim()); })
+        .catch(onErr);
       };
       reader.readAsDataURL(blob);
     }
@@ -4612,40 +4621,12 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   // ── Micrófono ──
 
   function startMic() {
-    if (!USE_PROXY) {
-      // ── Modo local (file://) ── Web Speech API del navegador
-      // Una sola petición de permiso, sin CORS, funciona en Chrome/Edge
-      var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) {
-        addMsg('Voz no disponible en este navegador en modo local. Usa Chrome, o abre la versión online.', false);
-        listening = false; render(); return;
-      }
-      recognition = new SR();
-      recognition.lang = 'es-ES';
-      recognition.continuous = true;
-      recognition.interimResults = false;
-      recognition.onresult = function(e) {
-        var r = e.results[e.results.length - 1];
-        if (r.isFinal) { var t = r[0].transcript.trim(); if (t) sendMessage(t); }
-      };
-      recognition.onerror = function(e) {
-        // 'no-speech' es normal (silencio), ignorarlo; el resto detiene el micrófono
-        if (e.error !== 'no-speech') { listening = false; render(); }
-      };
-      var recStart = 0;
-      recognition.onend = function() {
-        // Reinicia solo si sigue escuchando y han pasado >500 ms (evita bucle de permisos)
-        if (listening && Date.now() - recStart > 500) {
-          recStart = Date.now();
-          try { recognition.start(); } catch(ex) {}
-        }
-      };
-      recStart = Date.now();
-      try { recognition.start(); } catch(ex) { listening = false; render(); }
-      return;
+    // Modo local: pedir la clave ANTES de abrir el mic para evitar prompt inesperado
+    if (!USE_PROXY && !localStorage.getItem('nova_groq_key')) {
+      var k = prompt('🔑 Introduce tu Groq API Key:\n(Solo se guarda en tu navegador)');
+      if (!k) { listening = false; render(); return; }
+      localStorage.setItem('nova_groq_key', k.trim());
     }
-
-    // ── Modo Netlify (HTTPS) ── getUserMedia + MediaRecorder + Groq Whisper proxy
     if (!navigator.mediaDevices) { listening = false; render(); return; }
     navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       .then(function(stream) {
@@ -4663,7 +4644,6 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   }
 
   function stopMic() {
-    if (recognition) { try { recognition.stop(); } catch(ex){} recognition = null; }
     if (silTimer) { clearTimeout(silTimer); silTimer = null; }
     if (mediaRec) { try { mediaRec.stop(); } catch(x){} mediaRec = null; }
     audioChunks = []; hadSpeech = false;
