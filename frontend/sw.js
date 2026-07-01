@@ -1,4 +1,4 @@
-const CACHE = 'tattoo-os-v3';
+const CACHE = 'tattoo-os-v7';
 const OFFLINE_URL = './index.html';
 
 self.addEventListener('install', function(e) {
@@ -24,9 +24,26 @@ self.addEventListener('activate', function(e) {
 
 self.addEventListener('fetch', function(e) {
   if (e.request.method !== 'GET') return;
-  // Skip Supabase and API requests - always go to network
   if (e.request.url.includes('supabase') || e.request.url.includes('/api/')) return;
 
+  // HTML: network-first so updates are always picked up
+  var isHTML = e.request.headers.get('accept') && e.request.headers.get('accept').includes('text/html');
+  if (isHTML) {
+    e.respondWith(
+      fetch(e.request).then(function(response) {
+        if (response.ok) {
+          var clone = response.clone();
+          caches.open(CACHE).then(function(cache) { cache.put(e.request, clone); });
+        }
+        return response;
+      }).catch(function() {
+        return caches.match(e.request) || caches.match(OFFLINE_URL);
+      })
+    );
+    return;
+  }
+
+  // Assets: cache-first
   e.respondWith(
     caches.match(e.request).then(function(cached) {
       var networkFetch = fetch(e.request).then(function(response) {

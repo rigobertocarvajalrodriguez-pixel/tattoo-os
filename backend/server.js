@@ -2,27 +2,136 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
-const { createClient } = require('@supabase/supabase-js');
+const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3000;
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://svremmknodxnaekzrunw.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2cmVtbWtub2R4bmFla3pydW53Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MjM0NjksImV4cCI6MjA5NDQ5OTQ2OX0.CdXcxj2aoR1TOhnt524zPeHLsLvIkcnVqLLDcdJUB3E';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'rigobertocarvajalrodriguez@gmail.com';
+const ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+// ══════════════════════════════════════════
+// POSTGRESQL CONNECTION
+// ══════════════════════════════════════════
+const db = new Pool({
+  host:     process.env.PG_HOST     || 'localhost',
+  port:     parseInt(process.env.PG_PORT || '5432'),
+  database: process.env.PG_DB       || 'tattoo_os',
+  user:     process.env.PG_USER     || 'postgres',
+  password: process.env.PG_PASS     || 'tattoo123',
+});
+db.connect()
+  .then(function() { console.log('[DB] PostgreSQL conectado — tattoo_os'); })
+  .catch(function(e) { console.error('[DB] Error conexión PostgreSQL:', e.message); });
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 
+// Iconos PWA generados server-side como SVG → PNG equivalente
+app.get('/icon-:size.png', function(req, res) {
+  var size = parseInt(req.params.size) || 192;
+  var r = Math.round(size * 0.22);
+  var svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <rect width="${size}" height="${size}" rx="${r}" fill="#07070f"/>
+    <defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c5cfc"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
+    </linearGradient></defs>
+    <text x="${size/2}" y="${size*0.58}" font-family="Arial Black,Arial" font-weight="900"
+      font-size="${Math.round(size*0.52)}" text-anchor="middle" fill="url(#g)">T.</text>
+  </svg>`;
+  res.set('Content-Type', 'image/svg+xml');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(svg);
+});
+
 // Sessions store: { userId: { client, qr, ready, state } }
 const waSessions = {};
 
 const SESSION_BASE = process.env.NODE_ENV === 'production' ? '/tmp/wa_sessions' : path.join(__dirname, 'data', 'wa_sessions');
-
 if (!fs.existsSync(SESSION_BASE)) fs.mkdirSync(SESSION_BASE, { recursive: true });
+
+// ══════════════════════════════════════════
+// LOCAL DATA STORAGE
+// ══════════════════════════════════════════
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+function readJSON(file) {
+  try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, file), 'utf8')); } catch(e) { return []; }
+}
+function writeJSON(file, data) {
+  fs.writeFileSync(path.join(DATA_DIR, file), JSON.stringify(data, null, 2));
+}
+
+// Ensure admin user exists on first run (PostgreSQL)
+db.query(
+  'INSERT INTO users (email, name, password, is_admin) VALUES ($1,$2,$3,TRUE) ON CONFLICT (email) DO NOTHING',
+  [ADMIN_EMAIL, 'Admin', ADMIN_PASS]
+).then(function() {
+  console.log('[AUTH] Admin verificado en BD:', ADMIN_EMAIL);
+}).catch(function(e) {
+  // Fallback: also keep JSON so app still works if DB is down
+  var users = readJSON('users.json');
+  if (!users.find(function(u) { return u.email === ADMIN_EMAIL; })) {
+    users.push({ id: crypto.randomUUID(), email: ADMIN_EMAIL, name: 'Admin', password: ADMIN_PASS, isAdmin: true, created_at: new Date().toISOString() });
+    writeJSON('users.json', users);
+  }
+});
+
+// Auth sessions in memory: token → { userId, email, name, isAdmin }
+const authSessions = {};
+
+// ── AUTH ENDPOINTS ──
+app.post('/api/auth/login', function(req, res) {
+  var email = (req.body.email || '').trim().toLowerCase();
+  var pass = req.body.password || '';
+  db.query('SELECT * FROM users WHERE email=$1 AND password=$2', [email, pass])
+    .then(function(r) {
+      if (!r.rows.length) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+      var user = r.rows[0];
+      var token = crypto.randomUUID();
+      authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin };
+      res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
+    })
+    .catch(function(e) { res.status(500).json({ error: 'Error de base de datos' }); });
+});
+
+app.post('/api/auth/register', function(req, res) {
+  var email = (req.body.email || '').trim().toLowerCase();
+  var pass = req.body.password || '';
+  var name = (req.body.name || email.split('@')[0]).trim();
+  if (!email || !pass) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+  if (pass.length < 8) return res.status(400).json({ error: 'Contraseña mínimo 8 caracteres' });
+  db.query('INSERT INTO users (email, name, password) VALUES ($1,$2,$3) RETURNING *', [email, name, pass])
+    .then(function(r) {
+      var user = r.rows[0];
+      var token = crypto.randomUUID();
+      authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: false };
+      res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
+    })
+    .catch(function(e) {
+      if (e.code === '23505') return res.status(400).json({ error: 'El email ya está registrado' });
+      res.status(500).json({ error: 'Error de base de datos' });
+    });
+});
+
+app.get('/api/auth/me', function(req, res) {
+  var token = req.headers.authorization && req.headers.authorization.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'No token' });
+  var session = authSessions[token];
+  if (!session) return res.status(401).json({ error: 'Token inválido' });
+  res.json({ user: { id: session.userId, email: session.email, name: session.name } });
+});
+
+app.post('/api/auth/logout', function(req, res) {
+  var token = req.headers.authorization && req.headers.authorization.replace('Bearer ', '');
+  if (token) delete authSessions[token];
+  res.json({ ok: true });
+});
 
 // Get Chrome path based on environment
 function getChromePath() {
@@ -59,24 +168,31 @@ function getChromePath() {
 }
 
 // Auth middleware
-async function authMiddleware(req, res, next) {
+function authMiddleware(req, res, next) {
   var token = req.headers.authorization && req.headers.authorization.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'No autorizado' });
-  try {
-    var result = await supabase.auth.getUser(token);
-    if (result.error || !result.data.user) return res.status(401).json({ error: 'Token invalido' });
-    req.userId = result.data.user.id;
-    req.user = result.data.user;
-    next();
-  } catch (err) {
-    res.status(401).json({ error: 'Error de autenticacion' });
-  }
+  var session = authSessions[token];
+  if (!session) return res.status(401).json({ error: 'Token invalido' });
+  req.userId = session.userId;
+  req.user = session;
+  next();
+}
+
+// Admin middleware
+function adminMiddleware(req, res, next) {
+  var token = req.headers.authorization && req.headers.authorization.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'No token' });
+  var session = authSessions[token];
+  if (!session) return res.status(401).json({ error: 'Token inválido' });
+  if (!session.isAdmin && session.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Not admin' });
+  req.adminUser = session;
+  next();
 }
 
 // Start WhatsApp session for a user
 function startWASession(userId) {
-  if (waSessions[userId] && 
-      waSessions[userId].state !== 'ERROR' && 
+  if (waSessions[userId] &&
+      waSessions[userId].state !== 'ERROR' &&
       waSessions[userId].state !== 'DISCONNECTED') {
     console.log('[WA] Session already exists for:', userId.slice(0, 8), '- state:', waSessions[userId].state);
     return;
@@ -135,9 +251,6 @@ function startWASession(userId) {
     console.log('[WA] Ready:', userId.slice(0, 8));
     waSessions[userId].ready = true;
     waSessions[userId].state = 'READY';
-    supabase.from('whatsapp_sessions')
-      .upsert({ user_id: userId, connected: true, updated_at: new Date().toISOString() })
-      .then(function() {});
   });
 
   client.on('disconnected', function(reason) {
@@ -146,10 +259,6 @@ function startWASession(userId) {
       waSessions[userId].ready = false;
       waSessions[userId].state = 'DISCONNECTED';
     }
-    supabase.from('whatsapp_sessions')
-      .upsert({ user_id: userId, connected: false, updated_at: new Date().toISOString() })
-      .then(function() {});
-    // Don't auto-restart - user must click Verify button again
   });
 
   client.initialize().catch(function(err) {
@@ -157,7 +266,6 @@ function startWASession(userId) {
     if (waSessions[userId]) {
       waSessions[userId].state = 'ERROR';
       waSessions[userId].ready = false;
-      // Clean up so user can retry
       delete waSessions[userId];
     }
   });
@@ -228,65 +336,199 @@ app.post('/api/wa/send', authMiddleware, async function(req, res) {
   }
 });
 
+// ══════════════════════════════════════════
+// DATA APIS — almacenamiento local JSON
+// ══════════════════════════════════════════
+
 // Clients API
-app.get('/api/clients', authMiddleware, async function(req, res) {
-  var r = await supabase.from('clients').select('*').eq('user_id', req.userId).order('created_at', { ascending: false });
-  if (r.error) return res.status(500).json({ error: r.error.message });
-  res.json(r.data);
+app.get('/api/clients', authMiddleware, function(req, res) {
+  var all = readJSON('clients.json');
+  res.json(all.filter(function(c) { return c.user_id === req.userId; }).sort(function(a, b) { return b.created_at > a.created_at ? 1 : -1; }));
 });
-app.post('/api/clients', authMiddleware, async function(req, res) {
-  var r = await supabase.from('clients').insert(Object.assign({}, req.body, { user_id: req.userId })).select().single();
-  if (r.error) return res.status(500).json({ error: r.error.message });
-  res.json(r.data);
+app.post('/api/clients', authMiddleware, function(req, res) {
+  var all = readJSON('clients.json');
+  var item = Object.assign({}, req.body, { id: crypto.randomUUID(), user_id: req.userId, created_at: new Date().toISOString() });
+  all.push(item);
+  writeJSON('clients.json', all);
+  res.json(item);
 });
-app.put('/api/clients/:id', authMiddleware, async function(req, res) {
-  var r = await supabase.from('clients').update(req.body).eq('id', req.params.id).eq('user_id', req.userId).select().single();
-  if (r.error) return res.status(500).json({ error: r.error.message });
-  res.json(r.data);
+app.put('/api/clients/:id', authMiddleware, function(req, res) {
+  var all = readJSON('clients.json');
+  var idx = all.findIndex(function(c) { return c.id === req.params.id && c.user_id === req.userId; });
+  if (idx === -1) return res.status(404).json({ error: 'No encontrado' });
+  all[idx] = Object.assign(all[idx], req.body);
+  writeJSON('clients.json', all);
+  res.json(all[idx]);
 });
-app.delete('/api/clients/:id', authMiddleware, async function(req, res) {
-  var r = await supabase.from('clients').delete().eq('id', req.params.id).eq('user_id', req.userId);
-  if (r.error) return res.status(500).json({ error: r.error.message });
+app.delete('/api/clients/:id', authMiddleware, function(req, res) {
+  var all = readJSON('clients.json');
+  writeJSON('clients.json', all.filter(function(c) { return !(c.id === req.params.id && c.user_id === req.userId); }));
   res.json({ success: true });
 });
 
 // Appointments API
-app.get('/api/appointments', authMiddleware, async function(req, res) {
-  var r = await supabase.from('appointments').select('*').eq('user_id', req.userId).order('date', { ascending: true });
-  if (r.error) return res.status(500).json({ error: r.error.message });
-  res.json(r.data);
+app.get('/api/appointments', authMiddleware, function(req, res) {
+  var all = readJSON('appointments.json');
+  res.json(all.filter(function(a) { return a.user_id === req.userId; }).sort(function(a, b) { return a.date > b.date ? 1 : -1; }));
 });
-app.post('/api/appointments', authMiddleware, async function(req, res) {
-  var r = await supabase.from('appointments').insert(Object.assign({}, req.body, { user_id: req.userId })).select().single();
-  if (r.error) return res.status(500).json({ error: r.error.message });
-  res.json(r.data);
+app.post('/api/appointments', authMiddleware, function(req, res) {
+  var all = readJSON('appointments.json');
+  var item = Object.assign({}, req.body, { id: crypto.randomUUID(), user_id: req.userId, created_at: new Date().toISOString() });
+  all.push(item);
+  writeJSON('appointments.json', all);
+  res.json(item);
 });
-app.put('/api/appointments/:id', authMiddleware, async function(req, res) {
-  var r = await supabase.from('appointments').update(req.body).eq('id', req.params.id).eq('user_id', req.userId).select().single();
-  if (r.error) return res.status(500).json({ error: r.error.message });
-  res.json(r.data);
+app.put('/api/appointments/:id', authMiddleware, function(req, res) {
+  var all = readJSON('appointments.json');
+  var idx = all.findIndex(function(a) { return a.id === req.params.id && a.user_id === req.userId; });
+  if (idx === -1) return res.status(404).json({ error: 'No encontrado' });
+  all[idx] = Object.assign(all[idx], req.body);
+  writeJSON('appointments.json', all);
+  res.json(all[idx]);
 });
-app.delete('/api/appointments/:id', authMiddleware, async function(req, res) {
-  var r = await supabase.from('appointments').delete().eq('id', req.params.id).eq('user_id', req.userId);
-  if (r.error) return res.status(500).json({ error: r.error.message });
+app.delete('/api/appointments/:id', authMiddleware, function(req, res) {
+  var all = readJSON('appointments.json');
+  writeJSON('appointments.json', all.filter(function(a) { return !(a.id === req.params.id && a.user_id === req.userId); }));
   res.json({ success: true });
 });
 
 // Expenses API
-app.get('/api/expenses', authMiddleware, async function(req, res) {
-  var r = await supabase.from('expenses').select('*').eq('user_id', req.userId).order('date', { ascending: false });
-  if (r.error) return res.status(500).json({ error: r.error.message });
-  res.json(r.data);
+app.get('/api/expenses', authMiddleware, function(req, res) {
+  var all = readJSON('expenses.json');
+  res.json(all.filter(function(e) { return e.user_id === req.userId; }).sort(function(a, b) { return b.date > a.date ? 1 : -1; }));
 });
-app.post('/api/expenses', authMiddleware, async function(req, res) {
-  var r = await supabase.from('expenses').insert(Object.assign({}, req.body, { user_id: req.userId })).select().single();
-  if (r.error) return res.status(500).json({ error: r.error.message });
-  res.json(r.data);
+app.post('/api/expenses', authMiddleware, function(req, res) {
+  var all = readJSON('expenses.json');
+  var item = Object.assign({}, req.body, { id: crypto.randomUUID(), user_id: req.userId, created_at: new Date().toISOString() });
+  all.push(item);
+  writeJSON('expenses.json', all);
+  res.json(item);
 });
-app.delete('/api/expenses/:id', authMiddleware, async function(req, res) {
-  var r = await supabase.from('expenses').delete().eq('id', req.params.id).eq('user_id', req.userId);
-  if (r.error) return res.status(500).json({ error: r.error.message });
+app.delete('/api/expenses/:id', authMiddleware, function(req, res) {
+  var all = readJSON('expenses.json');
+  writeJSON('expenses.json', all.filter(function(e) { return !(e.id === req.params.id && e.user_id === req.userId); }));
   res.json({ success: true });
+});
+
+// ══════════════════════════════════════════
+// ADMIN PANEL
+// ══════════════════════════════════════════
+
+app.get('/api/admin/users', adminMiddleware, function(req, res) {
+  db.query('SELECT id, email, name, password, is_admin, created_at FROM users ORDER BY created_at ASC')
+    .then(function(r) { res.json(r.rows); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.get('/api/admin/tickets', adminMiddleware, function(req, res) {
+  db.query('SELECT * FROM tickets ORDER BY updated_at DESC')
+    .then(function(r) { res.json(r.rows); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.patch('/api/admin/tickets/:id', adminMiddleware, function(req, res) {
+  var b = req.body;
+  db.query('UPDATE tickets SET status=COALESCE($1,status), updated_at=NOW() WHERE id=$2 RETURNING *',
+    [b.status, req.params.id])
+    .then(function(r) { r.rows.length ? res.json(r.rows[0]) : res.status(404).json({ error: 'No encontrado' }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.get('/api/tickets/:id/messages', authMiddleware, function(req, res) {
+  db.query('SELECT * FROM ticket_messages WHERE ticket_id=$1 ORDER BY created_at ASC', [req.params.id])
+    .then(function(r) { res.json(r.rows); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.post('/api/tickets/:id/messages', authMiddleware, function(req, res) {
+  var isAdm = req.body.sender === 'admin';
+  var sender = isAdm ? 'admin' : 'user';
+  var senderName = isAdm ? 'Admin' : (req.body.sender_name || '');
+  db.query('INSERT INTO ticket_messages (ticket_id,sender,sender_name,message) VALUES ($1,$2,$3,$4) RETURNING *',
+    [req.params.id, sender, senderName, req.body.message])
+    .then(function(r) {
+      var newStatus = isAdm ? 'in_progress' : 'open';
+      db.query('UPDATE tickets SET status=$1, updated_at=NOW(), has_unread=$2 WHERE id=$3',
+        [newStatus, !isAdm, req.params.id]).catch(function(){});
+      res.json(r.rows[0]);
+    })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.get('/api/tickets/mine', authMiddleware, function(req, res) {
+  db.query('SELECT * FROM tickets WHERE user_id=$1 ORDER BY updated_at DESC', [req.userId])
+    .then(function(r) { res.json(r.rows); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.patch('/api/tickets/:id/read', authMiddleware, function(req, res) {
+  db.query('UPDATE tickets SET has_unread=FALSE WHERE id=$1 AND user_id=$2', [req.params.id, req.userId])
+    .then(function() { res.json({ ok: true }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.post('/api/tickets', authMiddleware, function(req, res) {
+  db.query('INSERT INTO tickets (user_id,user_email,user_name,title,description,priority) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+    [req.userId, req.body.user_email, req.body.user_name, req.body.title, req.body.description, req.body.priority||'normal'])
+    .then(function(r) { res.json(r.rows[0]); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Profile sync: save full profile data to PostgreSQL
+app.post('/api/profile/sync', authMiddleware, function(req, res) {
+  var userId = req.userId;
+  var profilesData = req.body.profiles;
+  if (!profilesData || !profilesData.length) return res.json({ ok: true });
+
+  var ops = profilesData.map(function(p) {
+    return db.query(
+      'INSERT INTO profiles (id,user_id,name,role,color) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET name=$3,role=$4,color=$5',
+      [p.id, userId, p.name||'', p.role||'', p.color||'v']
+    ).then(function() {
+      var apptOps = (p.appts||[]).map(function(a) {
+        return db.query(
+          'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13',
+          [a.id||crypto.randomUUID(), p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||'', a.notes||'']
+        ).catch(function(){});
+      });
+      var clientOps = (p.clients||[]).map(function(c) {
+        return db.query(
+          'INSERT INTO clients (id,profile_id,user_id,name,phone,email,instagram,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET name=$4,phone=$5,email=$6,instagram=$7,notes=$8',
+          [c.id||crypto.randomUUID(), p.id, userId, c.name||'', c.phone||'', c.email||'', c.instagram||'', c.notes||'']
+        ).catch(function(){});
+      });
+      return Promise.all(apptOps.concat(clientOps));
+    });
+  });
+
+  Promise.all(ops)
+    .then(function() { res.json({ ok: true }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Admin: get a specific user's full data from PostgreSQL
+app.get('/api/admin/user-data/:userId', adminMiddleware, function(req, res) {
+  var uid = req.params.userId;
+  db.query('SELECT * FROM profiles WHERE user_id=$1 ORDER BY id ASC', [uid])
+    .then(function(pr) {
+      if (!pr.rows.length) return res.status(404).json({ error: 'Sin datos guardados aún' });
+      var profileIds = pr.rows.map(function(p){ return p.id; });
+      return Promise.all([
+        db.query('SELECT * FROM appointments WHERE profile_id=ANY($1) ORDER BY date,start', [profileIds]),
+        db.query('SELECT * FROM clients WHERE profile_id=ANY($1)', [profileIds])
+      ]).then(function(results) {
+        var appts = results[0].rows;
+        var clients = results[1].rows;
+        var profiles = pr.rows.map(function(p) {
+          return Object.assign({}, p, {
+            appts: appts.filter(function(a){ return a.profile_id===p.id; }),
+            clients: clients.filter(function(c){ return c.profile_id===p.id; })
+          });
+        });
+        res.json({ profiles: profiles, updated_at: new Date().toISOString() });
+      });
+    })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
 // Keep-alive for Render free plan
@@ -296,10 +538,93 @@ if (process.env.NODE_ENV === 'production' && process.env.RENDER_URL) {
   }, 10 * 60 * 1000);
 }
 
-app.listen(PORT, function() {
+// ══════════════════════════════════════════
+// WEBRTC SIGNALING (Socket.io)
+// ══════════════════════════════════════════
+const http = require('http');
+const { Server } = require('socket.io');
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, { cors: { origin: '*' } });
+
+// rooms: { roomId: { admin: socketId, user: socketId, userId: string } }
+const rooms = {};
+
+io.on('connection', function(socket) {
+  // Admin solicita ver la pantalla de un usuario
+  socket.on('admin:request-view', function(data) {
+    rooms[data.roomId] = { admin: socket.id, userId: data.targetUserId };
+    io.to('user:' + data.targetUserId).emit('view:request', { roomId: data.roomId, adminName: 'Admin' });
+  });
+
+  socket.on('user:join', function(data) {
+    socket.join('user:' + data.userId);
+    socket.userId = data.userId;
+  });
+
+  socket.on('view:accept', function(data) {
+    var room = rooms[data.roomId];
+    if (!room) return;
+    room.user = socket.id;
+    socket.join(data.roomId);
+    io.to(room.admin).emit('view:accepted', { roomId: data.roomId });
+  });
+  socket.on('view:reject', function(data) {
+    var room = rooms[data.roomId];
+    if (!room) return;
+    io.to(room.admin).emit('view:rejected', { roomId: data.roomId });
+    delete rooms[data.roomId];
+  });
+
+  socket.on('webrtc:offer', function(data) {
+    var room = rooms[data.roomId];
+    if (!room) return;
+    io.to(room.user).emit('webrtc:offer', { offer: data.offer, roomId: data.roomId });
+  });
+  socket.on('webrtc:answer', function(data) {
+    var room = rooms[data.roomId];
+    if (!room) return;
+    io.to(room.admin).emit('webrtc:answer', { answer: data.answer, roomId: data.roomId });
+  });
+  socket.on('webrtc:ice', function(data) {
+    var room = rooms[data.roomId];
+    if (!room) return;
+    var target = socket.id === room.admin ? room.user : room.admin;
+    io.to(target).emit('webrtc:ice', { candidate: data.candidate });
+  });
+
+  socket.on('view:end', function(data) {
+    var room = rooms[data.roomId];
+    if (!room) return;
+    io.to(room.admin).emit('view:ended');
+    io.to(room.user).emit('view:ended');
+    delete rooms[data.roomId];
+  });
+
+  socket.on('disconnect', function() {
+    Object.keys(rooms).forEach(function(rid) {
+      var r = rooms[rid];
+      if (r.admin === socket.id || r.user === socket.id) {
+        io.to(r.admin).emit('view:ended');
+        io.to(r.user || '').emit('view:ended');
+        delete rooms[rid];
+      }
+    });
+  });
+});
+
+httpServer.listen(PORT, '0.0.0.0', function() {
+  var os = require('os');
+  var nets = os.networkInterfaces();
+  var localIP = 'localhost';
+  Object.keys(nets).forEach(function(name) {
+    nets[name].forEach(function(net) {
+      if (net.family === 'IPv4' && !net.internal) localIP = net.address;
+    });
+  });
   console.log('[SERVER] Port:', PORT);
-  console.log('[SERVER] Panel: http://localhost:' + PORT);
+  console.log('[SERVER] PC:     http://localhost:' + PORT);
+  console.log('[SERVER] iPhone: http://' + localIP + ':' + PORT);
   console.log('[SERVER] Platform:', process.platform);
   console.log('[SERVER] Chrome:', getChromePath() || 'auto');
-  console.log('[SERVER] Supabase:', SUPABASE_URL);
+  console.log('[SERVER] Modo: LOCAL (sin Supabase)');
 });
