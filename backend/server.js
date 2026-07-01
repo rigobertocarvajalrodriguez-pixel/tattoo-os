@@ -14,15 +14,23 @@ const ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
 // ══════════════════════════════════════════
 // POSTGRESQL CONNECTION
 // ══════════════════════════════════════════
-const db = new Pool({
-  host:     process.env.PG_HOST     || 'localhost',
-  port:     parseInt(process.env.PG_PORT || '5432'),
-  database: process.env.PG_DB       || 'tattoo_os',
-  user:     process.env.PG_USER     || 'postgres',
-  password: process.env.PG_PASS     || 'tattoo123',
-});
+var dbConfig;
+if (process.env.DATABASE_URL) {
+  // Render / Supabase connection string
+  dbConfig = { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } };
+} else {
+  // Local development
+  dbConfig = {
+    host:     process.env.PG_HOST || 'localhost',
+    port:     parseInt(process.env.PG_PORT || '5432'),
+    database: process.env.PG_DB   || 'tattoo_os',
+    user:     process.env.PG_USER || 'postgres',
+    password: process.env.PG_PASS || 'tattoo123',
+  };
+}
+const db = new Pool(dbConfig);
 db.connect()
-  .then(function() { console.log('[DB] PostgreSQL conectado — tattoo_os'); })
+  .then(function() { console.log('[DB] PostgreSQL conectado'); })
   .catch(function(e) { console.error('[DB] Error conexión PostgreSQL:', e.message); });
 
 const app = express();
