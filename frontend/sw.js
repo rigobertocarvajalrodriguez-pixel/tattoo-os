@@ -1,4 +1,4 @@
-const CACHE = 'tattoo-os-v7';
+const CACHE = 'tattoo-os-v8';
 const OFFLINE_URL = './index.html';
 
 self.addEventListener('install', function(e) {
@@ -24,7 +24,7 @@ self.addEventListener('activate', function(e) {
 
 self.addEventListener('fetch', function(e) {
   if (e.request.method !== 'GET') return;
-  if (e.request.url.includes('supabase') || e.request.url.includes('/api/')) return;
+  if (e.request.url.includes('supabase') || e.request.url.includes('/api/') || e.request.url.includes('onrender.com')) return;
 
   // HTML: network-first so updates are always picked up
   var isHTML = e.request.headers.get('accept') && e.request.headers.get('accept').includes('text/html');

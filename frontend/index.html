@@ -4076,6 +4076,9 @@ function lsRemove(k) { try { localStorage.removeItem(k); } catch(e) { delete _st
 // Auth local — sin Supabase
 var _supabase = null;
 
+// URL base del servidor (producción en Render, vacío en local)
+var API_BASE = 'https://tattoo-os-pdbp.onrender.com';
+
 // Token JWT del usuario actual (para llamadas a la API del servidor)
 var _authToken = null;
 
@@ -4124,7 +4127,7 @@ function doLogin() {
   var errEl = document.getElementById('login-err');
   if (!email || !pass) { errEl.textContent = 'Rellena todos los campos'; errEl.classList.add('show'); return; }
   errEl.textContent = 'Entrando...'; errEl.style.color = 'var(--vl)'; errEl.classList.add('show');
-  fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email, password: pass }) })
+  fetch(API_BASE+'/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email, password: pass }) })
     .then(function(r) { return r.json(); })
     .then(function(result) {
       if (result.error) {
@@ -4154,7 +4157,7 @@ function doRegister() {
   if (pass.length < 8) { errEl.textContent = 'Contrasena minimo 8 caracteres'; errEl.classList.add('show'); return; }
   if (pass !== pass2) { errEl.textContent = 'Las contrasenas no coinciden'; errEl.classList.add('show'); return; }
   okEl.textContent = 'Creando cuenta...'; okEl.classList.add('show');
-  fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email, password: pass, name: name }) })
+  fetch(API_BASE+'/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email, password: pass, name: name }) })
     .then(function(r) { return r.json(); })
     .then(function(result) {
       if (result.error) {
@@ -4270,7 +4273,7 @@ function loginSuccess(user) {
   setTimeout(loadUserTickets, 1000);
   // Sincronizar perfil en el servidor para que el admin lo vea
   if (_authToken) {
-    fetch('/api/profile/sync', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},
+    fetch(API_BASE+'/api/profile/sync', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},
       body: JSON.stringify({ email: user.email, name: user.name }) }).catch(function(){});
   }
 }
@@ -4309,12 +4312,12 @@ function saveUserProfiles() {
   lsSet(key, JSON.stringify(profiles));
   // Sync to server so admin can access this user's data
   if (_authToken) {
-    fetch('/api/profile/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken }, body: JSON.stringify({ profiles: profiles }) }).catch(function() {});
+    fetch(API_BASE+'/api/profile/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken }, body: JSON.stringify({ profiles: profiles }) }).catch(function() {});
   }
 }
 
 function doLogout() {
-  if (_authToken) fetch('/api/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + _authToken } }).catch(function() {});
+  if (_authToken) fetch(API_BASE+'/api/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + _authToken } }).catch(function() {});
   localStorage.removeItem('tos_local_token');
   _authToken = null;
   clearSession();
@@ -4344,7 +4347,7 @@ function renderUserBadge() {
 function checkSession() {
   var token = localStorage.getItem('tos_local_token');
   if (!token) return;
-  fetch('/api/auth/me', { headers: { 'Authorization': 'Bearer ' + token } })
+  fetch(API_BASE+'/api/auth/me', { headers: { 'Authorization': 'Bearer ' + token } })
     .then(function(r) { return r.json(); })
     .then(function(result) {
       if (result.user) {
@@ -4562,7 +4565,7 @@ function sendWaMsg() {
   var num = cl.phone.replace(/[\s+\-()]/g, '');
   if (num.length === 9) num = '34' + num;
   // Enviar via API real del servidor Node.js
-  fetch('/api/wa/send', {
+  fetch(API_BASE+'/api/wa/send', {
     method: 'POST',
     headers: waHeaders(),
     body: JSON.stringify({numero: num, mensaje: text})
@@ -4668,8 +4671,8 @@ function checkWAStatus() {
     return;
   }
   // Start session if not started
-  fetch('/api/wa/start', { method: 'POST', headers: waHeaders() }).catch(function() {});
-  fetch('/api/wa/status', { headers: waHeaders() })
+  fetch(API_BASE+'/api/wa/start', { method: 'POST', headers: waHeaders() }).catch(function() {});
+  fetch(API_BASE+'/api/wa/status', { headers: waHeaders() })
     .then(function(r){ return r.json(); })
     .then(function(data){
       var dot = document.getElementById('wa-set-dot');
@@ -4684,7 +4687,7 @@ function checkWAStatus() {
       } else {
         dot.style.background = '#f59e0b';
         txt.textContent = 'No conectado - cargando QR...';
-        fetch('/api/wa/qr', { headers: waHeaders() })
+        fetch(API_BASE+'/api/wa/qr', { headers: waHeaders() })
           .then(function(r){ return r.json(); })
           .then(function(qd){
             if (qd.qr) {
@@ -4825,8 +4828,8 @@ async function adminRefresh() {
   pb.innerHTML = '<div style="text-align:center;padding:40px;color:var(--t3)">Cargando…</div>';
   try {
     var [uRes, tRes] = await Promise.all([
-      fetch('/api/admin/users',   { headers: adminHeaders() }).then(r=>r.json()),
-      fetch('/api/admin/tickets', { headers: adminHeaders() }).then(r=>r.json())
+      fetch(API_BASE+'/api/admin/users',   { headers: adminHeaders() }).then(r=>r.json()),
+      fetch(API_BASE+'/api/admin/tickets', { headers: adminHeaders() }).then(r=>r.json())
     ]);
     adminData.users   = Array.isArray(uRes) ? uRes : [];
     adminData.tickets = Array.isArray(tRes) ? tRes : [];
@@ -4945,7 +4948,7 @@ function renderAdminContent() {
 }
 
 async function adminUpdateTicket(id, data) {
-  await fetch('/api/admin/tickets/'+id, { method:'PATCH', headers: adminHeaders(), body: JSON.stringify(data) });
+  await fetch(API_BASE+'/api/admin/tickets/'+id, { method:'PATCH', headers: adminHeaders(), body: JSON.stringify(data) });
   adminRefresh();
 }
 
@@ -4977,7 +4980,7 @@ async function adminViewUserProfiles(userId, userName) {
 
   var panel = overlay.querySelector('div');
   try {
-    var data = await fetch('/api/admin/user-data/'+userId, { headers: adminHeaders() }).then(r=>r.json());
+    var data = await fetch(API_BASE+'/api/admin/user-data/'+userId, { headers: adminHeaders() }).then(r=>r.json());
     if (data.error) throw new Error(data.error);
     var profs = data.profiles || [];
     panel.innerHTML = `
@@ -5028,7 +5031,7 @@ async function adminViewUserProfiles(userId, userName) {
 async function adminLoadThread(ticketId) {
   var el = document.getElementById('adm-thread-'+ticketId);
   if (!el) return;
-  var msgs = await fetch('/api/tickets/'+ticketId+'/messages', { headers: adminHeaders() }).then(r=>r.json()).catch(()=>[]);
+  var msgs = await fetch(API_BASE+'/api/tickets/'+ticketId+'/messages', { headers: adminHeaders() }).then(r=>r.json()).catch(()=>[]);
   if (!msgs.length) { el.innerHTML = '<div style="font-size:10px;color:var(--t3);text-align:center">Sin mensajes aún</div>'; return; }
   el.innerHTML = msgs.map(m=>`
     <div style="display:flex;flex-direction:column;align-items:${m.sender==='admin'?'flex-end':'flex-start'}">
@@ -5067,7 +5070,7 @@ async function adminReply(ticketId) {
   if (!inp || !inp.value.trim()) return;
   var msg = inp.value.trim();
   inp.value = '';
-  await fetch('/api/tickets/'+ticketId+'/messages', {
+  await fetch(API_BASE+'/api/tickets/'+ticketId+'/messages', {
     method:'POST', headers: adminHeaders(),
     body: JSON.stringify({ message: msg, sender: 'admin', sender_name: 'Admin' })
   });
@@ -5101,7 +5104,7 @@ function openSupportTicket() {
 async function loadUserTickets() {
   var el = document.getElementById('user-tickets-list');
   if (!el || !_authToken) return;
-  var tickets = await fetch('/api/tickets/mine', { headers: adminHeaders() }).then(r=>r.json()).catch(()=>[]);
+  var tickets = await fetch(API_BASE+'/api/tickets/mine', { headers: adminHeaders() }).then(r=>r.json()).catch(()=>[]);
   if (!tickets.length) { el.innerHTML = ''; return; }
   el.innerHTML = '<div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);font-weight:700;margin-bottom:8px">Tus reportes</div>' +
     tickets.map(tk=>`
@@ -5119,9 +5122,9 @@ async function loadUserTickets() {
 
 async function openTicketThread(ticketId, title) {
   // Marcar como leído
-  fetch('/api/tickets/'+ticketId+'/read', { method:'PATCH', headers: adminHeaders() }).catch(()=>{});
+  fetch(API_BASE+'/api/tickets/'+ticketId+'/read', { method:'PATCH', headers: adminHeaders() }).catch(()=>{});
   // Cargar mensajes
-  var msgs = await fetch('/api/tickets/'+ticketId+'/messages', { headers: adminHeaders() }).then(r=>r.json()).catch(()=>[]);
+  var msgs = await fetch(API_BASE+'/api/tickets/'+ticketId+'/messages', { headers: adminHeaders() }).then(r=>r.json()).catch(()=>[]);
   var thread = msgs.map(m=>`
     <div style="display:flex;flex-direction:column;align-items:${m.sender==='admin'?'flex-start':'flex-end'}">
       <div style="max-width:85%;padding:9px 12px;border-radius:12px;font-size:12px;line-height:1.5;
@@ -5147,7 +5150,7 @@ async function openTicketThread(ticketId, title) {
 async function userReplyTicket(ticketId) {
   var inp = document.getElementById('tk-user-reply');
   if (!inp || !inp.value.trim()) return;
-  await fetch('/api/tickets/'+ticketId+'/messages', {
+  await fetch(API_BASE+'/api/tickets/'+ticketId+'/messages', {
     method:'POST', headers: adminHeaders(),
     body: JSON.stringify({ message: inp.value.trim(), sender: 'user', sender_name: currentUser.name })
   });
@@ -5162,7 +5165,7 @@ async function submitSupportTicket() {
   var prio  = document.getElementById('tk-priority').value;
   if (!title || !desc) { showToast('Rellena el título y la descripción'); return; }
   try {
-    await fetch('/api/tickets', { method:'POST', headers: adminHeaders(), body: JSON.stringify({
+    await fetch(API_BASE+'/api/tickets', { method:'POST', headers: adminHeaders(), body: JSON.stringify({
       title, description: desc, priority: prio,
       user_email: currentUser.email, user_name: currentUser.name
     })});
