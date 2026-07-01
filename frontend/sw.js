@@ -1,4 +1,4 @@
-const CACHE = 'tattoo-os-v8';
+const CACHE = 'tattoo-os-v9';
 const OFFLINE_URL = './index.html';
 
 self.addEventListener('install', function(e) {
