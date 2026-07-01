@@ -1,3 +1,6 @@
+// Allow self-signed certs (needed for Supabase pooler on Render)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -105,7 +108,7 @@ app.post('/api/auth/login', function(req, res) {
       authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin };
       res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
     })
-    .catch(function(e) { res.status(500).json({ error: 'DB: ' + e.message }); });
+    .catch(function(e) { res.status(500).json({ error: 'Error de base de datos' }); });
 });
 
 app.post('/api/auth/register', function(req, res) {
