@@ -1489,6 +1489,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
       <div style="display:flex;gap:2px;background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r2);padding:3px;width:fit-content;margin-bottom:18px">
         <button class="vt on" id="dtab-consents" onclick="setDocsTab('consents',this)">Consentimientos</button>
         <button class="vt" id="dtab-docs" onclick="setDocsTab('docs',this)">Historial</button>
+        <button class="vt" id="dtab-templates" onclick="setDocsTab('templates',this)">Plantillas</button>
       </div>
       <!-- CONSENTS VIEW -->
       <div id="docs-consents-view">
@@ -1503,6 +1504,15 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
           </select>
         </div>
         <div id="docs-list"></div>
+      </div>
+      <!-- DOC TEMPLATES VIEW -->
+      <div id="docs-templates-view" style="display:none">
+        <div style="display:flex;gap:16px;align-items:flex-start">
+          <div style="width:220px;flex-shrink:0;display:flex;flex-direction:column;gap:4px" id="tpl-type-list"></div>
+          <div style="flex:1;min-width:0;background:var(--surface);border:1px solid var(--bd2);border-radius:var(--r3);padding:20px" id="tpl-viewer">
+            <div style="text-align:center;padding:48px;color:var(--t3)">Selecciona un tipo de documento</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -2190,12 +2200,251 @@ function initDemoData(){
 }
 
 // -- CONVENIENCE VARS (refreshed on profile switch) --
-let appts,clients,expenses,projects,consents,docFiles,waMessages,waSettings;
+let appts,clients,expenses,projects,consents,docFiles,waMessages,waSettings,docTemplates;
 function refreshProfileData(){
   const p=ap();
   appts=p.appts; clients=p.clients; expenses=p.expenses;
   projects=p.projects; consents=p.consents; docFiles=p.docFiles;
   waMessages=p.waMessages; waSettings=p.waSettings||defaultWaSettings();
+  docTemplates=p.docTemplates||defaultDocTemplates();
+}
+
+// -- DOCUMENT TEMPLATES (tipos de documentos del estudio) --
+function defaultDocTemplates(){
+  return [
+    {id:'portada',name:'Portada',content:`{estudio}
+
+Ficha de tatuaje
+
+Cliente: {nombre_cliente}
+Fecha: {fecha}
+Artista: {artista}
+Tatuaje: {tatuaje}`},
+    {id:'ficha_cliente',name:'Ficha de cliente',content:`FICHA DE CLIENTE
+
+Nombre completo: {nombre_cliente}
+Teléfono: {telefono}
+Fecha de nacimiento: _____________
+DNI/NIE: _____________
+Dirección: _____________
+Email: _____________
+
+Fecha de la sesión: {fecha}
+Artista: {artista}
+Descripción del tatuaje: {tatuaje}
+Zona del cuerpo: _____________
+Precio: {precio} € · Señal: {senal} €`},
+    {id:'declaracion_salud',name:'Declaración de salud',content:`DECLARACIÓN DE SALUD
+
+Cliente: {nombre_cliente}                Fecha: {fecha}
+
+Por favor, marca SÍ o NO en cada punto:
+
+¿Padeces alguna enfermedad de la piel? SÍ / NO
+¿Eres hemofílico/a o tienes problemas de coagulación? SÍ / NO
+¿Padeces diabetes? SÍ / NO
+¿Padeces epilepsia? SÍ / NO
+¿Tienes alguna alergia conocida (látex, tintas, anestésicos)? SÍ / NO
+¿Estás en tratamiento con anticoagulantes? SÍ / NO
+¿Estás embarazada o en periodo de lactancia? SÍ / NO
+¿Has consumido alcohol o drogas en las últimas 24h? SÍ / NO
+¿Padeces alguna enfermedad infecciosa (VIH, hepatitis...)? SÍ / NO
+
+Observaciones adicionales:
+_____________________________________________
+
+Declaro que la información anterior es veraz y asumo la responsabilidad de cualquier
+omisión u ocultación de datos relevantes para el procedimiento.
+
+Firma del cliente: _____________________`},
+    {id:'consentimiento_informado',name:'Consentimiento informado',content:`CONSENTIMIENTO INFORMADO PARA LA REALIZACIÓN DE TATUAJE
+
+Cliente: {nombre_cliente}                Fecha: {fecha}
+Artista: {artista}                Estudio: {estudio}
+Descripción del tatuaje: {tatuaje}
+
+1. INFORMACIÓN GENERAL
+El tatuaje es un procedimiento que introduce pigmento de forma permanente en la
+dermis mediante microperforaciones con agujas estériles de un solo uso. Es un
+procedimiento invasivo que conlleva riesgos inherentes que el cliente debe conocer
+y aceptar antes de proceder.
+
+2. RIESGOS Y COMPLICACIONES
+El cliente reconoce haber sido informado de que el procedimiento puede conllevar:
+dolor, sangrado leve, inflamación, enrojecimiento, formación de costra, infección
+si no se siguen los cuidados indicados, reacciones alérgicas al pigmento, cicatrización
+anómala (queloides o hipertrófica) y variación del resultado final respecto al boceto
+en función del tipo de piel.
+
+3. CUIDADOS POSTERIORES
+El cliente se compromete a seguir las indicaciones de cuidados posteriores
+entregadas por el artista, sabiendo que su incumplimiento puede afectar al
+resultado final y aumentar el riesgo de complicaciones.
+
+4. DECLARACIÓN
+Declaro ser mayor de edad (o contar con autorización de mi tutor/a legal), no
+encontrarme bajo los efectos del alcohol o drogas, no padecer ninguna condición
+médica no declarada en la Declaración de Salud adjunta, y haber recibido toda la
+información necesaria para tomar esta decisión de forma libre y voluntaria.
+
+Autorizo a {artista} a realizarme el tatuaje descrito, asumiendo los riesgos
+inherentes al procedimiento.
+
+Firma del cliente: _____________________     Fecha: {fecha}
+Firma del artista: _____________________`},
+    {id:'rgpd',name:'RGPD',content:`INFORMACIÓN SOBRE PROTECCIÓN DE DATOS (RGPD)
+
+En cumplimiento del Reglamento (UE) 2016/679 (RGPD) y la LOPDGDD, se informa a
+{nombre_cliente} de lo siguiente:
+
+Responsable del tratamiento: {estudio}
+Finalidad: gestión de la relación cliente-estudio, historial de sesiones,
+seguimiento de cuidados posteriores y cumplimiento de obligaciones legales
+(sanitarias y fiscales).
+Legitimación: consentimiento del interesado y ejecución de la relación contractual.
+Conservación: mientras se mantenga la relación y durante los plazos legalmente
+exigidos.
+Destinatarios: no se cederán datos a terceros salvo obligación legal.
+Derechos: acceso, rectificación, supresión, oposición, limitación y portabilidad,
+que puede ejercer contactando con el estudio.
+
+Fecha: {fecha}
+
+He sido informado/a y presto mi consentimiento para el tratamiento de mis datos
+conforme a lo anterior.
+
+Firma del cliente: _____________________`},
+    {id:'autorizacion_imagenes',name:'Autorización de imágenes',content:`AUTORIZACIÓN PARA EL USO DE IMÁGENES
+
+Cliente: {nombre_cliente}                Fecha: {fecha}
+Tatuaje: {tatuaje}
+
+Autorizo / No autorizo (marcar lo que corresponda) a {estudio} a fotografiar el
+tatuaje realizado y a utilizar dichas imágenes con fines promocionales en redes
+sociales, portfolio y material publicitario del estudio, sin contraprestación
+económica alguna, respetando en todo momento la posibilidad de ocultar el rostro
+u otras zonas identificativas si así se solicita.
+
+Esta autorización podrá ser revocada en cualquier momento mediante solicitud
+por escrito al estudio.
+
+Firma del cliente: _____________________`},
+    {id:'consentimiento_menores',name:'Consentimiento para menores',content:`CONSENTIMIENTO PARA MENORES DE EDAD
+
+Menor: {nombre_cliente}                Fecha de nacimiento: _____________
+Tatuaje: {tatuaje}                Fecha de la sesión: {fecha}
+
+Datos del padre/madre/tutor legal:
+Nombre completo: _____________________
+DNI/NIE: _____________
+Teléfono: _____________
+Parentesco: _____________
+
+Yo, el/la abajo firmante, en calidad de padre/madre/tutor legal del menor arriba
+indicado, autorizo expresamente la realización del tatuaje descrito por parte de
+{artista} en {estudio}, habiendo sido informado/a de los riesgos del
+procedimiento y aceptando el Consentimiento Informado y la Declaración de Salud
+correspondientes.
+
+Se adjunta copia del documento de identidad del tutor legal.
+
+Firma del tutor/a legal: _____________________`},
+    {id:'cuidados_posteriores',name:'Hoja de cuidados posteriores',content:`CUIDADOS POSTERIORES AL TATUAJE
+
+Cliente: {nombre_cliente}                Tatuaje: {tatuaje}
+Fecha de la sesión: {fecha}
+
+Primeras 24 horas:
+- Mantén el apósito puesto entre 2 y 4 horas.
+- Lava la zona con agua tibia y jabón neutro, sin frotar.
+- Sécalo con una toalla limpia dando toques suaves, nunca frotando.
+
+Durante las 2-3 semanas siguientes:
+- Aplica una fina capa de crema cicatrizante 2-3 veces al día.
+- No rasques ni arranques las costras o pieles que se levanten.
+- Evita el sol directo, la piscina, el mar, la sauna y el gimnasio con roce excesivo.
+- Usa ropa holgada que no roce la zona tatuada.
+- No apliques maquillaje, perfume ni otros productos sobre el tatuaje.
+
+Señales de alarma (contacta con el estudio o un médico si aparecen):
+Fiebre, hinchazón excesiva, pus, mal olor, dolor creciente pasados varios días.
+
+Ante cualquier duda, contacta con {artista} en {estudio}.`},
+    {id:'registro_procedimiento',name:'Registro interno del procedimiento',content:`REGISTRO INTERNO DEL PROCEDIMIENTO
+
+Cliente: {nombre_cliente}                Fecha: {fecha}
+Artista: {artista}
+Tatuaje: {tatuaje}                Precio: {precio} €    Señal: {senal} €
+
+Zona del cuerpo: _____________
+Tamaño aproximado: _____________
+Nº de sesión: _____________          Duración: _____________
+
+Materiales utilizados:
+Agujas (referencia/lote): _____________
+Tintas utilizadas (ver Registro de lotes de tintas): _____________
+Guantes/material de un solo uso: SÍ / NO
+
+Incidencias durante la sesión:
+_____________________________________________
+
+Observaciones:
+_____________________________________________`},
+    {id:'registro_lotes_tintas',name:'Registro de lotes de tintas',content:`REGISTRO DE LOTES DE TINTAS
+
+Estudio: {estudio}                Fecha: {fecha}
+Cliente asociado: {nombre_cliente}                Artista: {artista}
+
+Marca de la tinta: _____________
+Color: _____________
+Número de lote: _____________
+Fecha de caducidad: _____________
+Fecha de apertura del envase: _____________
+
+Cantidad utilizada aproximada: _____________
+Sellado correcto en apertura: SÍ / NO
+
+Observaciones:
+_____________________________________________`},
+    {id:'registro_incidencias',name:'Registro de incidencias',content:`REGISTRO DE INCIDENCIAS
+
+Estudio: {estudio}                Fecha: {fecha}
+Cliente: {nombre_cliente}                Artista: {artista}
+
+Tipo de incidencia (marcar):
+Reacción alérgica / Infección / Sangrado excesivo / Desmayo / Otro: _____________
+
+Descripción de la incidencia:
+_____________________________________________
+_____________________________________________
+
+Medidas adoptadas:
+_____________________________________________
+
+¿Se derivó a atención médica? SÍ / NO
+Nombre de quien atendió la incidencia: _____________
+
+Firma: _____________________`},
+  ];
+}
+function docTplVars(cl,appt,profile){
+  const nextAppt=appts.filter(a=>a.name===(cl?cl.name:'')&&new Date(a.date)>=new Date()).sort((a,b)=>new Date(a.date)-new Date(b.date))[0];
+  const a=appt||nextAppt;
+  return {
+    nombre_cliente: cl?cl.name:'_____________',
+    telefono: cl&&cl.phone?cl.phone:'_____________',
+    fecha: new Date().toLocaleDateString('es-ES'),
+    tatuaje: a?a.type:'_____________',
+    precio: a?a.price:'0',
+    senal: a?a.deposit:'0',
+    artista: (profile||ap()).name||'_____________',
+    estudio: (profile||ap()).name||'Tattoo Studio',
+  };
+}
+function applyDocVars(text,vars){
+  let out=text;
+  Object.entries(vars).forEach(([k,v])=>{ out=out.split('{'+k+'}').join(v); });
+  return out;
 }
 
 const monthlyData=[
@@ -3668,7 +3917,9 @@ function setDocsTab(tab, el) {
   if (el) el.classList.add('on');
   document.getElementById('docs-consents-view').style.display = tab === 'consents' ? '' : 'none';
   document.getElementById('docs-history-view').style.display = tab === 'docs' ? '' : 'none';
+  document.getElementById('docs-templates-view').style.display = tab === 'templates' ? '' : 'none';
   if (tab === 'docs') renderDocHistory();
+  if (tab === 'templates') renderDocTemplatesTab();
 }
 
 function renderDocs() {
@@ -3768,6 +4019,118 @@ function downloadDoc(id) {
   if (!d || !d.url) return;
   const a = document.createElement('a');
   a.href = d.url; a.download = d.name; a.click();
+}
+
+// -- DOCUMENT TEMPLATES TAB --
+let activeTplId = null;
+let tplEditMode = false;
+let tplClientId = null;
+
+function canEditDocTemplates() {
+  // Hoy toda cuenta tiene un único usuario (el "dueño"); cuando existan roles de
+  // empleado/dueño, esta función debe comprobar el rol real en vez de devolver true.
+  return true;
+}
+
+function renderDocTemplatesTab() {
+  const list = document.getElementById('tpl-type-list');
+  if (!list) return;
+  if (!activeTplId && docTemplates.length) activeTplId = docTemplates[0].id;
+  list.innerHTML = docTemplates.map(tp => `
+    <div class="ni${tp.id===activeTplId?' on':''}" style="cursor:pointer" onclick="selectDocTemplate('${tp.id}')">
+      <span>${tp.name}</span>
+    </div>`).join('');
+  renderDocTemplateViewer();
+}
+
+function selectDocTemplate(id) {
+  activeTplId = id;
+  tplEditMode = false;
+  renderDocTemplatesTab();
+}
+
+function currentDocTemplate() {
+  return docTemplates.find(t => t.id === activeTplId);
+}
+
+function renderDocTemplateViewer() {
+  const viewer = document.getElementById('tpl-viewer');
+  if (!viewer) return;
+  const tpl = currentDocTemplate();
+  if (!tpl) { viewer.innerHTML = `<div style="text-align:center;padding:48px;color:var(--t3)">Selecciona un tipo de documento</div>`; return; }
+
+  const typeOpts = docTemplates.map(t => `<option value="${t.id}" ${t.id===tpl.id?'selected':''}>${t.name}</option>`).join('');
+  const clientOpts = ['<option value="">Sin cliente (variables en blanco)</option>']
+    .concat(clients.map(c => `<option value="${c.id}" ${String(c.id)===String(tplClientId)?'selected':''}>${c.name}</option>`)).join('');
+
+  let bodyHtml;
+  if (tplEditMode) {
+    bodyHtml = `<textarea id="tpl-edit-area" style="width:100%;min-height:420px;background:var(--elevated);border:1px solid var(--bd3);border-radius:var(--r2);color:var(--t1);font-family:'DM Sans',monospace;font-size:12.5px;line-height:1.7;padding:14px;resize:vertical">${tpl.content}</textarea>
+      <div class="vars-hint" style="margin-top:8px">Variables: <code>{nombre_cliente}</code> <code>{telefono}</code> <code>{fecha}</code> <code>{tatuaje}</code> <code>{precio}</code> <code>{senal}</code> <code>{artista}</code> <code>{estudio}</code></div>`;
+  } else {
+    const cl = tplClientId ? clients.find(c => String(c.id) === String(tplClientId)) : null;
+    const vars = docTplVars(cl);
+    const rendered = applyDocVars(tpl.content, vars);
+    bodyHtml = `<div id="tpl-print-content" style="white-space:pre-wrap;font-size:12.5px;line-height:1.8;color:var(--t1);min-height:420px">${rendered.replace(/</g,'&lt;')}</div>`;
+  }
+
+  viewer.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <select class="fi" style="width:auto;min-width:220px" onchange="selectDocTemplate(this.value)">${typeOpts}</select>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${!tplEditMode ? `<select class="fi" style="width:auto" onchange="setTplClient(this.value)">${clientOpts}</select>` : ''}
+        ${canEditDocTemplates() ? (tplEditMode
+          ? `<button class="addbtn" style="background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none" onclick="cancelEditDocTemplate()">Cancelar</button>
+             <button class="addbtn" onclick="saveDocTemplate()">Guardar</button>`
+          : `<button class="addbtn" style="background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none" onclick="toggleEditDocTemplate()">Editar</button>`) : ''}
+        ${!tplEditMode ? `<button class="addbtn" onclick="printDocTemplate()">Imprimir</button>` : ''}
+      </div>
+    </div>
+    <div class="mt" style="margin-bottom:14px">${tpl.name}</div>
+    ${bodyHtml}
+  `;
+}
+
+function setTplClient(id) {
+  tplClientId = id || null;
+  renderDocTemplateViewer();
+}
+
+function toggleEditDocTemplate() {
+  tplEditMode = true;
+  renderDocTemplateViewer();
+}
+
+function cancelEditDocTemplate() {
+  tplEditMode = false;
+  renderDocTemplateViewer();
+}
+
+function saveDocTemplate() {
+  const ta = document.getElementById('tpl-edit-area');
+  if (!ta) return;
+  const tpl = currentDocTemplate();
+  if (!tpl) return;
+  tpl.content = ta.value;
+  ap().docTemplates = docTemplates;
+  tplEditMode = false;
+  renderDocTemplateViewer();
+  showToast('Plantilla guardada');
+}
+
+function printDocTemplate() {
+  const tpl = currentDocTemplate();
+  if (!tpl) return;
+  const cl = tplClientId ? clients.find(c => String(c.id) === String(tplClientId)) : null;
+  const vars = docTplVars(cl);
+  const rendered = applyDocVars(tpl.content, vars).replace(/</g,'&lt;');
+  const w = window.open('', '_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${tpl.name}</title>
+    <style>body{font-family:'DM Sans',Arial,sans-serif;font-size:13px;line-height:1.8;white-space:pre-wrap;padding:40px;color:#111}h1{font-size:16px;margin-bottom:20px}</style>
+    </head><body><h1>${tpl.name}</h1>${rendered}</body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => { w.print(); }, 250);
 }
 
 function openDocsUpload() {
