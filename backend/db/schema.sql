@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS profiles (
 );
 
 CREATE TABLE IF NOT EXISTS appointments (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          TEXT PRIMARY KEY,
   profile_id  INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS appointments (
 );
 
 CREATE TABLE IF NOT EXISTS clients (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          TEXT PRIMARY KEY,
   profile_id  INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
@@ -92,6 +92,22 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
   message     TEXT NOT NULL,
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS wa_followups (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  appointment_id TEXT NOT NULL,
+  user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_name    TEXT NOT NULL,
+  phone          TEXT NOT NULL,
+  kind           TEXT NOT NULL,
+  message        TEXT NOT NULL,
+  scheduled_at   TIMESTAMPTZ NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'pending',
+  sent_at        TIMESTAMPTZ,
+  error          TEXT,
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_followup_unique ON wa_followups(appointment_id, kind);
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_profiles_user      ON profiles(user_id);

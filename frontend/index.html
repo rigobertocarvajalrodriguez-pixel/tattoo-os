@@ -4437,33 +4437,36 @@ Aquí van algunos consejos para el cuidado:
       },
       {
         id: 'followup_48h',
-        name: 'Seguimiento 48h',
-        desc: 'Pregunta por la curación a las 48 horas',
-        trigger: 'after_appt',
-        delay: 48,
-        delayUnit: 'hours',
+        name: 'Seguimiento día 1',
+        desc: 'Pregunta qué tal fue la cita y manda los cuidados de curación',
+        trigger: 'after_completed',
+        delay: 1,
+        delayUnit: 'days',
         enabled: true,
-        template: `Hola {nombre}! 
+        template: `Hola {nombre}! ¿Qué tal fue todo en la sesión de tu "{tattoo}"?
 
-Han pasado 2 días desde tu sesión de "{tattoo}". ¿Cómo va la curación?
+Te dejo los cuidados para la curación:
+- Lava la zona con agua y jabón neutro 2 veces al día
+- Aplica una crema cicatrizante fina, sin tapar en exceso
+- No rasques ni arranques las pieles que se levanten
+- Evita el sol directo, la piscina, el mar y la sauna las próximas 2-3 semanas
+- Usa ropa holgada que no roce la zona
 
-¿Ves algo raro o tienes alguna duda? Si puedes mándame una foto para ver cómo está quedando 
-
-Recuerda seguir con los cuidados. ¡Estoy aquí para lo que necesites! `
+¡Cualquier duda me escribes!`
       },
       {
         id: 'followup_week',
-        name: 'Seguimiento semanal',
-        desc: 'Seguimiento a la semana de la sesión',
-        trigger: 'after_appt',
-        delay: 7,
+        name: 'Seguimiento día 3',
+        desc: 'Pregunta cómo va la curación y pide una foto',
+        trigger: 'after_completed',
+        delay: 3,
         delayUnit: 'days',
         enabled: true,
-        template: `Hola {nombre}! ¿Qué tal la semana? 
+        template: `Hola {nombre}! ¿Cómo va la curación de tu "{tattoo}"?
 
-¿Cómo va tu "{tattoo}"? Ya debería estar casi curado. ¿Me mandas una foto para ver el resultado final? 
+Si puedes, mándame una foto para ver cómo va el proceso y así confirmamos que todo evoluciona bien.
 
-Si necesitas retoques o tienes cualquier duda, ¡escríbeme sin problema! Nos vemos pronto `
+¡Gracias!`
       },
       {
         id: 'project_session',
@@ -4773,6 +4776,11 @@ function renderWaSettings(container) {
       </div>
     </div>
     <div class="set-section">
+      <div class="set-section-t">Seguimientos de curación</div>
+      <div class="set-section-s">Se programan solos al marcar una cita como completada (día 1 y día 3)</div>
+      <div id="wa-followups-list" style="font-size:11px;color:var(--t3)">Cargando...</div>
+    </div>
+    <div class="set-section">
       <div class="set-section-t">Automatizacion WhatsApp</div>
       <div class="set-section-s">Configura mensajes automáticos para tus clientes</div>
       <div class="set-row">
@@ -4815,6 +4823,28 @@ function renderWaSettings(container) {
         </div>`).join('')}
       <button class="addbtn" style="margin-top:4px;background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none" onclick="addTemplate()">+ Nueva plantilla</button>
     </div>`;
+  loadWaFollowups();
+}
+
+function loadWaFollowups() {
+  var el = document.getElementById('wa-followups-list');
+  if (!el || !_authToken) return;
+  fetch(API_BASE+'/api/wa/followups', { headers: waHeaders() })
+    .then(function(r){ return r.json(); })
+    .then(function(rows){
+      if (!el.isConnected) return;
+      if (!rows || !rows.length) { el.textContent = 'Aún no hay seguimientos programados.'; return; }
+      var labels = { day1: 'Día 1', day3: 'Día 3' };
+      var statusLabels = { pending: 'Pendiente', sent: 'Enviado', failed: 'Fallido' };
+      el.innerHTML = rows.slice(0, 20).map(function(f){
+        var when = new Date(f.sent_at || f.scheduled_at).toLocaleString('es-ES', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+        var color = f.status === 'sent' ? 'var(--gr)' : f.status === 'failed' ? '#f66' : 'var(--t3)';
+        return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)">' +
+          '<span>' + f.client_name + ' &middot; ' + (labels[f.kind]||f.kind) + '</span>' +
+          '<span style="color:' + color + '">' + (statusLabels[f.status]||f.status) + ' &middot; ' + when + '</span></div>';
+      }).join('');
+    })
+    .catch(function(){ el.textContent = 'No se pudo cargar (servidor no disponible).'; });
 }
 
 function toggleAutoEnabled(i) {

@@ -36,6 +36,26 @@ db.connect()
   .then(function() { console.log('[DB] PostgreSQL conectado'); })
   .catch(function(e) { console.error('[DB] Error conexión PostgreSQL:', e.message); });
 
+// Seguimiento de curación por WhatsApp: cola de mensajes programados (día 1 / día 3 tras completar cita)
+db.query(`
+  CREATE TABLE IF NOT EXISTS wa_followups (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    appointment_id TEXT NOT NULL,
+    user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_name    TEXT NOT NULL,
+    phone          TEXT NOT NULL,
+    kind           TEXT NOT NULL,
+    message        TEXT NOT NULL,
+    scheduled_at   TIMESTAMPTZ NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'pending',
+    sent_at        TIMESTAMPTZ,
+    error          TEXT,
+    created_at     TIMESTAMPTZ DEFAULT NOW()
+  )
+`).then(function() {
+  return db.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_followup_unique ON wa_followups(appointment_id, kind)');
+}).catch(function(e) { console.error('[DB] Error creando wa_followups:', e.message); });
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -62,7 +82,7 @@ app.get('/icon-:size.png', function(req, res) {
 // Sessions store: { userId: { client, qr, ready, state } }
 const waSessions = {};
 
-const SESSION_BASE = process.env.NODE_ENV === 'production' ? '/tmp/wa_sessions' : path.join(__dirname, 'data', 'wa_sessions');
+const SESSION_BASE = process.env.NODE_ENV === 'production' ? '/data/wa_sessions' : path.join(__dirname, 'data', 'wa_sessions');
 if (!fs.existsSync(SESSION_BASE)) fs.mkdirSync(SESSION_BASE, { recursive: true });
 
 // ══════════════════════════════════════════
@@ -485,6 +505,101 @@ app.post('/api/tickets', authMiddleware, function(req, res) {
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
+// ══════════════════════════════════════════
+// SEGUIMIENTO DE CURACIÓN POR WHATSAPP (día 1 / día 3 tras completar la cita)
+// ══════════════════════════════════════════
+var DEFAULT_FOLLOWUP_TEMPLATES = {
+  day1: 'Hola {nombre}! ¿Qué tal fue todo en la sesión de tu "{tattoo}"? \n\nTe dejo los cuidados para la curación:\n- Lava la zona con agua y jabón neutro 2 veces al día\n- Aplica una crema cicatrizante fina, sin tapar en exceso\n- No rasques ni arranques las pieles que se levanten\n- Evita el sol directo, la piscina, el mar y la sauna las próximas 2-3 semanas\n- Usa ropa holgada que no roce la zona\n\n¡Cualquier duda me escribes!',
+  day3: 'Hola {nombre}! ¿Cómo va la curación de tu "{tattoo}"? \n\nSi puedes, mándame una foto para ver cómo va el proceso y así confirmamos que todo evoluciona bien.\n\n¡Gracias!'
+};
+
+function followupFirstName(name) {
+  return (name || '').trim().split(' ')[0] || '';
+}
+
+function renderFollowupTemplate(tpl, vars) {
+  return String(tpl || '')
+    .replace(/{nombre}/g, vars.nombre || '')
+    .replace(/{tattoo}/g, vars.tattoo || 'tatuaje')
+    .replace(/{fecha}/g, vars.fecha || '')
+    .replace(/{precio}/g, vars.precio || '0')
+    .replace(/{senal}/g, vars.senal || '0');
+}
+
+function followupDate(dateStr, daysAhead, hour) {
+  var d = new Date(dateStr + 'T' + (hour || 11) + ':00:00');
+  if (isNaN(d.getTime())) d = new Date();
+  d.setDate(d.getDate() + daysAhead);
+  return d;
+}
+
+// Called when an appointment transitions to status='completed': schedules the day1/day3 messages
+function scheduleAftercareFollowups(userId, apptId, a, profile) {
+  var clientsList = profile.clients || [];
+  var client = clientsList.find(function(c) { return c.name === a.name; });
+  var phone = client && client.phone ? String(client.phone).trim() : '';
+  if (!phone) return Promise.resolve();
+
+  var ws = profile.waSettings || {};
+  if (ws.enabled === false) return Promise.resolve();
+  var autos = ws.automations || [];
+  var day1Auto = autos.find(function(x) { return x.id === 'followup_48h'; });
+  var day3Auto = autos.find(function(x) { return x.id === 'followup_week'; });
+
+  var vars = {
+    nombre: followupFirstName(a.name),
+    tattoo: a.workType || a.type || a.notes || a.note || 'tatuaje',
+    fecha: a.date || '',
+    precio: a.price || 0,
+    senal: a.deposit || 0
+  };
+
+  var jobs = [];
+  if (!day1Auto || day1Auto.enabled !== false) {
+    var msg1 = renderFollowupTemplate(day1Auto ? day1Auto.template : DEFAULT_FOLLOWUP_TEMPLATES.day1, vars);
+    jobs.push(db.query(
+      'INSERT INTO wa_followups (appointment_id,user_id,client_name,phone,kind,message,scheduled_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (appointment_id,kind) DO NOTHING',
+      [apptId, userId, a.name || '', phone, 'day1', msg1, followupDate(a.date, 1, 11)]
+    ));
+  }
+  if (!day3Auto || day3Auto.enabled !== false) {
+    var msg3 = renderFollowupTemplate(day3Auto ? day3Auto.template : DEFAULT_FOLLOWUP_TEMPLATES.day3, vars);
+    jobs.push(db.query(
+      'INSERT INTO wa_followups (appointment_id,user_id,client_name,phone,kind,message,scheduled_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (appointment_id,kind) DO NOTHING',
+      [apptId, userId, a.name || '', phone, 'day3', msg3, followupDate(a.date, 3, 11)]
+    ));
+  }
+  return Promise.all(jobs).catch(function() {});
+}
+
+// Background worker: envía los seguimientos programados que ya tocan, cuando WhatsApp está conectado
+setInterval(function() {
+  db.query("SELECT * FROM wa_followups WHERE status='pending' AND scheduled_at <= NOW() ORDER BY scheduled_at ASC LIMIT 20")
+    .then(function(r) {
+      r.rows.forEach(function(f) {
+        var session = waSessions[f.user_id];
+        if (!session || !session.ready) return; // se reintenta en el siguiente ciclo
+        var num = f.phone.replace(/[\s+\-()]/g, '');
+        if (num.length === 9) num = '34' + num;
+        session.client.sendMessage(num + '@c.us', f.message)
+          .then(function() {
+            return db.query("UPDATE wa_followups SET status='sent', sent_at=NOW() WHERE id=$1", [f.id]);
+          })
+          .catch(function(e) {
+            db.query("UPDATE wa_followups SET status='failed', error=$1 WHERE id=$2", [e.message, f.id]).catch(function() {});
+          });
+      });
+    })
+    .catch(function() {});
+}, 5 * 60 * 1000);
+
+// Consulta de seguimientos programados/enviados (para mostrar en Ajustes > WhatsApp)
+app.get('/api/wa/followups', authMiddleware, function(req, res) {
+  db.query('SELECT id,client_name,kind,status,scheduled_at,sent_at FROM wa_followups WHERE user_id=$1 ORDER BY scheduled_at DESC LIMIT 100', [req.userId])
+    .then(function(r) { res.json(r.rows); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
 // Profile sync: save full profile data to PostgreSQL
 app.post('/api/profile/sync', authMiddleware, function(req, res) {
   var userId = req.userId;
@@ -497,15 +612,24 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
       [p.id, userId, p.name||'', p.role||'', p.color||'v']
     ).then(function() {
       var apptOps = (p.appts||[]).map(function(a) {
-        return db.query(
-          'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13',
-          [a.id||crypto.randomUUID(), p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||'', a.notes||'']
-        ).catch(function(){});
+        var apptId = a.id !== undefined && a.id !== null ? String(a.id) : crypto.randomUUID();
+        return db.query('SELECT status FROM appointments WHERE id=$1', [apptId]).then(function(prev) {
+          var oldStatus = prev.rows.length ? prev.rows[0].status : null;
+          return db.query(
+            'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13',
+            [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'']
+          ).then(function() {
+            if (oldStatus !== 'completed' && a.status === 'completed') {
+              return scheduleAftercareFollowups(userId, apptId, a, p);
+            }
+          });
+        }).catch(function(){});
       });
       var clientOps = (p.clients||[]).map(function(c) {
+        var clientId = c.id !== undefined && c.id !== null ? String(c.id) : crypto.randomUUID();
         return db.query(
           'INSERT INTO clients (id,profile_id,user_id,name,phone,email,instagram,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET name=$4,phone=$5,email=$6,instagram=$7,notes=$8',
-          [c.id||crypto.randomUUID(), p.id, userId, c.name||'', c.phone||'', c.email||'', c.instagram||'', c.notes||'']
+          [clientId, p.id, userId, c.name||'', c.phone||'', c.email||'', c.instagram||'', c.notes||'']
         ).catch(function(){});
       });
       return Promise.all(apptOps.concat(clientOps));
