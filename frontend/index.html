@@ -4871,14 +4871,23 @@ function ezFrame(t) {
   } else { st.pinEl.style.display = 'none'; }
 }
 
-function ezPlay(lat, lon, label, onDone) {
-  if (typeof lat !== 'number' || typeof lon !== 'number') { if (onDone) onDone(); return; }
+function ezWarm(lat, lon) {
+  // Builds the DOM/tile layers ahead of time so the later display toggle is
+  // a cheap style change with no synchronous construction work — avoids a
+  // frame where the transition hitches and the page underneath peeks through.
+  if (typeof lat !== 'number' || typeof lon !== 'number') return;
   const st = ezBuildDOM();
   if (st.lastLat !== lat || st.lastLon !== lon) {
     ezBuildLevels(lat, lon);
     ezPreloadTiles(lat, lon);
     st.lastLat = lat; st.lastLon = lon;
   }
+}
+
+function ezPlay(lat, lon, label, onDone) {
+  if (typeof lat !== 'number' || typeof lon !== 'number') { if (onDone) onDone(); return; }
+  ezWarm(lat, lon);
+  const st = ezState;
   st.pinLabelEl.textContent = label || 'Mi Estudio';
   st.overlay.style.display = 'flex';
   st.overlay.style.opacity = '1';
@@ -4944,6 +4953,7 @@ async function saveStudioSettings() {
 function previewEarthZoom() {
   const p = ap();
   if (typeof p.studioLat !== 'number') return;
+  ezWarm(p.studioLat, p.studioLon);
   playTosSplash(function(){
     ezPlay(p.studioLat, p.studioLon, p.studioName || p.name, function(){});
   });
@@ -5011,6 +5021,7 @@ function loginSuccess(user) {
   try {
     var _ezProf = ap();
     if (_ezProf && typeof _ezProf.studioLat === 'number' && typeof _ezProf.studioLon === 'number') {
+      ezWarm(_ezProf.studioLat, _ezProf.studioLon);
       playTosSplash(function(){
         ezPlay(_ezProf.studioLat, _ezProf.studioLon, _ezProf.studioName || _ezProf.name, function(){});
       });
