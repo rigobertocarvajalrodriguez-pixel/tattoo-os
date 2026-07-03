@@ -1447,14 +1447,17 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
       </div>
       <!-- LIQUIDACIONES VIEW -->
       <div id="fin-settlements-view" style="display:none">
-        <div class="set-section-s" style="margin-bottom:14px">Vista previa local de la comisión por artista. La liquidación definitiva (con estado pendiente/pagado) se generará contra el servidor en la próxima fase.</div>
+        <div class="set-section-s" style="margin-bottom:14px">Calcula la comisión de un artista en un periodo y genera la liquidación (calculada y guardada en el servidor).</div>
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:18px">
-          <div class="fg" style="margin:0"><label class="fl">Artista</label><select class="fi" id="settle-artist"></select></div>
+          <div class="fg" style="margin:0"><label class="fl">Artista</label><select class="fi" id="settle-artist" onchange="loadSettlementsList()"></select></div>
           <div class="fg" style="margin:0"><label class="fl">Desde</label><input class="fi" type="date" id="settle-from"></div>
           <div class="fg" style="margin:0"><label class="fl">Hasta</label><input class="fi" type="date" id="settle-to"></div>
-          <button class="bprim" style="width:auto;padding:9px 20px" onclick="previewSettlement()">Calcular vista previa</button>
+          <button class="bsec" style="width:auto;padding:9px 20px" onclick="previewSettlement()">Vista previa</button>
+          <button class="bprim" style="width:auto;padding:9px 20px" onclick="generateSettlement()">Generar liquidación</button>
         </div>
         <div id="settle-result"></div>
+        <div class="set-section-t" style="margin-top:24px">Liquidaciones de este artista</div>
+        <div id="settle-list" style="margin-top:10px"></div>
       </div>
     </div>
   </div>
@@ -3150,6 +3153,48 @@ function renderSettlementsTab(){
     toEl.value=dateStr(TODAY);
   }
   document.getElementById('settle-result').innerHTML='';
+  loadSettlementsList();
+}
+async function generateSettlement(){
+  const artistId=parseInt(document.getElementById('settle-artist').value,10);
+  const periodStart=document.getElementById('settle-from').value, periodEnd=document.getElementById('settle-to').value;
+  try{
+    const res=await fetch(API_BASE+'/api/finance/settlements',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},body:JSON.stringify({artistId,periodStart,periodEnd})});
+    const data=await res.json();
+    if(!res.ok){showToast(data.error||'Error al generar la liquidación');return}
+    showToast('Liquidación generada');
+    loadSettlementsList();
+  }catch(e){showToast('Error de conexión')}
+}
+async function loadSettlementsList(){
+  const artistId=document.getElementById('settle-artist').value;
+  const listEl=document.getElementById('settle-list');
+  if(!artistId){listEl.innerHTML='';return}
+  listEl.innerHTML='<div style="color:var(--t3);font-size:12px">Cargando...</div>';
+  try{
+    const res=await fetch(API_BASE+'/api/finance/settlements?artistId='+artistId,{headers:{'Authorization':'Bearer '+_authToken}});
+    const rows=await res.json();
+    if(!res.ok || !Array.isArray(rows)){listEl.innerHTML='<div style="color:var(--t3);font-size:12px">No se pudieron cargar las liquidaciones.</div>';return}
+    if(!rows.length){listEl.innerHTML='<div style="color:var(--t3);font-size:12px">Sin liquidaciones todavía.</div>';return}
+    listEl.innerHTML=rows.map(r=>`
+      <div class="exi">
+        <div class="exdot" style="background:${r.status==='paid'?'var(--gr)':'var(--am)'}"></div>
+        <div class="exinf"><div class="exnm">${r.period_start} → ${r.period_end}</div><div class="excat">${r.status==='paid'?'Pagada':'Pendiente'}${r.method?' · '+(PAYMENT_METHOD_LABELS[r.method]||r.method):''}</div></div>
+        <div class="exdate">${(r.appt_ids||[]).length} tatuajes</div>
+        <div class="examt">€${Number(r.total_comision).toFixed(2)}</div>
+        ${r.status!=='paid'?`<button class="exdel" style="background:var(--gr);color:#fff;width:auto;border-radius:6px;padding:4px 8px;font-size:10px" onclick="markSettlementPaid('${r.id}')">Marcar pagada</button>`:''}
+      </div>`).join('');
+  }catch(e){listEl.innerHTML='<div style="color:var(--t3);font-size:12px">Error de conexión.</div>';}
+}
+async function markSettlementPaid(id){
+  const method=prompt('Método de pago para esta liquidación (efectivo/tarjeta/transferencia/stripe):','efectivo');
+  if(method===null) return;
+  try{
+    const res=await fetch(API_BASE+'/api/finance/settlements/'+id,{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},body:JSON.stringify({status:'paid',method})});
+    if(!res.ok){showToast('Error al marcar como pagada');return}
+    showToast('Liquidación marcada como pagada');
+    loadSettlementsList();
+  }catch(e){showToast('Error de conexión')}
 }
 function previewSettlement(){
   const artistId=parseInt(document.getElementById('settle-artist').value,10);

@@ -66,12 +66,18 @@ Promise.all([
   db.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS balance_paid_at TIMESTAMPTZ'),
   db.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'variable'"),
 ]).then(function() {
+  // expenses.id era UUID pero el frontend siempre asigna ids numéricos (expSeq++) — mismo
+  // problema ya resuelto antes para appointments/clients; se corrige aquí igual.
+  return db.query('ALTER TABLE expenses ALTER COLUMN id DROP DEFAULT');
+}).then(function() {
+  return db.query('ALTER TABLE expenses ALTER COLUMN id TYPE TEXT USING id::TEXT');
+}).then(function() {
   console.log('[DB] Migración de comisiones/artistas aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de comisiones:', e.message); });
 
 db.query(`
   CREATE TABLE IF NOT EXISTS pos_sales (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id          TEXT PRIMARY KEY,
     user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     item        TEXT NOT NULL,
     amount      NUMERIC NOT NULL DEFAULT 0,
@@ -81,6 +87,12 @@ db.query(`
   )
 `).then(function() {
   return db.query('CREATE INDEX IF NOT EXISTS idx_pos_sales_user ON pos_sales(user_id)');
+}).then(function() {
+  // pos_sales.id se creó como UUID en el primer despliegue (Fase E); el frontend asigna
+  // ids numéricos (posSaleSeq++), igual que en expenses — se corrige aquí también.
+  return db.query('ALTER TABLE pos_sales ALTER COLUMN id DROP DEFAULT');
+}).then(function() {
+  return db.query('ALTER TABLE pos_sales ALTER COLUMN id TYPE TEXT USING id::TEXT');
 }).catch(function(e) { console.error('[DB] Error creando pos_sales:', e.message); });
 
 db.query(`
@@ -653,20 +665,21 @@ app.get('/api/wa/followups', authMiddleware, function(req, res) {
 app.post('/api/profile/sync', authMiddleware, function(req, res) {
   var userId = req.userId;
   var profilesData = req.body.profiles;
+  var posSalesData = req.body.posSales || [];
   if (!profilesData || !profilesData.length) return res.json({ ok: true });
 
   var ops = profilesData.map(function(p) {
     return db.query(
-      'INSERT INTO profiles (id,user_id,name,role,color) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET name=$3,role=$4,color=$5',
-      [p.id, userId, p.name||'', p.role||'', p.color||'v']
+      'INSERT INTO profiles (id,user_id,name,role,color,commission_pct) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET name=$3,role=$4,color=$5,commission_pct=$6',
+      [p.id, userId, p.name||'', p.role||'', p.color||'v', typeof p.commissionPct==='number'?p.commissionPct:50]
     ).then(function() {
       var apptOps = (p.appts||[]).map(function(a) {
         var apptId = a.id !== undefined && a.id !== null ? String(a.id) : crypto.randomUUID();
         return db.query('SELECT status FROM appointments WHERE id=$1', [apptId]).then(function(prev) {
           var oldStatus = prev.rows.length ? prev.rows[0].status : null;
           return db.query(
-            'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13',
-            [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'']
+            'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT (id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18',
+            [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
           ).then(function() {
             if (oldStatus !== 'completed' && a.status === 'completed') {
               return scheduleAftercareFollowups(userId, apptId, a, p);
@@ -681,13 +694,159 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
           [clientId, p.id, userId, c.name||'', c.phone||'', c.email||'', c.instagram||'', c.notes||'']
         ).catch(function(){});
       });
-      return Promise.all(apptOps.concat(clientOps));
+      var expenseOps = (p.expenses||[]).map(function(ex) {
+        var expId = ex.id !== undefined && ex.id !== null ? String(ex.id) : crypto.randomUUID();
+        return db.query(
+          'INSERT INTO expenses (id,profile_id,user_id,amount,category,description,date,kind) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET amount=$4,category=$5,description=$6,date=$7,kind=$8',
+          [expId, p.id, userId, ex.amount||0, ex.cat||'', ex.name||'', ex.date||'', ex.kind||'variable']
+        ).catch(function(){});
+      });
+      return Promise.all(apptOps.concat(clientOps).concat(expenseOps));
     });
   });
 
-  Promise.all(ops)
+  var posSaleOps = posSalesData.map(function(s) {
+    var saleId = s.id !== undefined && s.id !== null ? String(s.id) : crypto.randomUUID();
+    return db.query(
+      'INSERT INTO pos_sales (id,user_id,item,amount,method,date) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET item=$3,amount=$4,method=$5,date=$6',
+      [saleId, userId, s.item||'', s.amount||0, s.method||'efectivo', s.date||'']
+    ).catch(function(){});
+  });
+
+  Promise.all(ops.concat(posSaleOps))
     .then(function() { res.json({ ok: true }); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// ══════════════════════════════════════════
+// FINANZAS: reportes y liquidaciones por artista
+// ══════════════════════════════════════════
+
+// Calcula [from,to] (YYYY-MM-DD, inclusive) a partir de period+date
+function financePeriodRange(period, dateStr) {
+  var d = new Date((dateStr || new Date().toISOString().slice(0, 10)) + 'T00:00:00');
+  if (isNaN(d.getTime())) d = new Date();
+  function pad(n) { return String(n).length < 2 ? '0' + n : String(n); }
+  function iso(y, m, day) { return y + '-' + pad(m + 1) + '-' + pad(day); }
+  if (period === 'daily') {
+    var s = iso(d.getFullYear(), d.getMonth(), d.getDate());
+    return { from: s, to: s };
+  }
+  if (period === 'yearly') {
+    return { from: d.getFullYear() + '-01-01', to: d.getFullYear() + '-12-31' };
+  }
+  // monthly (default)
+  var lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  return { from: iso(d.getFullYear(), d.getMonth(), 1), to: iso(d.getFullYear(), d.getMonth(), lastDay) };
+}
+
+// Reporte de ingresos/gastos/comisiones para un periodo — solo requiere sesión iniciada
+// (esta cuenta no distingue dueño/empleado todavía, igual que el resto de la app)
+app.get('/api/finance/reports', authMiddleware, function(req, res) {
+  var userId = req.userId;
+  var range = financePeriodRange(req.query.period, req.query.date);
+  var stripeFeePct = parseFloat(req.query.stripeFeePct);
+  if (isNaN(stripeFeePct)) stripeFeePct = 1.5;
+
+  Promise.all([
+    db.query(
+      "SELECT a.artist_id, p.name AS artist_name, p.commission_pct, COUNT(*) AS cnt, COALESCE(SUM(a.price),0) AS total_price, " +
+      "COALESCE(SUM(CASE WHEN a.deposit_method='stripe' THEN a.deposit ELSE 0 END),0) AS stripe_deposit, " +
+      "COALESCE(SUM(CASE WHEN a.balance_method='stripe' THEN a.price-a.deposit ELSE 0 END),0) AS stripe_balance " +
+      "FROM appointments a LEFT JOIN profiles p ON p.id=a.artist_id " +
+      "WHERE a.user_id=$1 AND a.status='completed' AND a.date>=$2 AND a.date<=$3 " +
+      "GROUP BY a.artist_id, p.name, p.commission_pct",
+      [userId, range.from, range.to]
+    ),
+    db.query('SELECT COALESCE(SUM(amount),0) AS total FROM pos_sales WHERE user_id=$1 AND date>=$2 AND date<=$3', [userId, range.from, range.to]),
+    db.query(
+      "SELECT kind, COALESCE(SUM(amount),0) AS total FROM expenses WHERE user_id=$1 AND date>=$2 AND date<=$3 GROUP BY kind",
+      [userId, range.from, range.to]
+    ),
+    db.query(
+      "SELECT COALESCE(SUM(total_comision),0) AS paid FROM commission_settlements WHERE user_id=$1 AND status='paid' AND period_start>=$2 AND period_end<=$3",
+      [userId, range.from, range.to]
+    ),
+  ]).then(function(results) {
+    var perArtist = results[0].rows.map(function(r) {
+      var pct = r.commission_pct !== null ? Number(r.commission_pct) : 50;
+      var totalFacturado = Number(r.total_price);
+      var totalComision = totalFacturado * pct / 100;
+      return {
+        artistId: r.artist_id, name: r.artist_name || '(sin artista)', tattoos: Number(r.cnt),
+        totalFacturado: totalFacturado, commissionPct: pct, totalComision: totalComision,
+        stripeAmount: Number(r.stripe_deposit) + Number(r.stripe_balance)
+      };
+    });
+    var tattooIncome = perArtist.reduce(function(s, a) { return s + a.totalFacturado; }, 0);
+    var posIncome = Number(results[1].rows[0].total);
+    var expensesByKind = { fijo: 0, variable: 0 };
+    results[2].rows.forEach(function(r) { expensesByKind[r.kind || 'variable'] = Number(r.total); });
+    var totalExpenses = expensesByKind.fijo + expensesByKind.variable;
+    var totalCommissionAccrued = perArtist.reduce(function(s, a) { return s + a.totalComision; }, 0);
+    var commissionPaid = Number(results[3].rows[0].paid);
+    var stripeFees = perArtist.reduce(function(s, a) { return s + a.stripeAmount * stripeFeePct / 100; }, 0);
+    var netProfit = (tattooIncome + posIncome) - (commissionPaid + totalExpenses + stripeFees);
+    res.json({
+      range: range,
+      income: { tattoos: tattooIncome, pos: posIncome, total: tattooIncome + posIncome },
+      expenses: { fijo: expensesByKind.fijo, variable: expensesByKind.variable, total: totalExpenses },
+      commissions: { perArtist: perArtist, totalAccrued: totalCommissionAccrued, totalPaid: commissionPaid, totalPending: totalCommissionAccrued - commissionPaid },
+      stripeFees: stripeFees,
+      netProfit: netProfit
+    });
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Listar liquidaciones existentes
+app.get('/api/finance/settlements', authMiddleware, function(req, res) {
+  var conditions = ['user_id=$1'];
+  var params = [req.userId];
+  if (req.query.artistId) { params.push(req.query.artistId); conditions.push('artist_id=$' + params.length); }
+  if (req.query.status) { params.push(req.query.status); conditions.push('status=$' + params.length); }
+  db.query('SELECT * FROM commission_settlements WHERE ' + conditions.join(' AND ') + ' ORDER BY created_at DESC', params)
+    .then(function(r) { res.json(r.rows); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Generar una liquidación real: calculada server-side desde appointments (fuente autoritativa)
+app.post('/api/finance/settlements', authMiddleware, function(req, res) {
+  var userId = req.userId;
+  var artistId = parseInt(req.body.artistId, 10);
+  var periodStart = req.body.periodStart, periodEnd = req.body.periodEnd;
+  if (!artistId || !periodStart || !periodEnd) return res.status(400).json({ error: 'Faltan artistId, periodStart o periodEnd' });
+
+  db.query('SELECT commission_pct FROM profiles WHERE id=$1 AND user_id=$2', [artistId, userId])
+    .then(function(pr) {
+      if (!pr.rows.length) return res.status(404).json({ error: 'Artista no encontrado' });
+      var pct = pr.rows[0].commission_pct !== null ? Number(pr.rows[0].commission_pct) : 50;
+      return db.query(
+        "SELECT id, price FROM appointments WHERE user_id=$1 AND artist_id=$2 AND status='completed' AND date>=$3 AND date<=$4 " +
+        "AND NOT (id = ANY(SELECT unnest(appt_ids) FROM commission_settlements WHERE artist_id=$2 AND user_id=$1))",
+        [userId, artistId, periodStart, periodEnd]
+      ).then(function(ar) {
+        var apptIds = ar.rows.map(function(r) { return r.id; });
+        var totalFacturado = ar.rows.reduce(function(s, r) { return s + Number(r.price); }, 0);
+        var totalComision = totalFacturado * pct / 100;
+        return db.query(
+          'INSERT INTO commission_settlements (user_id,artist_id,period_start,period_end,appt_ids,total_facturado,total_comision) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+          [userId, artistId, periodStart, periodEnd, apptIds, totalFacturado, totalComision]
+        );
+      });
+    })
+    .then(function(r) { if (!res.headersSent) res.json(r.rows[0]); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Marcar una liquidación como pagada
+app.patch('/api/finance/settlements/:id', authMiddleware, function(req, res) {
+  db.query(
+    "UPDATE commission_settlements SET status='paid', paid_at=NOW(), method=$1 WHERE id=$2 AND user_id=$3 RETURNING *",
+    [req.body.method || '', req.params.id, req.userId]
+  ).then(function(r) {
+    if (!r.rows.length) return res.status(404).json({ error: 'Liquidación no encontrada' });
+    res.json(r.rows[0]);
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
 // Admin: get a specific user's full data from PostgreSQL

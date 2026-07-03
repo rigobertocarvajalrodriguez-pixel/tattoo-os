@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS clients (
 );
 
 CREATE TABLE IF NOT EXISTS expenses (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          TEXT PRIMARY KEY,
   profile_id  INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   amount      NUMERIC NOT NULL DEFAULT 0,
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS expenses (
 
 -- Ventas de mostrador: compartidas por todo el estudio, no atadas a un artista concreto
 CREATE TABLE IF NOT EXISTS pos_sales (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          TEXT PRIMARY KEY,
   user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   item        TEXT NOT NULL,
   amount      NUMERIC NOT NULL DEFAULT 0,
