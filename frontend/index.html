@@ -1416,18 +1416,46 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
   <div class="page" id="page-finance">
     <div class="ph"><div><div class="pt" data-i="navFinance">Finanzas</div><div class="ps" data-i="finSub">Ingresos · Gastos · Beneficio</div></div></div>
     <div class="pb">
-      <div class="fin-grid" id="fin-grid"></div>
-      <div class="bigchart">
-        <div class="bc-hd">
-          <div class="bc-t" data-i="finChartTitle">Ingresos vs Gastos — 2025</div>
-          <div class="bc-leg">
-            <div class="bc-li"><div class="bc-dot" style="background:var(--v)"></div><span data-i="income">Ingresos</span></div>
-            <div class="bc-li"><div class="bc-dot" style="background:var(--ro)"></div><span data-i="expenses">Gastos</span></div>
-          </div>
-        </div>
-        <div class="bigbars" id="bigbars"></div>
+      <!-- TABS -->
+      <div style="display:flex;gap:2px;background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r2);padding:3px;width:fit-content;margin-bottom:18px">
+        <button class="vt on" id="ftab-summary" onclick="setFinanceTab('summary',this)">Resumen</button>
+        <button class="vt" id="ftab-pos" onclick="setFinanceTab('pos',this)">Mostrador</button>
+        <button class="vt" id="ftab-settlements" onclick="setFinanceTab('settlements',this)">Liquidaciones</button>
       </div>
-      <div id="fin-table"></div>
+      <!-- RESUMEN VIEW -->
+      <div id="fin-summary-view">
+        <div class="fin-grid" id="fin-grid"></div>
+        <div class="bigchart">
+          <div class="bc-hd">
+            <div class="bc-t" data-i="finChartTitle">Ingresos vs Gastos — 2025</div>
+            <div class="bc-leg">
+              <div class="bc-li"><div class="bc-dot" style="background:var(--v)"></div><span data-i="income">Ingresos</span></div>
+              <div class="bc-li"><div class="bc-dot" style="background:var(--ro)"></div><span data-i="expenses">Gastos</span></div>
+            </div>
+          </div>
+          <div class="bigbars" id="bigbars"></div>
+        </div>
+        <div id="fin-table"></div>
+      </div>
+      <!-- MOSTRADOR (POS) VIEW -->
+      <div id="fin-pos-view" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div class="ps" id="pos-total-lbl">Total: €0</div>
+          <button class="addbtn" onclick="openModal('posSale')">+ Nueva venta</button>
+        </div>
+        <div class="expl" id="pos-list"></div>
+      </div>
+      <!-- LIQUIDACIONES VIEW -->
+      <div id="fin-settlements-view" style="display:none">
+        <div class="set-section-s" style="margin-bottom:14px">Vista previa local de la comisión por artista. La liquidación definitiva (con estado pendiente/pagado) se generará contra el servidor en la próxima fase.</div>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:18px">
+          <div class="fg" style="margin:0"><label class="fl">Artista</label><select class="fi" id="settle-artist"></select></div>
+          <div class="fg" style="margin:0"><label class="fl">Desde</label><input class="fi" type="date" id="settle-from"></div>
+          <div class="fg" style="margin:0"><label class="fl">Hasta</label><input class="fi" type="date" id="settle-to"></div>
+          <button class="bprim" style="width:auto;padding:9px 20px" onclick="previewSettlement()">Calcular vista previa</button>
+        </div>
+        <div id="settle-result"></div>
+      </div>
     </div>
   </div>
 
@@ -2174,6 +2202,9 @@ let profiles=[
   {id:profileIdSeq++,name:'Lucía Vidal',role:'Artista · Acuarela',color:'r',appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null},
 ];
 let activeProfileId=1;
+// Ventas de mostrador: compartidas por todo el estudio, no pertenecen a un artista concreto.
+let posSales=[];
+let posSaleSeq=100;
 
 // -- ACTIVE PROFILE ACCESSOR --
 function ap(){return profiles.find(p=>p.id===activeProfileId)||profiles[0]}
@@ -2202,17 +2233,19 @@ let consentSeq=100;
 // se repita un id entre perfiles/artistas tras recargar la página (los contadores
 // viven solo en memoria y si no se reajustan, cada recarga los reinicia a 100/1).
 function reseedIdCounters(){
-  var maxProfileId=0, maxApptId=99, maxClientId=99, maxExpId=99;
+  var maxProfileId=0, maxApptId=99, maxClientId=99, maxExpId=99, maxPosSaleId=99;
   profiles.forEach(function(p){
     if(typeof p.id==='number' && p.id>maxProfileId) maxProfileId=p.id;
     (p.appts||[]).forEach(function(a){ var n=Number(a.id); if(!isNaN(n) && n>maxApptId) maxApptId=n; });
     (p.clients||[]).forEach(function(c){ var n=Number(c.id); if(!isNaN(n) && n>maxClientId) maxClientId=n; });
     (p.expenses||[]).forEach(function(e){ var n=Number(e.id); if(!isNaN(n) && n>maxExpId) maxExpId=n; });
   });
+  (posSales||[]).forEach(function(s){ var n=Number(s.id); if(!isNaN(n) && n>maxPosSaleId) maxPosSaleId=n; });
   profileIdSeq=Math.max(profileIdSeq, maxProfileId+1);
   apptSeq=Math.max(apptSeq, maxApptId+1);
   clientSeq=Math.max(clientSeq, maxClientId+1);
   expSeq=Math.max(expSeq, maxExpId+1);
+  posSaleSeq=Math.max(posSaleSeq, maxPosSaleId+1);
 }
 
 // -- INIT DEMO DATA for profile[0] --
@@ -2550,6 +2583,11 @@ const monthlyData=[
   {month:8,income:0,exp:0},{month:9,income:0,exp:0},{month:10,income:0,exp:0},{month:11,income:0,exp:0},
 ];
 const CATCOLS={tinta:'var(--v)',agujas:'var(--cy)',alquiler:'var(--ro)',maquinaria:'var(--am)',marketing:'var(--gr)',impuestos:'var(--t2)',suministros:'var(--cy)',otros:'var(--t3)'};
+const PAYMENT_METHODS=['efectivo','tarjeta','transferencia','stripe'];
+const PAYMENT_METHOD_LABELS={efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia',stripe:'Stripe'};
+function paymentMethodOpts(sel){
+  return '<option value="">Sin especificar</option>'+PAYMENT_METHODS.map(m=>`<option value="${m}" ${sel===m?'selected':''}>${PAYMENT_METHOD_LABELS[m]}</option>`).join('');
+}
 
 // -- HELPERS --
 function fmtDate(base,dayOff,monthOff){
@@ -3061,6 +3099,71 @@ function renderFinance(){
         <div style="font-size:12px;color:var(--ro)">€${m.exp.toLocaleString()}</div>
         <div style="font-size:12px;color:var(--gr);font-weight:600">€${(m.income-m.exp).toLocaleString()}</div>
       </div>`).join('')}
+    </div>`;
+}
+
+function setFinanceTab(tab, el){
+  document.querySelectorAll('#page-finance .vt').forEach(b=>b.classList.remove('on'));
+  if(el) el.classList.add('on');
+  document.getElementById('fin-summary-view').style.display = tab==='summary' ? '' : 'none';
+  document.getElementById('fin-pos-view').style.display = tab==='pos' ? '' : 'none';
+  document.getElementById('fin-settlements-view').style.display = tab==='settlements' ? '' : 'none';
+  if(tab==='pos') renderPosSales();
+  if(tab==='settlements') renderSettlementsTab();
+}
+
+// ==========================================
+// VENTAS DE MOSTRADOR (POS)
+// ==========================================
+function renderPosSales(){
+  const total=posSales.reduce((s,e)=>s+e.amount,0);
+  document.getElementById('pos-total-lbl').textContent='Total: €'+total.toLocaleString();
+  document.getElementById('pos-list').innerHTML=posSales.map(s=>`
+    <div class="exi">
+      <div class="exdot" style="background:var(--gr)"></div>
+      <div class="exinf"><div class="exnm">${s.item}</div><div class="excat">${PAYMENT_METHOD_LABELS[s.method]||'Sin especificar'}</div></div>
+      <div class="exdate">${s.date}</div>
+      <div class="examt">+€${s.amount}</div>
+      <button class="exdel" onclick="deletePosSale(${s.id})"></button>
+    </div>`).join('');
+}
+function savePosSale(){
+  const item=document.getElementById('m-positem').value.trim();
+  const amt=parseFloat(document.getElementById('m-posamt').value);
+  if(!item||!amt){showToast(t('fillFields'));return}
+  posSales.push({id:posSaleSeq++,item,amount:amt,method:document.getElementById('m-posmethod').value,date:document.getElementById('m-posdate').value});
+  saveUserProfiles();
+  closeModal();renderPosSales();showToast('Venta registrada');
+}
+function deletePosSale(id){posSales=posSales.filter(s=>s.id!==id);saveUserProfiles();renderPosSales();showToast('Venta eliminada')}
+
+// ==========================================
+// LIQUIDACIONES (vista previa local — Fase D)
+// ==========================================
+function renderSettlementsTab(){
+  const sel=document.getElementById('settle-artist');
+  sel.innerHTML=profiles.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  const fromEl=document.getElementById('settle-from'), toEl=document.getElementById('settle-to');
+  if(!fromEl.value){
+    const d=new Date(); d.setDate(1);
+    fromEl.value=dateStr(d);
+    toEl.value=dateStr(TODAY);
+  }
+  document.getElementById('settle-result').innerHTML='';
+}
+function previewSettlement(){
+  const artistId=parseInt(document.getElementById('settle-artist').value,10);
+  const artist=profiles.find(p=>p.id===artistId);
+  const from=document.getElementById('settle-from').value, to=document.getElementById('settle-to').value;
+  const matching=appts.filter(a=>a.artistId===artistId && a.status==='completed' && a.date>=from && a.date<=to);
+  const totalFacturado=matching.reduce((s,a)=>s+a.price,0);
+  const pct=typeof artist.commissionPct==='number'?artist.commissionPct:50;
+  const totalComision=totalFacturado*pct/100;
+  document.getElementById('settle-result').innerHTML=`
+    <div class="fin-grid">
+      <div class="fc fv"><div class="flbl">Tatuajes realizados</div><div class="fval">${matching.length}</div></div>
+      <div class="fc fcy"><div class="flbl">Total facturado</div><div class="fval">€${totalFacturado.toLocaleString()}</div></div>
+      <div class="fc fg"><div class="flbl">Comisión (${pct}%)</div><div class="fval">€${totalComision.toFixed(2)}</div></div>
     </div>`;
 }
 
@@ -3734,11 +3837,6 @@ function openModal(type,data={}){
   const catOpts=['tinta','agujas','alquiler','maquinaria','marketing','impuestos','suministros','otros'].map(c=>`<option value="${c}">${t(c)}</option>`).join('');
   const clientOpts=clients.map(c=>`<option value="${c.name}">`).join('');
   const projClientOpts=[' - ',...clients.map(c=>c.name)].map(c=>`<option value="${c}">${c}</option>`).join('');
-  const PAYMENT_METHODS=['efectivo','tarjeta','transferencia','stripe'];
-  const PAYMENT_METHOD_LABELS={efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia',stripe:'Stripe'};
-  function paymentMethodOpts(sel){
-    return '<option value="">Sin especificar</option>'+PAYMENT_METHODS.map(m=>`<option value="${m}" ${sel===m?'selected':''}>${PAYMENT_METHOD_LABELS[m]}</option>`).join('');
-  }
 
   if(type==='appt'||type==='editAppt'){
     const isEdit=type==='editAppt';
@@ -3801,6 +3899,16 @@ function openModal(type,data={}){
       </div>
       <div class="fg"><label class="fl">${t('date')}</label><input class="fi" id="m-edate" type="date" value="${dateStr(TODAY)}"></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="saveExpense()">${t('create')} </button></div>`;
+  } else if(type==='posSale'){
+    box.innerHTML=`
+      <div class="mt">Nueva venta de mostrador</div><div class="ms">Merchandising, cremas, piercings...</div>
+      <div class="fg"><label class="fl">Producto</label><input class="fi" id="m-positem" type="text" placeholder="Crema aftercare..."></div>
+      <div class="fr2">
+        <div class="fg"><label class="fl">${t('amount')}</label><input class="fi" id="m-posamt" type="number" placeholder="0.00"></div>
+        <div class="fg"><label class="fl">Método de pago</label><select class="fi" id="m-posmethod">${paymentMethodOpts('efectivo')}</select></div>
+      </div>
+      <div class="fg"><label class="fl">${t('date')}</label><input class="fi" id="m-posdate" type="date" value="${dateStr(TODAY)}"></div>
+      <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="savePosSale()">${t('create')} </button></div>`;
   } else if(type==='project'){
     box.innerHTML=`
       <div class="mt">${t('newProjTitle')}</div><div class="ms">${t('newProjSub')}</div>
@@ -5255,6 +5363,8 @@ function loadUserProfiles(user) {
     profiles = [{id:1,name:user.name,role:'Tatuador/a',color:'v',appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null}];
     activeProfileId = 1;
   }
+  try { posSales = JSON.parse(lsGet('tos_possales_' + user.id) || '[]'); } catch(e2) { posSales = []; }
+  reseedIdCounters();
   refreshProfileData();
 }
 
@@ -5262,9 +5372,10 @@ function saveUserProfiles() {
   if (!currentUser) return;
   const key = 'tos_profiles_' + currentUser.id;
   lsSet(key, JSON.stringify(profiles));
+  lsSet('tos_possales_' + currentUser.id, JSON.stringify(posSales));
   // Sync to server so admin can access this user's data
   if (_authToken) {
-    fetch(API_BASE+'/api/profile/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken }, body: JSON.stringify({ profiles: profiles }) }).catch(function() {});
+    fetch(API_BASE+'/api/profile/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken }, body: JSON.stringify({ profiles: profiles, posSales: posSales }) }).catch(function() {});
   }
 }
 
