@@ -56,6 +56,55 @@ db.query(`
   return db.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_followup_unique ON wa_followups(appointment_id, kind)');
 }).catch(function(e) { console.error('[DB] Error creando wa_followups:', e.message); });
 
+// Comisiones por artista, métodos de pago y ventas de mostrador (migración aditiva)
+Promise.all([
+  db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS commission_pct NUMERIC DEFAULT 50'),
+  db.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS artist_id INTEGER REFERENCES profiles(id)'),
+  db.query("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_method TEXT DEFAULT ''"),
+  db.query("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS balance_method TEXT DEFAULT ''"),
+  db.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS balance_paid BOOLEAN DEFAULT FALSE'),
+  db.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS balance_paid_at TIMESTAMPTZ'),
+  db.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'variable'"),
+]).then(function() {
+  console.log('[DB] Migración de comisiones/artistas aplicada');
+}).catch(function(e) { console.error('[DB] Error en migración de comisiones:', e.message); });
+
+db.query(`
+  CREATE TABLE IF NOT EXISTS pos_sales (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item        TEXT NOT NULL,
+    amount      NUMERIC NOT NULL DEFAULT 0,
+    method      TEXT DEFAULT 'efectivo',
+    date        TEXT NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+  )
+`).then(function() {
+  return db.query('CREATE INDEX IF NOT EXISTS idx_pos_sales_user ON pos_sales(user_id)');
+}).catch(function(e) { console.error('[DB] Error creando pos_sales:', e.message); });
+
+db.query(`
+  CREATE TABLE IF NOT EXISTS commission_settlements (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    artist_id       INTEGER NOT NULL REFERENCES profiles(id),
+    period_start    TEXT NOT NULL,
+    period_end      TEXT NOT NULL,
+    appt_ids        TEXT[] NOT NULL DEFAULT '{}',
+    total_facturado NUMERIC NOT NULL DEFAULT 0,
+    total_comision  NUMERIC NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    paid_at         TIMESTAMPTZ,
+    method          TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+  )
+`).then(function() {
+  return Promise.all([
+    db.query('CREATE INDEX IF NOT EXISTS idx_settlements_artist ON commission_settlements(artist_id)'),
+    db.query('CREATE INDEX IF NOT EXISTS idx_settlements_user ON commission_settlements(user_id)')
+  ]);
+}).catch(function(e) { console.error('[DB] Error creando commission_settlements:', e.message); });
+
 const app = express();
 app.use(cors());
 app.use(express.json());
