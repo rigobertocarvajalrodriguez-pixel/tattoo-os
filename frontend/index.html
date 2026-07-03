@@ -4760,7 +4760,7 @@ function ezBuildDOM() {
     clouds, levels: {}, lastLat: null, lastLon: null,
   };
   const fit = () => {
-    const s = Math.min(window.innerWidth / EZ_W, window.innerHeight / EZ_H);
+    const s = Math.max(window.innerWidth / EZ_W, window.innerHeight / EZ_H);
     ezState.canvas.style.transform = `scale(${s})`;
   };
   fit();
@@ -4944,7 +4944,9 @@ async function saveStudioSettings() {
 function previewEarthZoom() {
   const p = ap();
   if (typeof p.studioLat !== 'number') return;
-  ezPlay(p.studioLat, p.studioLon, p.studioName || p.name, function(){});
+  playTosSplash(function(){
+    ezPlay(p.studioLat, p.studioLon, p.studioName || p.name, function(){});
+  });
 }
 
 function loginSuccess(user) {
@@ -5009,7 +5011,9 @@ function loginSuccess(user) {
   try {
     var _ezProf = ap();
     if (_ezProf && typeof _ezProf.studioLat === 'number' && typeof _ezProf.studioLon === 'number') {
-      ezPlay(_ezProf.studioLat, _ezProf.studioLon, _ezProf.studioName || _ezProf.name, function(){});
+      playTosSplash(function(){
+        ezPlay(_ezProf.studioLat, _ezProf.studioLon, _ezProf.studioName || _ezProf.name, function(){});
+      });
     }
   } catch(eEz) {}
   if (window._initRemoteView) window._initRemoteView(user.id);
@@ -6521,12 +6525,18 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   });
 }
 
-(function(){
+function playTosSplash(onDone){
   var splash=document.getElementById('tos-splash');
   var cv=document.getElementById('tos-canvas');
   var ctx=cv.getContext('2d');
   var img=document.getElementById('tos-logo-img');
   var W,H;
+  // reset in case a previous run already faded this out
+  splash.classList.remove('out');
+  splash.style.display='flex';
+  splash.style.opacity='1';
+  cv.style.transition='none';cv.style.opacity='1';
+  img.style.transition='none';img.style.opacity='0';
   function resize(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
   resize();
   setTimeout(function(){
@@ -6535,7 +6545,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
   },1800);
   setTimeout(function(){
     splash.classList.add('out');
-    setTimeout(function(){splash.style.display='none';},1000);
+    setTimeout(function(){splash.style.display='none';if(onDone)onDone();},1000);
   },4500);
   function getLogoPixels(cb){
     var off=document.createElement('canvas');
@@ -6590,7 +6600,8 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !location.
     }
     frame();
   });
-})();
+}
+playTosSplash();
 
 </script>
 
