@@ -1436,6 +1436,10 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
           <div class="bigbars" id="bigbars"></div>
         </div>
         <div id="fin-table"></div>
+        <div style="margin-top:24px">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);font-weight:700;margin-bottom:8px">Artistas</div>
+          <div style="display:flex;flex-direction:column;gap:6px" id="fin-artists-list"></div>
+        </div>
       </div>
       <!-- MOSTRADOR (POS) VIEW -->
       <div id="fin-pos-view" style="display:none">
@@ -3125,6 +3129,24 @@ function renderFinance(){
       </div>`).join('')}
       ${!monthlyData.some(m=>m.income>0||m.exp>0)?'<div style="padding:20px 14px;color:var(--t3);font-size:12px;text-align:center">Sin movimientos este año todavía.</div>':''}
     </div>`;
+  renderArtistsFinance();
+}
+function renderArtistsFinance(){
+  const year=TODAY.getFullYear(), month=TODAY.getMonth();
+  const listEl=document.getElementById('fin-artists-list');
+  if(!listEl) return;
+  const rows=profiles.map(p=>{
+    const ingresos=appts.filter(a=>a.status==='completed'&&a.artistId===p.id&&a.date&&(()=>{const d=parseDate(a.date);return d.getFullYear()===year&&d.getMonth()===month})()).reduce((s,a)=>s+a.price,0);
+    const pct=typeof p.commissionPct==='number'?p.commissionPct:50;
+    return {name:p.name, ingresos, pct, comision:ingresos*pct/100};
+  });
+  listEl.innerHTML=rows.map(r=>`
+    <div class="exi">
+      <div class="exdot" style="background:var(--v)"></div>
+      <div class="exinf"><div class="exnm">${r.name}</div><div class="excat">${r.pct}% de comisión</div></div>
+      <div class="exdate">Ingresos mensuales: €${r.ingresos.toLocaleString()}</div>
+      <div class="examt" style="color:var(--gr)">€${r.comision.toFixed(2)}</div>
+    </div>`).join('') || '<div style="padding:20px 14px;color:var(--t3);font-size:12px;text-align:center">Sin artistas todavía.</div>';
 }
 let currentMonthDetail=null;
 function openMonthDetail(monthIdx){
