@@ -4964,6 +4964,19 @@ function loginSuccess(user) {
   saveSession(user);
   loadUserProfiles(user);
 
+  // If this profile has a studio location, cover the screen with the TOS
+  // splash IMMEDIATELY — before the login screen is hidden or the app is
+  // shown — so there is no frame in between where either is visible.
+  try {
+    var _ezProf = ap();
+    if (_ezProf && typeof _ezProf.studioLat === 'number' && typeof _ezProf.studioLon === 'number') {
+      ezWarm(_ezProf.studioLat, _ezProf.studioLon);
+      playTosSplash(function(){
+        ezPlay(_ezProf.studioLat, _ezProf.studioLon, _ezProf.studioName || _ezProf.name, function(){});
+      });
+    }
+  } catch(eEz) {}
+
   // Hide login screen
   var ls = document.getElementById('login-screen');
   if (ls) { ls.style.display = 'none'; ls.classList.add('hidden'); }
@@ -5018,15 +5031,6 @@ function loginSuccess(user) {
   showToast('Bienvenido, ' + user.name);
   showAdminNav();
   if (!localStorage.getItem('plan_chosen')) { showPlanScreen(); }
-  try {
-    var _ezProf = ap();
-    if (_ezProf && typeof _ezProf.studioLat === 'number' && typeof _ezProf.studioLon === 'number') {
-      ezWarm(_ezProf.studioLat, _ezProf.studioLon);
-      playTosSplash(function(){
-        ezPlay(_ezProf.studioLat, _ezProf.studioLon, _ezProf.studioName || _ezProf.name, function(){});
-      });
-    }
-  } catch(eEz) {}
   if (window._initRemoteView) window._initRemoteView(user.id);
   // Cargar tickets del usuario (para ver respuestas del admin)
   setTimeout(loadUserTickets, 1000);
