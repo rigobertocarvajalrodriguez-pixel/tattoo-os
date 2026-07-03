@@ -3166,6 +3166,37 @@ async function generateSettlement(){
     loadSettlementsList();
   }catch(e){showToast('Error de conexión')}
 }
+let currentSettlements=[];
+function settlementRowHTML(r){
+  return `
+    <div class="exi" id="settle-row-${r.id}">
+      <div class="exdot" style="background:${r.status==='paid'?'var(--gr)':'var(--am)'}"></div>
+      <div class="exinf"><div class="exnm">${r.period_start} → ${r.period_end}</div><div class="excat">${r.status==='paid'?'Pagada':'Pendiente'}${r.method?' · '+(PAYMENT_METHOD_LABELS[r.method]||r.method):''}</div></div>
+      <div class="exdate">${(r.appt_ids||[]).length} tatuajes</div>
+      <div class="examt">€${Number(r.total_comision).toFixed(2)}</div>
+      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+        ${r.status!=='paid'?`<button class="addbtn" style="background:var(--gr);padding:4px 10px;font-size:10px;box-shadow:none" onclick="markSettlementPaid('${r.id}')">Marcar pagada</button>`:''}
+        <button class="addbtn" style="background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none;padding:4px 10px;font-size:10px" onclick="editSettlementRow('${r.id}')">Editar</button>
+        <button class="exdel" onclick="deleteSettlementRow('${r.id}')"></button>
+      </div>
+    </div>`;
+}
+function settlementEditHTML(r){
+  return `
+    <div class="exi" id="settle-row-${r.id}" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+      <div class="exinf" style="flex:1 1 100%;font-size:11px;color:var(--t3)">${r.period_start} → ${r.period_end} · ${(r.appt_ids||[]).length} tatuajes</div>
+      <div class="fg" style="margin:0"><label class="fl">Total facturado</label><input class="fi" type="number" id="edit-fact-${r.id}" value="${r.total_facturado}" style="width:120px"></div>
+      <div class="fg" style="margin:0"><label class="fl">Comisión</label><input class="fi" type="number" id="edit-com-${r.id}" value="${r.total_comision}" style="width:120px"></div>
+      <div class="fg" style="margin:0"><label class="fl">Estado</label><select class="fi" id="edit-status-${r.id}" style="width:130px">
+        <option value="pending" ${r.status==='pending'?'selected':''}>Pendiente</option>
+        <option value="paid" ${r.status==='paid'?'selected':''}>Pagada</option>
+      </select></div>
+      <div style="display:flex;gap:6px">
+        <button class="bprim" style="width:auto;padding:8px 14px" onclick="saveSettlementEdit('${r.id}')">Guardar</button>
+        <button class="bsec" style="width:auto;padding:8px 14px" onclick="loadSettlementsList()">Cancelar</button>
+      </div>
+    </div>`;
+}
 async function loadSettlementsList(){
   const artistId=document.getElementById('settle-artist').value;
   const listEl=document.getElementById('settle-list');
@@ -3175,16 +3206,36 @@ async function loadSettlementsList(){
     const res=await fetch(API_BASE+'/api/finance/settlements?artistId='+artistId,{headers:{'Authorization':'Bearer '+_authToken}});
     const rows=await res.json();
     if(!res.ok || !Array.isArray(rows)){listEl.innerHTML='<div style="color:var(--t3);font-size:12px">No se pudieron cargar las liquidaciones.</div>';return}
+    currentSettlements=rows;
     if(!rows.length){listEl.innerHTML='<div style="color:var(--t3);font-size:12px">Sin liquidaciones todavía.</div>';return}
-    listEl.innerHTML=rows.map(r=>`
-      <div class="exi">
-        <div class="exdot" style="background:${r.status==='paid'?'var(--gr)':'var(--am)'}"></div>
-        <div class="exinf"><div class="exnm">${r.period_start} → ${r.period_end}</div><div class="excat">${r.status==='paid'?'Pagada':'Pendiente'}${r.method?' · '+(PAYMENT_METHOD_LABELS[r.method]||r.method):''}</div></div>
-        <div class="exdate">${(r.appt_ids||[]).length} tatuajes</div>
-        <div class="examt">€${Number(r.total_comision).toFixed(2)}</div>
-        ${r.status!=='paid'?`<button class="exdel" style="background:var(--gr);color:#fff;width:auto;border-radius:6px;padding:4px 8px;font-size:10px" onclick="markSettlementPaid('${r.id}')">Marcar pagada</button>`:''}
-      </div>`).join('');
+    listEl.innerHTML=rows.map(settlementRowHTML).join('');
   }catch(e){listEl.innerHTML='<div style="color:var(--t3);font-size:12px">Error de conexión.</div>';}
+}
+function editSettlementRow(id){
+  const r=currentSettlements.find(x=>x.id===id);
+  const rowEl=document.getElementById('settle-row-'+id);
+  if(!r||!rowEl) return;
+  rowEl.outerHTML=settlementEditHTML(r);
+}
+async function saveSettlementEdit(id){
+  const totalFacturado=parseFloat(document.getElementById('edit-fact-'+id).value)||0;
+  const totalComision=parseFloat(document.getElementById('edit-com-'+id).value)||0;
+  const status=document.getElementById('edit-status-'+id).value;
+  try{
+    const res=await fetch(API_BASE+'/api/finance/settlements/'+id,{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},body:JSON.stringify({totalFacturado,totalComision,status})});
+    if(!res.ok){showToast('Error al guardar');return}
+    showToast('Liquidación actualizada');
+    loadSettlementsList();
+  }catch(e){showToast('Error de conexión')}
+}
+async function deleteSettlementRow(id){
+  if(!confirm('¿Eliminar esta liquidación? Esta acción no se puede deshacer.')) return;
+  try{
+    const res=await fetch(API_BASE+'/api/finance/settlements/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+_authToken}});
+    if(!res.ok){showToast('Error al eliminar');return}
+    showToast('Liquidación eliminada');
+    loadSettlementsList();
+  }catch(e){showToast('Error de conexión')}
 }
 async function markSettlementPaid(id){
   const method=prompt('Método de pago para esta liquidación (efectivo/tarjeta/transferencia/stripe):','efectivo');

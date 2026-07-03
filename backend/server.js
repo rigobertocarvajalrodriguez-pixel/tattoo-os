@@ -838,15 +838,31 @@ app.post('/api/finance/settlements', authMiddleware, function(req, res) {
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
-// Marcar una liquidación como pagada
+// Editar una liquidación (marcar pagada/pendiente, o corregir montos/periodo a mano)
 app.patch('/api/finance/settlements/:id', authMiddleware, function(req, res) {
-  db.query(
-    "UPDATE commission_settlements SET status='paid', paid_at=NOW(), method=$1 WHERE id=$2 AND user_id=$3 RETURNING *",
-    [req.body.method || '', req.params.id, req.userId]
-  ).then(function(r) {
-    if (!r.rows.length) return res.status(404).json({ error: 'Liquidación no encontrada' });
-    res.json(r.rows[0]);
-  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+  var b = req.body;
+  db.query('SELECT * FROM commission_settlements WHERE id=$1 AND user_id=$2', [req.params.id, req.userId])
+    .then(function(existing) {
+      if (!existing.rows.length) return res.status(404).json({ error: 'Liquidación no encontrada' });
+      var row = existing.rows[0];
+      var newStatus = b.status !== undefined ? b.status : row.status;
+      var newPaidAt = row.paid_at;
+      if (newStatus === 'paid' && row.status !== 'paid') newPaidAt = new Date();
+      if (newStatus !== 'paid') newPaidAt = null;
+      return db.query(
+        'UPDATE commission_settlements SET status=$1, method=COALESCE($2,method), total_facturado=COALESCE($3,total_facturado), total_comision=COALESCE($4,total_comision), period_start=COALESCE($5,period_start), period_end=COALESCE($6,period_end), paid_at=$7 WHERE id=$8 AND user_id=$9 RETURNING *',
+        [newStatus, b.method, b.totalFacturado, b.totalComision, b.periodStart, b.periodEnd, newPaidAt, req.params.id, req.userId]
+      );
+    })
+    .then(function(r) { if (!res.headersSent) res.json(r.rows[0]); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Eliminar una liquidación
+app.delete('/api/finance/settlements/:id', authMiddleware, function(req, res) {
+  db.query('DELETE FROM commission_settlements WHERE id=$1 AND user_id=$2', [req.params.id, req.userId])
+    .then(function() { res.json({ success: true }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
 // Admin: get a specific user's full data from PostgreSQL
