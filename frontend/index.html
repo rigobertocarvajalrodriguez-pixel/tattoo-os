@@ -3714,6 +3714,11 @@ function openModal(type,data={}){
   const catOpts=['tinta','agujas','alquiler','maquinaria','marketing','impuestos','suministros','otros'].map(c=>`<option value="${c}">${t(c)}</option>`).join('');
   const clientOpts=clients.map(c=>`<option value="${c.name}">`).join('');
   const projClientOpts=[' - ',...clients.map(c=>c.name)].map(c=>`<option value="${c}">${c}</option>`).join('');
+  const PAYMENT_METHODS=['efectivo','tarjeta','transferencia','stripe'];
+  const PAYMENT_METHOD_LABELS={efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia',stripe:'Stripe'};
+  function paymentMethodOpts(sel){
+    return '<option value="">Sin especificar</option>'+PAYMENT_METHODS.map(m=>`<option value="${m}" ${sel===m?'selected':''}>${PAYMENT_METHOD_LABELS[m]}</option>`).join('');
+  }
 
   if(type==='appt'||type==='editAppt'){
     const isEdit=type==='editAppt';
@@ -3721,6 +3726,8 @@ function openModal(type,data={}){
     const COLORS={v:'#7c5cfc',c:'#22d3ee',r:'#f43f5e',a:'#f59e0b'};
     const curCol=data.color||'v';
     const colorDots=Object.entries(COLORS).map(([k,hex])=>`<div class="cp-dot${k===curCol?' sel':''}" data-c="${k}" style="background:${hex};--cp-col:${hex}" onclick="selectApptColor(this)"></div>`).join('');
+    const curArtistId=data.artistId||activeProfileId;
+    const artistOpts=profiles.map(p=>`<option value="${p.id}" ${curArtistId===p.id?'selected':''}>${p.name}</option>`).join('');
     box.innerHTML=`
       <div class="mt">${isEdit?t('editApptTitle'):t('newApptTitle')}</div>
       <div class="ms">${isEdit?t('editApptSub'):t('newApptSub')}</div>
@@ -3741,6 +3748,12 @@ function openModal(type,data={}){
       <div class="fr2">
         <div class="fg" style="flex:1"><label class="fl">${t('status')}</label><select class="fi" id="m-status">${statusOpts}</select></div>
       </div>
+      <div class="fg"><label class="fl">Artista</label><select class="fi" id="m-artist">${artistOpts}</select></div>
+      <div class="fr2">
+        <div class="fg"><label class="fl">Método señal</label><select class="fi" id="m-depmethod">${paymentMethodOpts(data.depositMethod)}</select></div>
+        <div class="fg"><label class="fl">Método balance</label><select class="fi" id="m-balmethod">${paymentMethodOpts(data.balanceMethod)}</select></div>
+      </div>
+      <div class="fg" style="display:flex;align-items:center;justify-content:space-between"><label class="fl" style="margin:0">Balance cobrado</label><div class="tog${data.balancePaid?' on':''}" id="m-balpaid" onclick="this.classList.toggle('on')"></div></div>
       <div class="fg"><label class="fl">${t('notes')}</label><textarea class="fi" id="m-note" rows="2" style="resize:none" placeholder="Referencias...">${data.note||''}</textarea></div>
       <div class="mac">
         <button class="bsec" onclick="closeModal()">${t('cancel')}</button>
@@ -3789,6 +3802,8 @@ function openModal(type,data={}){
 }
 
 function saveAppt(editId){
+  const existing=editId?appts.find(x=>x.id===editId):null;
+  const balancePaidNow=document.getElementById('m-balpaid').classList.contains('on');
   const a={
     id:editId||apptSeq++,
     name:document.getElementById('m-name').value||'Cliente',
@@ -3801,6 +3816,11 @@ function saveAppt(editId){
     deposit:getWheelValue('m-deposit')||0,
     status:document.getElementById('m-status').value,
     note:document.getElementById('m-note').value,
+    artistId:parseInt(document.getElementById('m-artist').value,10)||activeProfileId,
+    depositMethod:document.getElementById('m-depmethod').value,
+    balanceMethod:document.getElementById('m-balmethod').value,
+    balancePaid:balancePaidNow,
+    balancePaidDate:balancePaidNow?((existing&&existing.balancePaid)?existing.balancePaidDate:dateStr(new Date())):null,
   };
   if(editId){updateAppt(editId,a)}else{addAppt(a)}
   closeModal();buildCalView();buildMiniCal();buildRpToday();updateTopbar();
