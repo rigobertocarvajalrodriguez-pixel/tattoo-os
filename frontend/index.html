@@ -6545,7 +6545,11 @@ function playTosSplash(onDone){
   },1800);
   setTimeout(function(){
     splash.classList.add('out');
-    setTimeout(function(){splash.style.display='none';if(onDone)onDone();},1000);
+    // Fire onDone right as the fade-out starts (not after it finishes): whatever
+    // comes next (earth-zoom) sits on a higher z-index and covers the splash
+    // immediately, so the fade never reveals the app page underneath.
+    if(onDone)onDone();
+    setTimeout(function(){splash.style.display='none';},1000);
   },4500);
   function getLogoPixels(cb){
     var off=document.createElement('canvas');
