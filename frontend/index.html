@@ -2194,6 +2194,22 @@ let clientSeq=100;
 let expSeq=100;
 let projSeq=100;
 let consentSeq=100;
+// Recalcula los contadores de id a partir de los datos ya guardados, para que nunca
+// se repita un id entre perfiles/artistas tras recargar la página (los contadores
+// viven solo en memoria y si no se reajustan, cada recarga los reinicia a 100/1).
+function reseedIdCounters(){
+  var maxProfileId=0, maxApptId=99, maxClientId=99, maxExpId=99;
+  profiles.forEach(function(p){
+    if(typeof p.id==='number' && p.id>maxProfileId) maxProfileId=p.id;
+    (p.appts||[]).forEach(function(a){ var n=Number(a.id); if(!isNaN(n) && n>maxApptId) maxApptId=n; });
+    (p.clients||[]).forEach(function(c){ var n=Number(c.id); if(!isNaN(n) && n>maxClientId) maxClientId=n; });
+    (p.expenses||[]).forEach(function(e){ var n=Number(e.id); if(!isNaN(n) && n>maxExpId) maxExpId=n; });
+  });
+  profileIdSeq=Math.max(profileIdSeq, maxProfileId+1);
+  apptSeq=Math.max(apptSeq, maxApptId+1);
+  clientSeq=Math.max(clientSeq, maxClientId+1);
+  expSeq=Math.max(expSeq, maxExpId+1);
+}
 
 // -- INIT DEMO DATA for profile[0] --
 function initDemoData(){
@@ -5170,6 +5186,7 @@ function loadUserProfiles(user) {
     if (saved && saved.length) {
       profiles = saved;
       activeProfileId = profiles[0].id;
+      reseedIdCounters();
     } else {
       // New user: fresh profile
       profileIdSeq = 1;
