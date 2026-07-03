@@ -517,6 +517,13 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .tog::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
 .tog.on::after{transform:translateX(16px)}
 
+/* ── MINIMAPA DE UBICACIÓN DEL ESTUDIO ── */
+#st-minimap{position:relative;width:100%;max-width:560px;height:320px;border-radius:var(--r3);overflow:hidden;margin-top:8px;background:#1a1508;cursor:grab;border:1px solid var(--bd3)}
+#st-minimap.dragging{cursor:grabbing}
+#st-minimap img{position:absolute;display:block;width:257px;height:257px;pointer-events:none;user-select:none}
+#st-pin{position:absolute;width:36px;height:47px;transform:translate(-50%,-100%);cursor:grab;touch-action:none;filter:drop-shadow(0 4px 8px rgba(0,0,0,.5))}
+#st-pin:active{cursor:grabbing}
+
 /* ── EARTH ZOOM (animación de bienvenida) ── */
 #earthzoom-overlay{display:none;position:fixed;inset:0;z-index:100000;background:#000;overflow:hidden;align-items:center;justify-content:center}
 #ez-canvas{position:relative;width:1920px;height:1080px;transform-origin:center center;background:#000;overflow:hidden;filter:contrast(1.08) saturate(.88)}
@@ -3161,7 +3168,11 @@ function renderSettings(){
         <div id="st-geo-status" style="font-size:11px;color:var(--t3);margin-bottom:10px">${typeof _sp.studioLat==='number'?('Ubicación guardada ('+_sp.studioLat.toFixed(4)+', '+_sp.studioLon.toFixed(4)+') — se usará en la animación de bienvenida al iniciar sesión.'):'Añade la dirección para activar la animación de bienvenida al iniciar sesión.'}</div>
         <button class="bprim" id="st-save-btn" style="width:auto;padding:9px 20px;margin-top:4px" onclick="saveStudioSettings()">${t('saveChanges')}</button>
         ${typeof _sp.studioLat==='number'?`<button class="addbtn" style="background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none;margin-left:8px" onclick="previewEarthZoom()">Ver animación</button>`:''}
+        ${typeof _sp.studioLat==='number'?`
+        <div class="set-section-s" style="margin-top:16px">Arrastra el pin para marcar el lugar exacto del estudio. Esa posición es la que se usará en la animación.</div>
+        <div id="st-minimap"></div>`:''}
       </div>`;
+    if(typeof _sp.studioLat==='number') renderStudioMinimap(_sp.studioLat,_sp.studioLon);
   } else if(activeSettingsPanel==='notifications'){
     b.innerHTML=`
       <div class="set-section">
@@ -4915,6 +4926,71 @@ function ezPlay(lat, lon, label, onDone) {
   })(t0);
 }
 
+const ST_MM_ZOOM = 18, ST_MM_TILE = 256;
+function ezTileToLatLon(tx, ty, L) {
+  const n = Math.pow(2, L);
+  const lon = (tx / n) * 360 - 180;
+  const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / n)));
+  return { lat: (latRad * 180) / Math.PI, lon };
+}
+function renderStudioMinimap(lat, lon) {
+  const el = document.getElementById('st-minimap');
+  if (!el || typeof lat !== 'number') return;
+  el.innerHTML = '';
+  const cw = el.clientWidth || 560, ch = el.clientHeight || 320;
+  const center = ezTileCoords(lat, lon, ST_MM_ZOOM);
+  const centerPxX = center.x * ST_MM_TILE, centerPxY = center.y * ST_MM_TILE;
+  const n = Math.pow(2, ST_MM_ZOOM);
+  const txMin = Math.floor((centerPxX - cw / 2) / ST_MM_TILE);
+  const txMax = Math.floor((centerPxX + cw / 2) / ST_MM_TILE);
+  const tyMin = Math.floor((centerPxY - ch / 2) / ST_MM_TILE);
+  const tyMax = Math.floor((centerPxY + ch / 2) / ST_MM_TILE);
+  for (let ty = tyMin; ty <= tyMax; ty++) {
+    for (let tx = txMin; tx <= txMax; tx++) {
+      if (tx < 0 || ty < 0 || tx >= n || ty >= n) continue;
+      const img = document.createElement('img');
+      img.src = ezTileUrl(ST_MM_ZOOM, ty, tx);
+      img.style.left = (tx * ST_MM_TILE - centerPxX + cw / 2) + 'px';
+      img.style.top = (ty * ST_MM_TILE - centerPxY + ch / 2) + 'px';
+      el.appendChild(img);
+    }
+  }
+  const pin = document.createElement('div');
+  pin.id = 'st-pin';
+  pin.innerHTML = '<svg width="36" height="47" viewBox="0 0 64 84"><path d="M32 2C17 2 5 14 5 29c0 20 27 53 27 53s27-33 27-53C59 14 47 2 32 2z" fill="#B57EDC" stroke="#fff" stroke-width="3"/><circle cx="32" cy="29" r="10" fill="#fff"/></svg>';
+  let pinX = cw / 2, pinY = ch / 2;
+  pin.style.left = pinX + 'px'; pin.style.top = pinY + 'px';
+  el.appendChild(pin);
+  let dragging = false, startClientX = 0, startClientY = 0, startPinX = 0, startPinY = 0;
+  pin.addEventListener('pointerdown', function (e) {
+    dragging = true;
+    el.classList.add('dragging');
+    pin.setPointerCapture(e.pointerId);
+    startClientX = e.clientX; startClientY = e.clientY;
+    startPinX = pinX; startPinY = pinY;
+  });
+  pin.addEventListener('pointermove', function (e) {
+    if (!dragging) return;
+    pinX = ezClamp(startPinX + (e.clientX - startClientX), 0, cw);
+    pinY = ezClamp(startPinY + (e.clientY - startClientY), 0, ch);
+    pin.style.left = pinX + 'px'; pin.style.top = pinY + 'px';
+  });
+  pin.addEventListener('pointerup', function (e) {
+    if (!dragging) return;
+    dragging = false;
+    el.classList.remove('dragging');
+    const worldPxX = centerPxX + (pinX - cw / 2);
+    const worldPxY = centerPxY + (pinY - ch / 2);
+    const newPos = ezTileToLatLon(worldPxX / ST_MM_TILE, worldPxY / ST_MM_TILE, ST_MM_ZOOM);
+    const p = ap();
+    p.studioLat = newPos.lat; p.studioLon = newPos.lon;
+    saveUserProfiles();
+    const statusEl = document.getElementById('st-geo-status');
+    if (statusEl) statusEl.textContent = 'Ubicación guardada (' + newPos.lat.toFixed(5) + ', ' + newPos.lon.toFixed(5) + ') — se usará en la animación de bienvenida al iniciar sesión.';
+    showToast('Ubicación del pin actualizada');
+    renderStudioMinimap(newPos.lat, newPos.lon);
+  });
+}
 async function geocodeAddress(address) {
   try {
     const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(address);
