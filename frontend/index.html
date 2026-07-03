@@ -3126,8 +3126,40 @@ function renderFinance(){
       ${!monthlyData.some(m=>m.income>0||m.exp>0)?'<div style="padding:20px 14px;color:var(--t3);font-size:12px;text-align:center">Sin movimientos este año todavía.</div>':''}
     </div>`;
 }
+let currentMonthDetail=null;
 function openMonthDetail(monthIdx){
+  const year=TODAY.getFullYear();
+  const monthAppts=appts.filter(a=>a.status==='completed'&&a.date&&(()=>{const d=parseDate(a.date);return d.getFullYear()===year&&d.getMonth()===monthIdx})());
+  const monthSales=posSales.filter(s=>s.date&&(()=>{const d=parseDate(s.date);return d.getFullYear()===year&&d.getMonth()===monthIdx})());
+  const monthExpenses=expenses.filter(e=>e.date&&(()=>{const d=parseDate(e.date);return d.getFullYear()===year&&d.getMonth()===monthIdx})());
+  currentMonthDetail={year,monthIdx,appts:monthAppts,sales:monthSales,expenses:monthExpenses};
   openModal('monthDetail',{month:monthIdx});
+}
+function monthDetailMatch(text,q){ return text.toLowerCase().includes(q); }
+function renderMonthDetailList(){
+  const q=(document.getElementById('month-search-inp')?.value||'').trim().toLowerCase();
+  const d=currentMonthDetail;
+  const mAppts=d.appts.filter(a=>!q||monthDetailMatch(a.name+' '+a.price+' '+a.date,q));
+  const mSales=d.sales.filter(s=>!q||monthDetailMatch(s.item+' '+s.amount+' '+s.date+' '+(s.method||''),q));
+  const mExp=d.expenses.filter(e=>!q||monthDetailMatch(e.name+' '+e.amount+' '+e.date+' '+(e.cat||''),q));
+  const listEl=document.getElementById('month-detail-list');
+  if(!listEl) return;
+  listEl.innerHTML=`
+    ${mAppts.length?'<div class="set-section-t">Citas completadas</div>'+mAppts.map(a=>`
+      <div class="exi"><div class="exdot" style="background:var(--v)"></div><div class="exinf"><div class="exnm">${a.name}</div><div class="excat">${a.date}</div></div><div class="examt" style="color:var(--gr)">+€${a.price}</div></div>`).join(''):''}
+    ${mSales.length?'<div class="set-section-t">Ventas de mostrador</div>'+mSales.map(s=>`
+      <div class="exi"><div class="exdot" style="background:var(--gr)"></div><div class="exinf"><div class="exnm">${s.item}</div><div class="excat">${s.date}</div></div><div class="examt" style="color:var(--gr)">+€${s.amount}</div></div>`).join(''):''}
+    ${mExp.length?'<div class="set-section-t">Gastos</div>'+mExp.map(e=>`
+      <div class="exi"><div class="exdot" style="background:${CATCOLS[e.cat]||'var(--t3)'}"></div><div class="exinf"><div class="exnm">${e.name}</div><div class="excat">${e.date}</div></div><div class="examt">-€${e.amount}</div></div>`).join(''):''}
+    ${(!mAppts.length&&!mSales.length&&!mExp.length)?'<div style="text-align:center;padding:30px;color:var(--t3)">'+(q?'Sin resultados para "'+q+'".':'Sin movimientos este mes.')+'</div>':''}
+  `;
+}
+function toggleMonthSearch(){
+  const row=document.getElementById('month-search-row');
+  const willShow=row.style.display==='none';
+  row.style.display=willShow?'':'none';
+  if(willShow){ document.getElementById('month-search-inp').focus(); }
+  else { document.getElementById('month-search-inp').value=''; renderMonthDetailList(); }
 }
 
 function setFinanceTab(tab, el){
@@ -4031,26 +4063,23 @@ function openModal(type,data={}){
       <div class="fg"><label class="fl">${t('date')}</label><input class="fi" id="m-posdate" type="date" value="${dateStr(TODAY)}"></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="savePosSale()">${t('create')} </button></div>`;
   } else if(type==='monthDetail'){
-    const year=TODAY.getFullYear();
-    const mIdx=data.month;
-    const monthAppts=appts.filter(a=>a.status==='completed'&&a.date&&(()=>{const d=parseDate(a.date);return d.getFullYear()===year&&d.getMonth()===mIdx})());
-    const monthSales=posSales.filter(s=>s.date&&(()=>{const d=parseDate(s.date);return d.getFullYear()===year&&d.getMonth()===mIdx})());
-    const monthExpenses=expenses.filter(e=>e.date&&(()=>{const d=parseDate(e.date);return d.getFullYear()===year&&d.getMonth()===mIdx})());
-    const totalIncome=monthAppts.reduce((s,a)=>s+a.price,0)+monthSales.reduce((s,s2)=>s+s2.amount,0);
-    const totalExp=monthExpenses.reduce((s,e)=>s+e.amount,0);
+    const d=currentMonthDetail;
+    const totalIncome=d.appts.reduce((s,a)=>s+a.price,0)+d.sales.reduce((s,s2)=>s+s2.amount,0);
+    const totalExp=d.expenses.reduce((s,e)=>s+e.amount,0);
     box.innerHTML=`
-      <div class="mt">${t('months')[mIdx]} ${year}</div>
-      <div class="ms">${t('income')}: €${totalIncome.toLocaleString()} · ${t('expenses')}: €${totalExp.toLocaleString()} · Beneficio: €${(totalIncome-totalExp).toLocaleString()}</div>
-      <div style="max-height:420px;overflow-y:auto;margin-top:14px">
-        ${monthAppts.length?`<div class="set-section-t">Citas completadas</div>`+monthAppts.map(a=>`
-          <div class="exi"><div class="exdot" style="background:var(--v)"></div><div class="exinf"><div class="exnm">${a.name}</div><div class="excat">${a.date}</div></div><div class="examt" style="color:var(--gr)">+€${a.price}</div></div>`).join(''):''}
-        ${monthSales.length?`<div class="set-section-t">Ventas de mostrador</div>`+monthSales.map(s=>`
-          <div class="exi"><div class="exdot" style="background:var(--gr)"></div><div class="exinf"><div class="exnm">${s.item}</div><div class="excat">${s.date}</div></div><div class="examt" style="color:var(--gr)">+€${s.amount}</div></div>`).join(''):''}
-        ${monthExpenses.length?`<div class="set-section-t">Gastos</div>`+monthExpenses.map(e=>`
-          <div class="exi"><div class="exdot" style="background:${CATCOLS[e.cat]||'var(--t3)'}"></div><div class="exinf"><div class="exnm">${e.name}</div><div class="excat">${e.date}</div></div><div class="examt">-€${e.amount}</div></div>`).join(''):''}
-        ${(!monthAppts.length&&!monthSales.length&&!monthExpenses.length)?'<div style="text-align:center;padding:30px;color:var(--t3)">Sin movimientos este mes.</div>':''}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div class="mt">${t('months')[d.monthIdx]} ${d.year}</div>
+        <button onclick="toggleMonthSearch()" style="background:var(--elevated);border:1px solid var(--bd3);border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2);flex-shrink:0" title="Buscar">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+        </button>
       </div>
+      <div class="ms">${t('income')}: €${totalIncome.toLocaleString()} · ${t('expenses')}: €${totalExp.toLocaleString()} · Beneficio: €${(totalIncome-totalExp).toLocaleString()}</div>
+      <div id="month-search-row" style="display:none;margin-top:10px">
+        <input class="fi" type="text" id="month-search-inp" placeholder="Buscar por nombre, categoría o importe..." oninput="renderMonthDetailList()">
+      </div>
+      <div id="month-detail-list" style="max-height:min(50vh,420px);overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:14px"></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">Cerrar</button></div>`;
+    renderMonthDetailList();
   } else if(type==='project'){
     box.innerHTML=`
       <div class="mt">${t('newProjTitle')}</div><div class="ms">${t('newProjSub')}</div>
