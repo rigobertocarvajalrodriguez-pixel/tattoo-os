@@ -3193,7 +3193,7 @@ function settlementEditHTML(r){
       </select></div>
       <div style="display:flex;gap:6px">
         <button class="bprim" style="width:auto;padding:8px 14px" onclick="saveSettlementEdit('${r.id}')">Guardar</button>
-        <button class="bsec" style="width:auto;padding:8px 14px" onclick="loadSettlementsList()">Cancelar</button>
+        <button class="bsec" style="width:auto;padding:8px 14px;color:var(--ro);border-color:rgba(244,63,94,.3)" onclick="deleteSettlementRow('${r.id}')">Eliminar</button>
       </div>
     </div>`;
 }
