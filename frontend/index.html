@@ -2237,9 +2237,49 @@ function initDemoData(){
 
 // -- CONVENIENCE VARS (refreshed on profile switch) --
 let appts,clients,expenses,projects,consents,docFiles,waMessages,waSettings,docTemplates;
+let apptOwner=new Map(), clientOwner=new Map(), expenseOwner=new Map();
+// Citas/clientes/gastos son compartidos por todo el estudio (todos los perfiles = artistas del mismo estudio).
+// Siguen almacenados físicamente dentro de profiles[i].appts/.clients/.expenses (sin migración de datos);
+// esta fusión solo cambia qué ve el resto del código a través de las variables globales.
+function rebuildMergedStore(){
+  appts=[];clients=[];expenses=[];
+  apptOwner=new Map();clientOwner=new Map();expenseOwner=new Map();
+  profiles.forEach(function(p){
+    (p.appts||[]).forEach(function(a){ if(a.artistId===undefined||a.artistId===null) a.artistId=p.id; appts.push(a); apptOwner.set(a.id,p); });
+    (p.clients||[]).forEach(function(c){ clients.push(c); clientOwner.set(c.id,p); });
+    (p.expenses||[]).forEach(function(e){ expenses.push(e); expenseOwner.set(e.id,p); });
+  });
+}
+function addAppt(a){ ap().appts.push(a); appts.push(a); apptOwner.set(a.id, ap()); }
+function updateAppt(id,patch){
+  const owner=apptOwner.get(id); if(!owner) return;
+  const arr=owner.appts, i=arr.findIndex(function(x){return x.id===id});
+  if(i===-1) return;
+  Object.assign(arr[i],patch);
+}
+function removeAppt(id){
+  const owner=apptOwner.get(id);
+  if(owner) owner.appts=owner.appts.filter(function(x){return x.id!==id});
+  appts=appts.filter(function(x){return x.id!==id});
+  apptOwner.delete(id);
+}
+function addClient(c){ ap().clients.push(c); clients.push(c); clientOwner.set(c.id, ap()); }
+function removeClient(id){
+  const owner=clientOwner.get(id);
+  if(owner) owner.clients=owner.clients.filter(function(x){return x.id!==id});
+  clients=clients.filter(function(x){return x.id!==id});
+  clientOwner.delete(id);
+}
+function addExpense(e){ ap().expenses.push(e); expenses.push(e); expenseOwner.set(e.id, ap()); }
+function removeExpense(id){
+  const owner=expenseOwner.get(id);
+  if(owner) owner.expenses=owner.expenses.filter(function(x){return x.id!==id});
+  expenses=expenses.filter(function(x){return x.id!==id});
+  expenseOwner.delete(id);
+}
 function refreshProfileData(){
   const p=ap();
-  appts=p.appts; clients=p.clients; expenses=p.expenses;
+  rebuildMergedStore();
   projects=p.projects; consents=p.consents; docFiles=p.docFiles;
   waMessages=p.waMessages; waSettings=p.waSettings||defaultWaSettings();
   docTemplates=p.docTemplates||defaultDocTemplates();
@@ -2940,7 +2980,7 @@ function renderClients(filter=''){
       </div>
     </div>`).join('');
 }
-function deleteClient(id){if(confirm(t('clientDeleted')+'?')){clients=clients.filter(c=>c.id!==id);renderClients();showToast(t('clientDeleted'))}}
+function deleteClient(id){if(confirm(t('clientDeleted')+'?')){removeClient(id);renderClients();showToast(t('clientDeleted'))}}
 function openClientProfile(id){
   const cl=clients.find(c=>c.id===id);if(!cl)return;
   const clientAppts=appts.filter(a=>a.name===cl.name);
@@ -3019,7 +3059,7 @@ function renderExpenses(){
       <button class="exdel" onclick="deleteExpense(${e.id})"></button>
     </div>`).join('');
 }
-function deleteExpense(id){expenses=expenses.filter(e=>e.id!==id);renderExpenses();showToast(t('expDeleted'))}
+function deleteExpense(id){removeExpense(id);renderExpenses();showToast(t('expDeleted'))}
 
 // ==========================================
 // PROJECTS
@@ -3746,11 +3786,11 @@ function saveAppt(editId){
     status:document.getElementById('m-status').value,
     note:document.getElementById('m-note').value,
   };
-  if(editId){appts=appts.map(x=>x.id===editId?a:x)}else{appts.push(a)}
+  if(editId){updateAppt(editId,a)}else{addAppt(a)}
   closeModal();buildCalView();buildMiniCal();buildRpToday();updateTopbar();
   showToast(editId?t('apptUpdated'):t('apptCreated'));
 }
-function deleteAppt(id){appts=appts.filter(a=>a.id!==id);closeModal();buildCalView();buildMiniCal();buildRpToday();updateTopbar();showToast(t('apptDeleted'))}
+function deleteAppt(id){removeAppt(id);closeModal();buildCalView();buildMiniCal();buildRpToday();updateTopbar();showToast(t('apptDeleted'))}
 
 // Helper: open edit modal by appt ID (avoids JSON.stringify in onclick)
 function editApptById(id) {
@@ -3760,13 +3800,13 @@ function editApptById(id) {
 function saveClient(){
   const nm=document.getElementById('m-cname').value.trim();if(!nm){showToast(t('fillFields'));return}
   const COLS=['v','c','r','a','g'];
-  clients.push({id:clientSeq++,name:nm,ig:document.getElementById('m-cig').value||' - ',phone:document.getElementById('m-cphone').value||' - ',notes:document.getElementById('m-cnotes').value,sessions:0,spent:0,color:COLS[Math.floor(Math.random()*COLS.length)]});
+  addClient({id:clientSeq++,name:nm,ig:document.getElementById('m-cig').value||' - ',phone:document.getElementById('m-cphone').value||' - ',notes:document.getElementById('m-cnotes').value,sessions:0,spent:0,color:COLS[Math.floor(Math.random()*COLS.length)]});
   closeModal();renderClients();showToast(t('clientAdded'));
 }
 function saveExpense(){
   const nm=document.getElementById('m-ename').value.trim();const amt=parseFloat(document.getElementById('m-eamt').value);
   if(!nm||!amt){showToast(t('fillFields'));return}
-  expenses.push({id:expSeq++,name:nm,cat:document.getElementById('m-ecat').value,amount:amt,date:document.getElementById('m-edate').value});
+  addExpense({id:expSeq++,name:nm,cat:document.getElementById('m-ecat').value,amount:amt,date:document.getElementById('m-edate').value});
   closeModal();renderExpenses();showToast(t('expAdded'));
 }
 function saveProject(){
@@ -3930,13 +3970,14 @@ function initDrag(el, appt, isDay) {
       if (moved && newStart !== undefined) {
         const idx = appts.findIndex(a => a.id === appt.id);
         if (idx !== -1) {
-          appts[idx].start = newStart;
+          const patch = { start: newStart };
           if (!isDay && targetDayIdx >= 0) {
             // update date to the target day column
             const mon = getMonday(curDate);
             const newDate = new Date(mon.getTime() + targetDayIdx * 86400000);
-            appts[idx].date = dateStr(newDate);
+            patch.date = dateStr(newDate);
           }
+          updateAppt(appt.id, patch);
           buildCalView();
           buildMiniCal();
           buildRpToday();
