@@ -517,6 +517,35 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .tog::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
 .tog.on::after{transform:translateX(16px)}
 
+/* ── EARTH ZOOM (animación de bienvenida) ── */
+#earthzoom-overlay{display:none;position:fixed;inset:0;z-index:100000;background:#000;overflow:hidden;align-items:center;justify-content:center}
+#ez-canvas{position:relative;width:1920px;height:1080px;transform-origin:center center;background:#000;overflow:hidden;filter:contrast(1.08) saturate(.88)}
+#ez-tile-root{position:absolute;inset:0;background:#1a1508;overflow:hidden}
+#ez-tiles-wrap{position:absolute;inset:0;transform-origin:center}
+#ez-tiles{position:absolute;left:0;top:0}
+.ez-tile-layer{position:absolute;left:960px;top:540px;transform-origin:0 0;display:none}
+.ez-tile-layer img{position:absolute;display:block}
+#ez-streaks{position:absolute;inset:0;pointer-events:none;opacity:0}
+.ez-streak{position:absolute;left:50%;top:50%;width:2600px;height:2600px;margin-left:-1300px;margin-top:-1300px;display:none;
+  background:repeating-conic-gradient(from 0deg, rgba(255,255,255,0) 0deg 5deg, rgba(255,255,255,.55) 5.6deg 6.2deg, rgba(255,255,255,0) 6.8deg 11deg);
+  -webkit-mask-image:radial-gradient(circle, transparent 0 7%, black 26%, rgba(0,0,0,.6) 48%, transparent 68%);
+  mask-image:radial-gradient(circle, transparent 0 7%, black 26%, rgba(0,0,0,.6) 48%, transparent 68%)}
+#ez-streak1{filter:blur(5px);opacity:.8}
+#ez-streak2{filter:blur(9px);opacity:.5}
+#ez-clouds{position:absolute;inset:0;pointer-events:none}
+.ez-cloud{position:absolute;display:none;border-radius:50%;pointer-events:none;
+  background:radial-gradient(ellipse, rgba(255,255,255,.95) 0%, rgba(240,244,250,.5) 40%, rgba(240,244,250,0) 70%);filter:blur(14px)}
+#ez-whiteout{position:absolute;inset:0;background:#f4f6fa;opacity:1;pointer-events:none}
+#ez-grade{position:absolute;inset:0;pointer-events:none}
+#ez-grade::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 52%, rgba(12,8,4,.42) 100%)}
+#ez-grade::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg, rgba(211,146,74,.10), rgba(24,32,48,.10));mix-blend-mode:overlay}
+#ez-pin{position:absolute;left:960px;top:540px;display:none;flex-direction:column;align-items:center;gap:10px;pointer-events:none;z-index:5}
+.ez-pin-label{padding:10px 22px;background:rgba(20,12,28,.82);border:1.5px solid #B57EDC;border-radius:999px;color:#F3EAFB;
+  font-family:Helvetica,Arial,sans-serif;font-size:30px;font-weight:700;letter-spacing:.02em;white-space:nowrap;box-shadow:0 6px 24px rgba(0,0,0,.45)}
+#ez-skip{position:absolute;top:28px;right:28px;z-index:10;background:rgba(20,12,28,.55);border:1px solid rgba(255,255,255,.25);
+  color:#fff;font-size:13px;font-family:'DM Sans',sans-serif;padding:8px 16px;border-radius:999px;cursor:pointer;backdrop-filter:blur(6px)}
+#ez-skip:hover{background:rgba(20,12,28,.8)}
+
 /* ── MODAL ── */
 .overlay{display:none;position:fixed;inset:0;background:rgba(4,4,10,.85);backdrop-filter:blur(10px);z-index:100;align-items:center;justify-content:center}
 .overlay.open{display:flex}
@@ -3121,13 +3150,16 @@ function renderSettings(){
         </div>
       </div>`;
   } else if(activeSettingsPanel==='studio'){
+    const _sp = ap();
     b.innerHTML=`
       <div class="set-section">
         <div class="set-section-t">${t('studioName')}</div>
         <div class="set-section-s">${t('studioNameDesc')}</div>
-        <div class="fg" style="margin-top:12px"><label class="fl">${t('studioName')}</label><input class="fi" type="text" value="Mi Estudio" placeholder="Nombre del estudio"></div>
-        <div class="fg"><label class="fl">Ciudad</label><input class="fi" type="text" placeholder="Madrid, Barcelona..."></div>
-        <button class="bprim" style="width:auto;padding:9px 20px;margin-top:4px">${t('saveChanges')}</button>
+        <div class="fg" style="margin-top:12px"><label class="fl">${t('studioName')}</label><input class="fi" id="st-name" type="text" value="${_sp.studioName||''}" placeholder="Nombre del estudio"></div>
+        <div class="fg"><label class="fl">Dirección del estudio</label><input class="fi" id="st-addr" type="text" value="${_sp.studioAddress||''}" placeholder="Calle, ciudad, país"></div>
+        <div id="st-geo-status" style="font-size:11px;color:var(--t3);margin-bottom:10px">${typeof _sp.studioLat==='number'?('Ubicación guardada ('+_sp.studioLat.toFixed(4)+', '+_sp.studioLon.toFixed(4)+') — se usará en la animación de bienvenida al iniciar sesión.'):'Añade la dirección para activar la animación de bienvenida al iniciar sesión.'}</div>
+        <button class="bprim" id="st-save-btn" style="width:auto;padding:9px 20px;margin-top:4px" onclick="saveStudioSettings()">${t('saveChanges')}</button>
+        ${typeof _sp.studioLat==='number'?`<button class="addbtn" style="background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none;margin-left:8px" onclick="previewEarthZoom()">Ver animación</button>`:''}
       </div>`;
   } else if(activeSettingsPanel==='notifications'){
     b.innerHTML=`
@@ -3680,6 +3712,7 @@ function openModal(type,data={}){
       <div class="fg"><label class="fl">${t('profileName')}</label><input class="fi" id="m-prname" type="text" placeholder="Nombre del artista"></div>
       <div class="fg"><label class="fl">${t('profileRole')}</label><input class="fi" id="m-prrole" type="text" placeholder="Tatuador, Especialista..."></div>
       <div class="fg"><label class="fl">${t('color')}</label><select class="fi" id="m-prcolor"><option value="v">Violeta</option><option value="c">Cyan</option><option value="r">Rosa</option><option value="a">Ámbar</option><option value="g">Verde</option></select></div>
+      <div class="fg"><label class="fl">Dirección del estudio</label><input class="fi" id="m-praddr" type="text" placeholder="Calle, ciudad, país (opcional)"></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="saveProfile()">${t('createProfile')} </button></div>`;
   }
   document.getElementById('overlay').classList.add('open');
@@ -3729,8 +3762,16 @@ function saveProject(){
 }
 function saveProfile(){
   const nm=document.getElementById('m-prname').value.trim();if(!nm){showToast(t('fillFields'));return}
-  profiles.push({id:profileIdSeq++,name:nm,role:document.getElementById('m-prrole').value||'Artista',color:document.getElementById('m-prcolor').value,appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null});
+  const addrEl=document.getElementById('m-praddr');
+  const addr=addrEl?addrEl.value.trim():'';
+  const newProf={id:profileIdSeq++,name:nm,role:document.getElementById('m-prrole').value||'Artista',color:document.getElementById('m-prcolor').value,appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null,studioName:nm,studioAddress:addr,studioLat:null,studioLon:null};
+  profiles.push(newProf);
   closeModal();showToast(t('createProfile'));
+  if(addr){
+    geocodeAddress(addr).then(function(geo){
+      if(geo){ newProf.studioLat=geo.lat; newProf.studioLon=geo.lon; saveUserProfiles(); }
+    });
+  }
 }
 
 function closeModal(){document.getElementById('overlay').classList.remove('open')}
@@ -4618,6 +4659,294 @@ function sendForgot() {
   document.getElementById('f-email').disabled = true;
 }
 
+// ==========================================
+// EARTH ZOOM — animación de bienvenida (zoom satelital hasta el estudio)
+// ==========================================
+const EZ_W = 1920, EZ_H = 1080, EZ_DUR = 6, EZ_LMIN = 5, EZ_LMAX = 18, EZ_COLS = 3, EZ_ROWS = 2;
+
+const EZEase = {
+  linear: t => t,
+  easeInQuad: t => t * t,
+  easeInOutQuad: t => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
+  easeInCubic: t => t * t * t,
+  easeOutCubic: t => (--t) * t * t + 1,
+  easeOutBack: t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); },
+};
+function ezClamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function ezInterpolate(input, output, ease) {
+  ease = ease || EZEase.linear;
+  return (t) => {
+    if (t <= input[0]) return output[0];
+    if (t >= input[input.length - 1]) return output[output.length - 1];
+    for (let i = 0; i < input.length - 1; i++) {
+      if (t >= input[i] && t <= input[i + 1]) {
+        const span = input[i + 1] - input[i];
+        const local = span === 0 ? 0 : (t - input[i]) / span;
+        const fn = Array.isArray(ease) ? (ease[i] || EZEase.linear) : ease;
+        return output[i] + (output[i + 1] - output[i]) * fn(local);
+      }
+    }
+    return output[output.length - 1];
+  };
+}
+function ezAnimate(o) {
+  const from = o.from||0, to = o.to!==undefined?o.to:1, start = o.start||0, end = o.end!==undefined?o.end:1, ease = o.ease||EZEase.easeInOutQuad;
+  return (t) => {
+    if (t <= start) return from;
+    if (t >= end) return to;
+    return from + (to - from) * ease((t - start) / (end - start));
+  };
+}
+function ezTileCoords(lat, lon, L) {
+  const n = Math.pow(2, L);
+  const latr = (lat * Math.PI) / 180;
+  return { x: (n * (lon + 180)) / 360, y: (n * (1 - Math.log(Math.tan(latr) + 1 / Math.cos(latr)) / Math.PI)) / 2 };
+}
+function ezTileUrl(z, y, x) { return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`; }
+function ezMulberry(seed) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const EZ_CLOUD_SEEDS = (() => {
+  const r = ezMulberry(7);
+  return Array.from({ length: 9 }, () => ({ x: 22 + r() * 56, y: 20 + r() * 60, w: 500 + r() * 900, d: r() * 0.55, a: 0.5 + r() * 0.5 }));
+})();
+
+const ezZOf = ezInterpolate([0.4, EZ_DUR], [5.7, 18], EZEase.easeOutCubic);
+let ezState = null, ezAnimating = false, ezRafId = null;
+
+function ezBuildDOM() {
+  if (ezState) return ezState;
+  const overlay = document.createElement('div');
+  overlay.id = 'earthzoom-overlay';
+  overlay.innerHTML = `
+    <div id="ez-canvas">
+      <div id="ez-tile-root">
+        <div id="ez-tiles-wrap"><div id="ez-tiles"></div></div>
+        <div id="ez-streaks"><div id="ez-streak1" class="ez-streak"></div><div id="ez-streak2" class="ez-streak"></div></div>
+      </div>
+      <div id="ez-clouds"></div>
+      <div id="ez-whiteout"></div>
+      <div id="ez-grade"></div>
+      <div id="ez-pin">
+        <div id="ez-pin-label" class="ez-pin-label"></div>
+        <svg width="64" height="84" viewBox="0 0 64 84"><path d="M32 2C17 2 5 14 5 29c0 20 27 53 27 53s27-33 27-53C59 14 47 2 32 2z" fill="#B57EDC" stroke="#fff" stroke-width="3"/><circle cx="32" cy="29" r="10" fill="#fff"/></svg>
+      </div>
+      <button id="ez-skip">Saltar ✕</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  const clouds = EZ_CLOUD_SEEDS.map(c => {
+    const el = document.createElement('div');
+    el.className = 'ez-cloud';
+    overlay.querySelector('#ez-clouds').appendChild(el);
+    return Object.assign({ el }, c);
+  });
+  ezState = {
+    overlay,
+    canvas: overlay.querySelector('#ez-canvas'),
+    tilesEl: overlay.querySelector('#ez-tiles'),
+    tilesWrapEl: overlay.querySelector('#ez-tiles-wrap'),
+    streaksEl: overlay.querySelector('#ez-streaks'),
+    streak1: overlay.querySelector('#ez-streak1'),
+    streak2: overlay.querySelector('#ez-streak2'),
+    whiteoutEl: overlay.querySelector('#ez-whiteout'),
+    pinEl: overlay.querySelector('#ez-pin'),
+    pinLabelEl: overlay.querySelector('#ez-pin-label'),
+    skipBtn: overlay.querySelector('#ez-skip'),
+    clouds, levels: {}, lastLat: null, lastLon: null,
+  };
+  const fit = () => {
+    const s = Math.min(window.innerWidth / EZ_W, window.innerHeight / EZ_H);
+    ezState.canvas.style.transform = `scale(${s})`;
+  };
+  fit();
+  window.addEventListener('resize', fit);
+  return ezState;
+}
+
+function ezBuildLevels(lat, lon) {
+  const st = ezState;
+  st.tilesEl.innerHTML = '';
+  st.levels = {};
+  for (let L = EZ_LMIN; L <= EZ_LMAX; L++) {
+    const c = ezTileCoords(lat, lon, L);
+    const bx = Math.floor(c.x), by = Math.floor(c.y), n = Math.pow(2, L);
+    const layer = document.createElement('div');
+    layer.className = 'ez-tile-layer';
+    for (let dy = -EZ_ROWS; dy <= EZ_ROWS; dy++) {
+      for (let dx = -EZ_COLS; dx <= EZ_COLS; dx++) {
+        const x = bx + dx, y = by + dy;
+        if (x < 0 || y < 0 || x >= n || y >= n) continue;
+        const img = document.createElement('img');
+        img.src = ezTileUrl(L, y, x);
+        img.draggable = false;
+        img.style.left = ((x - c.x) * 256) + 'px';
+        img.style.top = ((y - c.y) * 256) + 'px';
+        img.style.width = '256.6px'; img.style.height = '256.6px';
+        layer.appendChild(img);
+      }
+    }
+    st.tilesEl.appendChild(layer);
+    st.levels[L] = layer;
+  }
+}
+function ezPreloadTiles(lat, lon) {
+  const jobs = [];
+  for (let L = EZ_LMIN; L <= EZ_LMAX; L++) {
+    const c = ezTileCoords(lat, lon, L);
+    const bx = Math.floor(c.x), by = Math.floor(c.y), n = Math.pow(2, L);
+    for (let dy = -EZ_ROWS; dy <= EZ_ROWS; dy++) {
+      for (let dx = -EZ_COLS; dx <= EZ_COLS; dx++) {
+        const x = bx + dx, y = by + dy;
+        if (x < 0 || y < 0 || x >= n || y >= n) continue;
+        jobs.push(ezTileUrl(L, y, x));
+      }
+    }
+  }
+  let i = 0;
+  const wave = () => {
+    for (let k = 0; k < 18 && i < jobs.length; k++, i++) { const im = new Image(); im.src = jobs[i]; }
+    if (i < jobs.length) setTimeout(wave, 220);
+  };
+  wave();
+}
+
+function ezFrame(t) {
+  const st = ezState;
+  const whiteout = ezInterpolate([0, 0.75, 1.5], [1, 1, 0], EZEase.easeInOutQuad)(t);
+  st.whiteoutEl.style.opacity = whiteout;
+  st.clouds.forEach(c => {
+    const t0 = c.d * 0.8 - 0.35;
+    const p = ezClamp((t - t0) / 1.5, 0, 1);
+    if (t < 2.4 && p > 0 && p < 1) {
+      const sc = 0.35 + EZEase.easeInCubic(p) * 7;
+      const op = c.a * Math.sin(p * Math.PI);
+      c.el.style.display = 'block';
+      c.el.style.left = c.x + '%'; c.el.style.top = c.y + '%';
+      c.el.style.width = c.w + 'px'; c.el.style.height = (c.w * 0.62) + 'px';
+      c.el.style.marginLeft = (-c.w / 2) + 'px'; c.el.style.marginTop = (-c.w * 0.31) + 'px';
+      c.el.style.transform = `scale(${sc})`;
+      c.el.style.opacity = op;
+    } else { c.el.style.display = 'none'; }
+  });
+
+  const z = ezZOf(t);
+  const speed = (ezZOf(t + 0.04) - z) / 0.04;
+  for (let L = EZ_LMIN; L <= EZ_LMAX; L++) {
+    const layer = st.levels[L];
+    if (!layer) continue;
+    if (z > L - 0.15 && z < L + 2.7) {
+      layer.style.display = 'block';
+      layer.style.transform = `scale(${Math.pow(2, z - L)})`;
+      layer.style.opacity = ezClamp((z - L + 0.15) / 0.3, 0, 1);
+    } else { layer.style.display = 'none'; }
+  }
+  const rot = ezInterpolate([0.4, 5.4], [-5, 0], EZEase.easeOutCubic)(t);
+  const blur = ezClamp(speed * 0.85 - 0.3, 0, 7);
+  st.tilesWrapEl.style.transform = `rotate(${rot}deg) scale(${1 + Math.abs(rot) * 0.012})`;
+  st.tilesWrapEl.style.filter = blur > 0.2 ? `blur(${blur}px)` : 'none';
+
+  const streakAnim = ezAnimate({ from: 1, to: 0, start: 2.2, end: 3.4 })(t);
+  const streak = ezClamp(speed / 5.5 - 0.12, 0, 1) * streakAnim;
+  const spin = ezClamp((t - 0.4) / 3, 0, 1);
+  st.streaksEl.style.opacity = streak;
+  if (streak > 0.005) {
+    st.streak1.style.display = 'block'; st.streak2.style.display = 'block';
+    st.streak1.style.transform = `rotate(${spin * 14}deg) scale(${1 + spin * 0.5})`;
+    st.streak2.style.transform = `rotate(${97 - spin * 9}deg) scale(${1.25 + spin * 0.35})`;
+  } else { st.streak1.style.display = 'none'; st.streak2.style.display = 'none'; }
+
+  const drop = ezAnimate({ from: 0, to: 1, start: 5.05, end: 5.55, ease: EZEase.easeOutBack })(t);
+  const labelIn = ezAnimate({ from: 0, to: 1, start: 5.45, end: 5.85, ease: EZEase.easeOutCubic })(t);
+  if (drop > 0) {
+    st.pinEl.style.display = 'flex';
+    st.pinEl.style.opacity = ezClamp(drop * 2, 0, 1);
+    st.pinEl.style.transform = `translate(-50%, -100%) translateY(${(1 - drop) * -90}px) scale(${0.5 + drop * 0.5})`;
+    st.pinLabelEl.style.opacity = labelIn;
+    st.pinLabelEl.style.transform = `translateY(${(1 - labelIn) * 10}px)`;
+  } else { st.pinEl.style.display = 'none'; }
+}
+
+function ezPlay(lat, lon, label, onDone) {
+  if (typeof lat !== 'number' || typeof lon !== 'number') { if (onDone) onDone(); return; }
+  const st = ezBuildDOM();
+  if (st.lastLat !== lat || st.lastLon !== lon) {
+    ezBuildLevels(lat, lon);
+    ezPreloadTiles(lat, lon);
+    st.lastLat = lat; st.lastLon = lon;
+  }
+  st.pinLabelEl.textContent = label || 'Mi Estudio';
+  st.overlay.style.display = 'flex';
+  st.overlay.style.opacity = '1';
+  ezAnimating = true;
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true; ezAnimating = false;
+    if (ezRafId) cancelAnimationFrame(ezRafId);
+    st.overlay.style.transition = 'opacity .5s';
+    st.overlay.style.opacity = '0';
+    setTimeout(() => { st.overlay.style.display = 'none'; st.overlay.style.transition = ''; }, 520);
+    if (onDone) onDone();
+  };
+  st.skipBtn.onclick = finish;
+  const t0 = performance.now();
+  (function loop(now) {
+    const t = (now - t0) / 1000;
+    ezFrame(Math.min(t, EZ_DUR + 0.01));
+    if (t >= EZ_DUR) { finish(); return; }
+    ezRafId = requestAnimationFrame(loop);
+  })(t0);
+}
+
+async function geocodeAddress(address) {
+  try {
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(address);
+    const res = await fetch(url, { headers: { 'Accept-Language': 'es' } });
+    const data = await res.json();
+    if (!data || !data.length) return null;
+    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), label: data[0].display_name };
+  } catch (e) { return null; }
+}
+
+async function saveStudioSettings() {
+  const p = ap();
+  const nm = document.getElementById('st-name').value.trim();
+  const addr = document.getElementById('st-addr').value.trim();
+  const statusEl = document.getElementById('st-geo-status');
+  const btn = document.getElementById('st-save-btn');
+  p.studioName = nm;
+  p.studioAddress = addr;
+  if (addr) {
+    btn.disabled = true;
+    statusEl.textContent = 'Buscando ubicación...';
+    const geo = await geocodeAddress(addr);
+    btn.disabled = false;
+    if (geo) {
+      p.studioLat = geo.lat; p.studioLon = geo.lon;
+      showToast('Estudio guardado');
+    } else {
+      p.studioLat = null; p.studioLon = null;
+      showToast('No se pudo encontrar esa dirección');
+    }
+  } else {
+    p.studioLat = null; p.studioLon = null;
+    showToast('Guardado');
+  }
+  saveUserProfiles();
+  renderSettings();
+}
+
+function previewEarthZoom() {
+  const p = ap();
+  if (typeof p.studioLat !== 'number') return;
+  ezPlay(p.studioLat, p.studioLon, p.studioName || p.name, function(){});
+}
+
 function loginSuccess(user) {
   currentUser = user;
   saveSession(user);
@@ -4677,6 +5006,12 @@ function loginSuccess(user) {
   showToast('Bienvenido, ' + user.name);
   showAdminNav();
   if (!localStorage.getItem('plan_chosen')) { showPlanScreen(); }
+  try {
+    var _ezProf = ap();
+    if (_ezProf && typeof _ezProf.studioLat === 'number' && typeof _ezProf.studioLon === 'number') {
+      ezPlay(_ezProf.studioLat, _ezProf.studioLon, _ezProf.studioName || _ezProf.name, function(){});
+    }
+  } catch(eEz) {}
   if (window._initRemoteView) window._initRemoteView(user.id);
   // Cargar tickets del usuario (para ver respuestas del admin)
   setTimeout(loadUserTickets, 1000);
