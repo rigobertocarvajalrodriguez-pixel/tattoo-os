@@ -2507,6 +2507,7 @@ function navTo(page,el){
   if(_curPg&&_curPg.id==='page-tienda'&&page!=='tienda'){
     document.body.classList.toggle('light',theme==='light');
     document.body.style.background=theme==='light'?'#f0f0f5':'#04040a';
+    document.getElementById('app').classList.toggle('light',theme==='light');
     const _sbR=document.querySelector('.sidebar');
     if(_sbR&&!IS_MOBILE()){sidebarMini=window._tiendaPrevMini||false;_sbR.classList.toggle('sidebar-mini',sidebarMini);}
     const _tbR=document.querySelector('.topbar');
@@ -3325,6 +3326,8 @@ function setTheme(th){
   lsSet('tos_theme',th);
   document.body.classList.toggle('light',th==='light');
   document.body.style.background = th==='light' ? '#f0f0f5' : '#04040a';
+  const _appEl=document.getElementById('app');
+  if(_appEl) _appEl.classList.toggle('light',th==='light');
   renderSettings();showToast(th==='dark'?t('darkMode'):t('lightMode'));
 }
 var ACCENTS={
