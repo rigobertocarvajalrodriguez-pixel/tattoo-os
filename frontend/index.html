@@ -3870,6 +3870,40 @@ function renderProfilePicker(){
   }).join('');
 }
 function switchProfile(id){
+  if(id===activeProfileId){ closeProfilePicker(); return; }
+  const target=profiles.find(p=>p.id===id);
+  if(!target) return;
+  closeProfilePicker();
+  openProfileAuthModal(id, target.name);
+}
+async function openProfileAuthModal(id, name){
+  let hasPassword=false;
+  try{
+    const res=await fetch(API_BASE+'/api/profile/'+id+'/has-password',{headers:{'Authorization':'Bearer '+_authToken}});
+    if(res.ok){ const data=await res.json(); hasPassword=!!data.hasPassword; }
+  }catch(e){}
+  openModal('profileAuth',{id,name,mode:hasPassword?'verify':'set'});
+}
+async function submitProfileAuth(id){
+  const password=document.getElementById('pa-password').value;
+  const confirmEl=document.getElementById('pa-confirm');
+  const errEl=document.getElementById('pa-error');
+  errEl.style.display='none';
+  if(confirmEl){
+    if(password.length<4){errEl.textContent='La contraseña debe tener al menos 4 caracteres';errEl.style.display='block';return}
+    if(password!==confirmEl.value){errEl.textContent='Las contraseñas no coinciden';errEl.style.display='block';return}
+  } else if(!password){
+    errEl.textContent='Escribe tu contraseña';errEl.style.display='block';return;
+  }
+  try{
+    const res=await fetch(API_BASE+'/api/profile/'+id+'/auth',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},body:JSON.stringify({password})});
+    const data=await res.json();
+    if(!res.ok){errEl.textContent=data.error||'Error';errEl.style.display='block';return}
+    closeModal();
+    performProfileSwitch(id);
+  }catch(e){errEl.textContent='Error de conexión';errEl.style.display='block'}
+}
+function performProfileSwitch(id){
   activeProfileId=id;
   refreshProfileData();
   renderUserArea();closeProfilePicker();
@@ -4163,6 +4197,14 @@ function openModal(type,data={}){
       <div class="fg"><label class="fl">${t('color')}</label><select class="fi" id="m-prcolor"><option value="v">Violeta</option><option value="c">Cyan</option><option value="r">Rosa</option><option value="a">Ámbar</option><option value="g">Verde</option></select></div>
       <div class="fg"><label class="fl">Dirección del estudio</label><input class="fi" id="m-praddr" type="text" placeholder="Calle, ciudad, país (opcional)"></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="saveProfile()">${t('createProfile')} </button></div>`;
+  } else if(type==='profileAuth'){
+    box.innerHTML=`
+      <div class="mt">${data.mode==='set'?'Crear contraseña':'Ingresar a '+data.name}</div>
+      <div class="ms">${data.mode==='set'?('Es la primera vez que entras a '+data.name+'. Crea una contraseña para proteger este perfil.'):('Escribe la contraseña de '+data.name+' para continuar.')}</div>
+      <div class="fg"><label class="fl">Contraseña</label><input class="fi" id="pa-password" type="password" placeholder="••••••••" autofocus onkeydown="if(event.key==='Enter')submitProfileAuth(${data.id})"></div>
+      ${data.mode==='set'?`<div class="fg"><label class="fl">Confirmar contraseña</label><input class="fi" id="pa-confirm" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')submitProfileAuth(${data.id})"></div>`:''}
+      <div id="pa-error" style="display:none;color:var(--ro);font-size:11px;margin-top:-6px;margin-bottom:10px"></div>
+      <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="submitProfileAuth(${data.id})">${data.mode==='set'?'Crear y entrar':'Entrar'}</button></div>`;
   }
   document.getElementById('overlay').classList.add('open');
 }

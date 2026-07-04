@@ -740,6 +740,18 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
 // AISLAMIENTO POR PERFIL: contraseña propia + datos con alcance real
 // ══════════════════════════════════════════
 
+// Le dice al frontend si este perfil ya tiene contraseña (para mostrar "crear" o "ingresar").
+app.get('/api/profile/:id/has-password', authMiddleware, function(req, res) {
+  var profileId = parseInt(req.params.id, 10);
+  db.query('SELECT user_id, password_hash FROM profiles WHERE id=$1', [profileId])
+    .then(function(r) {
+      if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
+      if (r.rows[0].user_id !== req.userId) return res.status(403).json({ error: 'No autorizado' });
+      res.json({ hasPassword: !!r.rows[0].password_hash });
+    })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
 // Primer acceso a un perfil: define su contraseña. Accesos siguientes: la verifica.
 // Todos los perfiles (incluido el Administrador) pasan por aquí — la única diferencia
 // entre perfiles es qué datos ven después (ver /api/profile/:id/data), no cómo se autentican.
