@@ -3472,7 +3472,24 @@ function setSettingsPanel(panel,el){
   if(el) el.classList.add('on');
   renderSettings();
 }
+// Un artista (no Administrador) solo debe ver Apariencia, Idioma y Notificaciones -
+// el resto son ajustes del estudio completo, no de su propio perfil.
+var SETTINGS_ADMIN_ONLY=['studio','artists','whatsapp','account','ia','plan'];
+function applySettingsNavAccess(){
+  var admin=activeIsAdmin();
+  SETTINGS_ADMIN_ONLY.forEach(function(sp){
+    var el=document.querySelector('.sni[data-sp="'+sp+'"]');
+    if(el) el.style.display=admin?'':'none';
+  });
+  if(!admin && SETTINGS_ADMIN_ONLY.indexOf(activeSettingsPanel)!==-1){
+    activeSettingsPanel='appearance';
+    document.querySelectorAll('.sni').forEach(function(n){n.classList.remove('on')});
+    var apEl=document.querySelector('.sni[data-sp="appearance"]');
+    if(apEl) apEl.classList.add('on');
+  }
+}
 function renderSettings(){
+  applySettingsNavAccess();
   const b=document.getElementById('set-body');
   if(activeSettingsPanel==='appearance'){
     b.innerHTML=`
@@ -3961,6 +3978,7 @@ function performProfileSwitch(id){
     if(pid==='projects')renderProjects();
     if(pid==='docs')renderDocs();
     if(pid==='whatsapp')renderWaPage();
+    if(pid==='settings')renderSettings();
   // Refresh WA settings from new profile
   if(!waSettings||!waSettings.automations){waSettings=defaultWaSettings();ap().waSettings=waSettings;}
   }
@@ -4124,6 +4142,10 @@ function openModal(type,data={}){
     const colorDots=Object.entries(COLORS).map(([k,hex])=>`<div class="cp-dot${k===curCol?' sel':''}" data-c="${k}" style="background:${hex};--cp-col:${hex}" onclick="selectApptColor(this)"></div>`).join('');
     const curArtistId=data.artistId||activeProfileId;
     const artistOpts=profiles.map(p=>`<option value="${p.id}" ${curArtistId===p.id?'selected':''}>${p.name}</option>`).join('');
+    // Un artista no puede asignarle una cita a otro perfil - solo el Administrador elige.
+    const artistField=activeIsAdmin()
+      ?`<select class="fi" id="m-artist">${artistOpts}</select>`
+      :`<input class="fi" type="text" value="${ap().name}" disabled>`;
     box.innerHTML=`
       <div class="mt">${isEdit?t('editApptTitle'):t('newApptTitle')}</div>
       <div class="ms">${isEdit?t('editApptSub'):t('newApptSub')}</div>
@@ -4144,7 +4166,7 @@ function openModal(type,data={}){
       <div class="fr2">
         <div class="fg" style="flex:1"><label class="fl">${t('status')}</label><select class="fi" id="m-status">${statusOpts}</select></div>
       </div>
-      <div class="fg"><label class="fl">Artista</label><select class="fi" id="m-artist">${artistOpts}</select></div>
+      <div class="fg"><label class="fl">Artista</label>${artistField}</div>
       <div class="fr2">
         <div class="fg"><label class="fl">Método señal</label><select class="fi" id="m-depmethod">${paymentMethodOpts(data.depositMethod)}</select></div>
         <div class="fg"><label class="fl">Método balance</label><select class="fi" id="m-balmethod">${paymentMethodOpts(data.balanceMethod)}</select></div>
@@ -4267,7 +4289,7 @@ function saveAppt(editId){
     deposit:getWheelValue('m-deposit')||0,
     status:document.getElementById('m-status').value,
     note:document.getElementById('m-note').value,
-    artistId:parseInt(document.getElementById('m-artist').value,10)||activeProfileId,
+    artistId:activeIsAdmin()?(parseInt(document.getElementById('m-artist').value,10)||activeProfileId):activeProfileId,
     depositMethod:document.getElementById('m-depmethod').value,
     balanceMethod:document.getElementById('m-balmethod').value,
     balancePaid:balancePaidNow,
