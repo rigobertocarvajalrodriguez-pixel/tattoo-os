@@ -2215,6 +2215,15 @@ let posSaleSeq=100;
 
 // -- ACTIVE PROFILE ACCESSOR --
 function ap(){return profiles.find(p=>p.id===activeProfileId)||profiles[0]}
+// El perfil Administrador es el primero creado en la cuenta (id más bajo), igual que decide
+// el servidor en /api/profile/:id/auth. Si ya nos lo confirmó el servidor (tras autenticarnos
+// contra ese perfil), usamos ese dato; si no, usamos el mismo criterio como valor por defecto.
+function isAdminProfile(p){
+  if(!p) return false;
+  if(typeof p.isAdminProfile==='boolean') return p.isAdminProfile;
+  return p.id===Math.min.apply(Math, profiles.map(function(x){return x.id}));
+}
+function activeIsAdmin(){ return isAdminProfile(ap()); }
 // Shorthands for profile data (all reads/writes go through these)
 function pAppts(){return ap().appts}
 function pClients(){return ap().clients}
@@ -2304,7 +2313,10 @@ let apptOwner=new Map(), clientOwner=new Map(), expenseOwner=new Map();
 function rebuildMergedStore(){
   appts=[];clients=[];expenses=[];
   apptOwner=new Map();clientOwner=new Map();expenseOwner=new Map();
-  profiles.forEach(function(p){
+  // El Administrador ve la fusión de todos los artistas (igual que antes); un artista
+  // solo ve sus propios datos - este es el punto donde se aplica el aislamiento por perfil.
+  var scope=activeIsAdmin()?profiles:[ap()];
+  scope.forEach(function(p){
     (p.appts||[]).forEach(function(a){ if(a.artistId===undefined||a.artistId===null) a.artistId=p.id; appts.push(a); apptOwner.set(a.id,p); });
     (p.clients||[]).forEach(function(c){ clients.push(c); clientOwner.set(c.id,p); });
     (p.expenses||[]).forEach(function(e){ expenses.push(e); expenseOwner.set(e.id,p); });
@@ -3899,12 +3911,43 @@ async function submitProfileAuth(id){
     const res=await fetch(API_BASE+'/api/profile/'+id+'/auth',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},body:JSON.stringify({password})});
     const data=await res.json();
     if(!res.ok){errEl.textContent=data.error||'Error';errEl.style.display='block';return}
+    const target=profiles.find(p=>p.id===id);
+    if(target) target.isAdminProfile=!!data.isAdminProfile;
     closeModal();
     performProfileSwitch(id);
   }catch(e){errEl.textContent='Error de conexión';errEl.style.display='block'}
 }
 function performProfileSwitch(id){
+  // Antes de cambiar, guardamos cualquier edición pendiente del perfil saliente
+  // (el autoguardado corre cada 30s; sin este flush podría perderse al redactar memoria).
+  saveUserProfiles();
   activeProfileId=id;
+  if(activeIsAdmin()){
+    // El Administrador recupera de disco cualquier dato que haya quedado vacío en memoria
+    // durante una sesión de artista anterior en este mismo navegador - nunca perdemos datos,
+    // solo dejan de estar en memoria mientras un artista tiene su sesión activa.
+    try{
+      const onDisk=JSON.parse(lsGet('tos_profiles_'+currentUser.id)||'null');
+      if(onDisk && onDisk.length) profiles=onDisk;
+    }catch(e){}
+  } else {
+    // Perfil de artista: primero recuperamos su propia copia completa desde disco
+    // (por si quedó vacía en memoria de un cambio de perfil anterior)...
+    try{
+      const onDisk=JSON.parse(lsGet('tos_profiles_'+currentUser.id)||'null');
+      const mineOnDisk=onDisk && onDisk.find(function(p){return p.id===id});
+      if(mineOnDisk){
+        const mine=profiles.find(function(p){return p.id===id});
+        if(mine) Object.assign(mine,mineOnDisk);
+      }
+    }catch(e){}
+    // ...y luego vaciamos en memoria los datos de todos los demás perfiles: mientras este
+    // artista tenga la sesión activa, sus citas/clientes/gastos no existen ni en memoria
+    // ni (tras el próximo guardado) en localStorage de este navegador.
+    profiles.forEach(function(p){
+      if(p.id!==id){ p.appts=[];p.clients=[];p.expenses=[];p.projects=[];p.consents=[];p.docFiles=[];p.waMessages={}; }
+    });
+  }
   refreshProfileData();
   renderUserArea();closeProfilePicker();
   buildCalView();buildMiniCal();buildRP();updateTopbar();
@@ -5651,11 +5694,27 @@ function loadUserProfiles(user) {
 function saveUserProfiles() {
   if (!currentUser) return;
   const key = 'tos_profiles_' + currentUser.id;
-  lsSet(key, JSON.stringify(profiles));
+  const admin = activeIsAdmin();
+  let profilesToSync;
+  if (admin) {
+    lsSet(key, JSON.stringify(profiles));
+    profilesToSync = profiles;
+  } else {
+    // Perfil de artista: en memoria los demás perfiles están vacíos (privacidad real de
+    // esta sesión) - nunca escribimos eso a disco. Solo actualizamos la entrada de este
+    // perfil dentro de lo que ya hubiera guardado, dejando intactos los datos de los demás.
+    let onDisk=[];
+    try{ onDisk=JSON.parse(lsGet(key)||'[]'); }catch(e){ onDisk=[]; }
+    const mine=ap();
+    const idx=onDisk.findIndex(function(p){return p.id===mine.id});
+    if(idx>=0) onDisk[idx]=mine; else onDisk.push(mine);
+    lsSet(key, JSON.stringify(onDisk));
+    profilesToSync = [mine];
+  }
   lsSet('tos_possales_' + currentUser.id, JSON.stringify(posSales));
   // Sync to server so admin can access this user's data
   if (_authToken) {
-    fetch(API_BASE+'/api/profile/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken }, body: JSON.stringify({ profiles: profiles, posSales: posSales }) }).catch(function() {});
+    fetch(API_BASE+'/api/profile/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken }, body: JSON.stringify({ profiles: profilesToSync, posSales: posSales }) }).catch(function() {});
   }
 }
 
