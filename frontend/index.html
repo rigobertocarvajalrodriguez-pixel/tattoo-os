@@ -4270,6 +4270,13 @@ function openModal(type,data={}){
       ${data.mode==='set'?`<div class="fg"><label class="fl">Confirmar contraseña</label><input class="fi" id="pa-confirm" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')submitProfileAuth(${data.id})"></div>`:''}
       <div id="pa-error" style="display:none;color:var(--ro);font-size:11px;margin-top:-6px;margin-bottom:10px"></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="submitProfileAuth(${data.id})">${data.mode==='set'?'Crear y entrar':'Entrar'}</button></div>`;
+  } else if(type==='resetProfilePw'){
+    box.innerHTML=`
+      <div class="mt">Restablecer contraseña</div>
+      <div class="ms">Nueva contraseña para ${data.name}. La usará la próxima vez que entre a su perfil.</div>
+      <div class="fg"><label class="fl">Nueva contraseña</label><input class="fi" id="rpw-password" type="password" placeholder="••••••••" autofocus onkeydown="if(event.key==='Enter')submitResetProfilePw(${data.id})"></div>
+      <div id="rpw-error" style="display:none;color:var(--ro);font-size:11px;margin-top:-6px;margin-bottom:10px"></div>
+      <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="submitResetProfilePw(${data.id})">Restablecer</button></div>`;
   }
   document.getElementById('overlay').classList.add('open');
 }
@@ -6369,17 +6376,22 @@ function togglePasswordReveal(id) {
   if (showing) { val.textContent='••••••••'; btn.textContent='Ver'; }
   else { val.textContent = p.password || '(no disponible)'; btn.textContent='Ocultar'; }
 }
-async function resetProfilePassword(id, name) {
-  const newPassword = prompt('Nueva contraseña para '+name+' (mínimo 4 caracteres):');
-  if (!newPassword) return;
-  if (newPassword.length < 4) { showToast('La contraseña debe tener al menos 4 caracteres'); return; }
+function resetProfilePassword(id, name) {
+  openModal('resetProfilePw', { id, name });
+}
+async function submitResetProfilePw(id) {
+  const newPassword = document.getElementById('rpw-password').value;
+  const errEl = document.getElementById('rpw-error');
+  errEl.style.display = 'none';
+  if (newPassword.length < 4) { errEl.textContent = 'La contraseña debe tener al menos 4 caracteres'; errEl.style.display = 'block'; return; }
   try {
     const res = await fetch(API_BASE+'/api/my-profiles/'+id+'/reset-password', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken}, body: JSON.stringify({ newPassword }) });
     const data = await res.json();
-    if (!res.ok) { showToast(data.error||'Error'); return; }
-    showToast('Contraseña de '+name+' restablecida');
+    if (!res.ok) { errEl.textContent = data.error||'Error'; errEl.style.display = 'block'; return; }
+    closeModal();
+    showToast('Contraseña restablecida');
     loadMyProfilePasswords();
-  } catch(e) { showToast('Error de conexión'); }
+  } catch(e) { errEl.textContent = 'Error de conexión'; errEl.style.display = 'block'; }
 }
 
 function renderAdminContent() {
