@@ -3138,15 +3138,41 @@ function renderArtistsFinance(){
   const rows=profiles.map(p=>{
     const ingresos=appts.filter(a=>a.status==='completed'&&a.artistId===p.id&&a.date&&(()=>{const d=parseDate(a.date);return d.getFullYear()===year&&d.getMonth()===month})()).reduce((s,a)=>s+a.price,0);
     const pct=typeof p.commissionPct==='number'?p.commissionPct:50;
-    return {name:p.name, ingresos, pct, comision:ingresos*pct/100};
+    return {id:p.id, name:p.name, ingresos, pct, comision:ingresos*pct/100};
   });
   listEl.innerHTML=rows.map(r=>`
-    <div class="exi">
+    <div class="exi" style="cursor:pointer" onclick="openArtistDetail(${r.id})">
       <div class="exdot" style="background:var(--v)"></div>
       <div class="exinf"><div class="exnm">${r.name}</div><div class="excat">${r.pct}% de comisión</div></div>
       <div class="exdate">Ingresos mensuales: €${r.ingresos.toLocaleString()}</div>
       <div class="examt" style="color:var(--gr)">€${r.comision.toFixed(2)}</div>
     </div>`).join('') || '<div style="padding:20px 14px;color:var(--t3);font-size:12px;text-align:center">Sin artistas todavía.</div>';
+}
+let currentArtistDetail=null;
+function openArtistDetail(profileId){
+  const year=TODAY.getFullYear(), month=TODAY.getMonth();
+  const p=profiles.find(x=>x.id===profileId);
+  if(!p) return;
+  const jobs=appts.filter(a=>a.status==='completed'&&a.artistId===profileId&&a.date&&(()=>{const d=parseDate(a.date);return d.getFullYear()===year&&d.getMonth()===month})());
+  currentArtistDetail={profile:p, jobs};
+  openModal('artistDetail',{});
+}
+function renderArtistDetailList(){
+  const q=(document.getElementById('artist-search-inp')?.value||'').trim().toLowerCase();
+  const d=currentArtistDetail;
+  const jobs=d.jobs.filter(a=>!q||(a.name+' '+a.price+' '+a.date+' '+(a.type||'')).toLowerCase().includes(q));
+  const listEl=document.getElementById('artist-detail-list');
+  if(!listEl) return;
+  listEl.innerHTML = jobs.length ? jobs.map(a=>`
+    <div class="exi"><div class="exdot" style="background:var(--v)"></div><div class="exinf"><div class="exnm">${a.name}</div><div class="excat">${a.date}${a.type?' · '+a.type:''}</div></div><div class="examt" style="color:var(--gr)">+€${a.price}</div></div>`).join('')
+    : `<div style="text-align:center;padding:30px;color:var(--t3)">${q?'Sin resultados para "'+q+'".':'Sin trabajos este mes.'}</div>`;
+}
+function toggleArtistSearch(){
+  const row=document.getElementById('artist-search-row');
+  const willShow=row.style.display==='none';
+  row.style.display=willShow?'':'none';
+  if(willShow){ document.getElementById('artist-search-inp').focus(); }
+  else { document.getElementById('artist-search-inp').value=''; renderArtistDetailList(); }
 }
 let currentMonthDetail=null;
 function openMonthDetail(monthIdx){
@@ -4102,6 +4128,25 @@ function openModal(type,data={}){
       <div id="month-detail-list" style="max-height:min(50vh,420px);overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:14px"></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">Cerrar</button></div>`;
     renderMonthDetailList();
+  } else if(type==='artistDetail'){
+    const d=currentArtistDetail;
+    const pct=typeof d.profile.commissionPct==='number'?d.profile.commissionPct:50;
+    const total=d.jobs.reduce((s,a)=>s+a.price,0);
+    const comision=total*pct/100;
+    box.innerHTML=`
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div class="mt">${d.profile.name}</div>
+        <button onclick="toggleArtistSearch()" style="background:var(--elevated);border:1px solid var(--bd3);border-radius:8px;width:32px;height:32px;margin-right:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2);flex-shrink:0" title="Buscar">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+        </button>
+      </div>
+      <div class="ms">${d.jobs.length} trabajo${d.jobs.length===1?'':'s'} este mes · Ingresos: €${total.toLocaleString()} · Comisión (${pct}%): €${comision.toFixed(2)}</div>
+      <div id="artist-search-row" style="display:none;margin-top:10px">
+        <input class="fi" type="text" id="artist-search-inp" placeholder="Buscar por cliente, fecha o importe..." oninput="renderArtistDetailList()">
+      </div>
+      <div id="artist-detail-list" style="max-height:min(50vh,420px);overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:14px"></div>
+      <div class="mac"><button class="bsec" onclick="closeModal()">Cerrar</button></div>`;
+    renderArtistDetailList();
   } else if(type==='project'){
     box.innerHTML=`
       <div class="mt">${t('newProjTitle')}</div><div class="ms">${t('newProjSub')}</div>
