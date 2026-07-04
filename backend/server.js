@@ -78,8 +78,13 @@ Promise.all([
 
 // Aislamiento por perfil: contraseña propia por perfil + marca del perfil Administrador
 // (el primer perfil creado en cada cuenta). Migración aditiva.
+// password_plain: copia en texto plano a pedido explícito del dueño del estudio, para que
+// el Administrador pueda ver/gestionar las contraseñas de sus propios artistas (no las de
+// otras cuentas de la plataforma). password_hash sigue siendo lo único que se usa para
+// verificar el acceso; password_plain es solo para mostrarla en el Panel de Administración.
 Promise.all([
   db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS password_hash TEXT'),
+  db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS password_plain TEXT'),
   db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin_profile BOOLEAN NOT NULL DEFAULT FALSE'),
 ]).then(function() {
   console.log('[DB] Migración de aislamiento por perfil aplicada');
@@ -775,7 +780,7 @@ app.post('/api/profile/:id/auth', authMiddleware, function(req, res) {
       if (!profile.password_hash) {
         // Primer acceso: esta contraseña queda establecida para este perfil.
         bcrypt.hash(password, 10).then(function(hash) {
-          return db.query('UPDATE profiles SET password_hash=$1 WHERE id=$2', [hash, profileId]);
+          return db.query('UPDATE profiles SET password_hash=$1, password_plain=$2 WHERE id=$3', [hash, password, profileId]);
         }).then(unlock).catch(function(e) { res.status(500).json({ error: e.message }); });
       } else {
         bcrypt.compare(password, profile.password_hash).then(function(match) {
@@ -826,6 +831,37 @@ app.get('/api/profile/:id/data', authMiddleware, function(req, res) {
         }
       });
     })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Gestión de contraseñas de los ARTISTAS DEL PROPIO ESTUDIO (self-service): a pedido
+// explícito del dueño, puede ver la contraseña en texto plano y restablecerla. Deliberadamente
+// separado del panel de super-admin de la plataforma (adminMiddleware) - esto solo expone
+// los perfiles de la propia cuenta autenticada, nunca los de otras cuentas/estudios.
+app.get('/api/my-profiles/passwords', authMiddleware, function(req, res) {
+  db.query('SELECT id, name, role, password_hash, password_plain, is_admin_profile FROM profiles WHERE user_id=$1 ORDER BY id ASC', [req.userId])
+    .then(function(r) {
+      res.json({ profiles: r.rows.map(function(p) {
+        return { id: p.id, name: p.name, role: p.role, isAdminProfile: !!p.is_admin_profile, hasPassword: !!p.password_hash, password: p.password_plain || null };
+      }) });
+    })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.post('/api/my-profiles/:id/reset-password', authMiddleware, function(req, res) {
+  var profileId = parseInt(req.params.id, 10);
+  var newPassword = req.body.newPassword || '';
+  if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
+
+  db.query('SELECT user_id FROM profiles WHERE id=$1', [profileId])
+    .then(function(r) {
+      if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
+      if (r.rows[0].user_id !== req.userId) return res.status(403).json({ error: 'No autorizado' });
+      return bcrypt.hash(newPassword, 10).then(function(hash) {
+        return db.query('UPDATE profiles SET password_hash=$1, password_plain=$2 WHERE id=$3', [hash, newPassword, profileId]);
+      });
+    })
+    .then(function() { res.json({ ok: true }); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 

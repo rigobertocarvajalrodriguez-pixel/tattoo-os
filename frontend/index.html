@@ -6307,6 +6307,7 @@ function renderAdminPage() {
     <div class="adm-tabs">
       <button class="adm-tab${adminTab==='tickets'?' on':''}" onclick="setAdminTab('tickets',this)">Tickets (${adminData.tickets.length})</button>
       <button class="adm-tab${adminTab==='users'?' on':''}"   onclick="setAdminTab('users',this)">Usuarios (${adminData.users.length})</button>
+      <button class="adm-tab${adminTab==='passwords'?' on':''}" onclick="setAdminTab('passwords',this)">Contraseñas de artistas</button>
     </div>
     <div id="adm-content"></div>`;
   renderAdminContent();
@@ -6316,7 +6317,69 @@ function setAdminTab(tab, el) {
   adminTab = tab;
   document.querySelectorAll('.adm-tab').forEach(b=>b.classList.remove('on'));
   if (el) el.classList.add('on');
+  if (tab==='passwords') { loadMyProfilePasswords(); return; }
   renderAdminContent();
+}
+
+// Contraseñas de los perfiles/artistas de la PROPIA cuenta del estudio (no de otras
+// cuentas de la plataforma - eso sigue siendo la pestaña "Usuarios", solo lectura de conteos).
+var myProfilePasswords = [];
+async function loadMyProfilePasswords() {
+  const c = document.getElementById('adm-content');
+  if (c) c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--t3)">Cargando…</div>';
+  try {
+    const data = await fetch(API_BASE+'/api/my-profiles/passwords', { headers: { 'Authorization': 'Bearer '+_authToken } }).then(r=>r.json());
+    myProfilePasswords = data.profiles || [];
+  } catch(e) { myProfilePasswords = []; }
+  renderMyProfilePasswords();
+}
+function renderMyProfilePasswords() {
+  const c = document.getElementById('adm-content');
+  if (!c || adminTab!=='passwords') return;
+  if (!myProfilePasswords.length) {
+    c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--t3)">No hay perfiles todavía.</div>';
+    return;
+  }
+  c.innerHTML = myProfilePasswords.map(p => `
+    <div class="adm-user" style="flex-direction:column;align-items:stretch;gap:10px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="adm-av" style="${p.isAdminProfile?'background:linear-gradient(135deg,#7c5cfc,#a78bfa)':''}">${(p.name||'?')[0].toUpperCase()}</div>
+        <div style="flex:1;min-width:0">
+          <div class="adm-uname">${p.name||'Sin nombre'}${p.isAdminProfile?' · Administrador':''}</div>
+          <div class="adm-uemail">${p.role||''}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center">
+        <div style="background:var(--void);border:1px solid var(--bd);border-radius:var(--r1);padding:8px 10px">
+          <div style="font-size:9px;color:var(--t3);font-weight:600;letter-spacing:.5px;margin-bottom:3px">CONTRASEÑA</div>
+          <div style="font-size:12px;color:var(--t1);font-family:monospace" id="pw-val-${p.id}">${p.hasPassword?'••••••••':'Sin contraseña todavía'}</div>
+        </div>
+        ${p.hasPassword?`<button class="bsec" style="padding:8px 12px;font-size:11px" onclick="togglePasswordReveal(${p.id})" id="pw-btn-${p.id}">Ver</button>`:''}
+        <button class="bsec" style="padding:8px 12px;font-size:11px" onclick="resetProfilePassword(${p.id},'${(p.name||'').replace(/'/g,"\\'")}')">Restablecer</button>
+      </div>
+    </div>`).join('');
+}
+function togglePasswordReveal(id) {
+  const p = myProfilePasswords.find(x=>x.id===id);
+  if (!p) return;
+  const val = document.getElementById('pw-val-'+id);
+  const btn = document.getElementById('pw-btn-'+id);
+  if (!val || !btn) return;
+  const showing = val.textContent === p.password;
+  if (showing) { val.textContent='••••••••'; btn.textContent='Ver'; }
+  else { val.textContent = p.password || '(no disponible)'; btn.textContent='Ocultar'; }
+}
+async function resetProfilePassword(id, name) {
+  const newPassword = prompt('Nueva contraseña para '+name+' (mínimo 4 caracteres):');
+  if (!newPassword) return;
+  if (newPassword.length < 4) { showToast('La contraseña debe tener al menos 4 caracteres'); return; }
+  try {
+    const res = await fetch(API_BASE+'/api/my-profiles/'+id+'/reset-password', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken}, body: JSON.stringify({ newPassword }) });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error||'Error'); return; }
+    showToast('Contraseña de '+name+' restablecida');
+    loadMyProfilePasswords();
+  } catch(e) { showToast('Error de conexión'); }
 }
 
 function renderAdminContent() {
