@@ -90,6 +90,48 @@ Promise.all([
   console.log('[DB] Migración de aislamiento por perfil aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de aislamiento por perfil:', e.message); });
 
+// Fase F: mismo respaldo/aislamiento real que ya tienen citas/clientes/gastos, ahora también
+// para Proyectos, Documentos y WhatsApp (hoy solo vivían en localStorage del navegador).
+// projects.id llegaba como UUID pero el frontend siempre manda ids numéricos - mismo arreglo
+// ya aplicado antes a appointments/clients/expenses.
+db.query('ALTER TABLE projects ALTER COLUMN id DROP DEFAULT').then(function() {
+  return db.query('ALTER TABLE projects ALTER COLUMN id TYPE TEXT USING id::TEXT');
+}).then(function() {
+  return Promise.all([
+    db.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT \'{}\''),
+    db.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS images TEXT[] DEFAULT \'{}\''),
+    db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS wa_settings JSONB'),
+    db.query(`CREATE TABLE IF NOT EXISTS doc_files (
+      id TEXT PRIMARY KEY, profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT DEFAULT '', client TEXT DEFAULT '', date TEXT DEFAULT '',
+      size TEXT DEFAULT '', type TEXT DEFAULT '', url TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW())`),
+    db.query(`CREATE TABLE IF NOT EXISTS consents (
+      id TEXT PRIMARY KEY, profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      client_name TEXT DEFAULT '', dni TEXT DEFAULT '', dob TEXT DEFAULT '', phone TEXT DEFAULT '',
+      email TEXT DEFAULT '', address TEXT DEFAULT '', tattoo_type TEXT DEFAULT '', zone TEXT DEFAULT '',
+      size_desc TEXT DEFAULT '', session_date TEXT DEFAULT '', artist TEXT DEFAULT '',
+      price TEXT DEFAULT '', deposit TEXT DEFAULT '', medical TEXT DEFAULT '',
+      checks JSONB DEFAULT '[]', created_at_label TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW())`),
+    db.query(`CREATE TABLE IF NOT EXISTS doc_templates (
+      profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      template_id TEXT NOT NULL, name TEXT DEFAULT '', content TEXT DEFAULT '',
+      PRIMARY KEY (profile_id, template_id))`),
+    db.query(`CREATE TABLE IF NOT EXISTS wa_messages (
+      id TEXT PRIMARY KEY, profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      client_id TEXT NOT NULL, text TEXT DEFAULT '', dir TEXT DEFAULT 'out', ts TIMESTAMPTZ,
+      auto BOOLEAN DEFAULT FALSE, auto_id TEXT, read BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW())`),
+  ]);
+}).then(function() {
+  console.log('[DB] Migración de Proyectos/Documentos/WhatsApp (Fase F) aplicada');
+}).catch(function(e) { console.error('[DB] Error en migración de Fase F:', e.message); });
+
 db.query(`
   CREATE TABLE IF NOT EXISTS pos_sales (
     id          TEXT PRIMARY KEY,
@@ -692,8 +734,8 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
 
     var ops = profilesData.map(function(p) {
       return db.query(
-        'INSERT INTO profiles (id,user_id,name,role,color,commission_pct,is_admin_profile) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET name=$3,role=$4,color=$5,commission_pct=$6,is_admin_profile=$7',
-        [p.id, userId, p.name||'', p.role||'', p.color||'v', typeof p.commissionPct==='number'?p.commissionPct:50, p.id === adminId]
+        'INSERT INTO profiles (id,user_id,name,role,color,commission_pct,is_admin_profile,wa_settings) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET name=$3,role=$4,color=$5,commission_pct=$6,is_admin_profile=$7,wa_settings=$8',
+        [p.id, userId, p.name||'', p.role||'', p.color||'v', typeof p.commissionPct==='number'?p.commissionPct:50, p.id === adminId, p.waSettings ? JSON.stringify(p.waSettings) : null]
       ).then(function() {
         var apptOps = (p.appts||[]).map(function(a) {
           var apptId = a.id !== undefined && a.id !== null ? String(a.id) : crypto.randomUUID();
@@ -723,7 +765,46 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
             [expId, p.id, userId, ex.amount||0, ex.cat||'', ex.name||'', ex.date||'', ex.kind||'variable']
           ).catch(function(){});
         });
-        return Promise.all(apptOps.concat(clientOps).concat(expenseOps));
+        // Fase F: Proyectos, Documentos y WhatsApp - mismo respaldo real que ya tienen
+        // citas/clientes/gastos, para que sobrevivan aunque se borre este navegador.
+        var projectOps = (p.projects||[]).map(function(pr) {
+          var prId = pr.id !== undefined && pr.id !== null ? String(pr.id) : crypto.randomUUID();
+          return db.query(
+            'INSERT INTO projects (id,profile_id,user_id,name,client,notes,tags,images) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET name=$4,client=$5,notes=$6,tags=$7,images=$8',
+            [prId, p.id, userId, pr.name||'', pr.client||'', pr.notes||'', pr.tags||[], pr.images||[]]
+          ).catch(function(){});
+        });
+        var docFileOps = (p.docFiles||[]).map(function(df) {
+          var dfId = df.id !== undefined && df.id !== null ? String(df.id) : crypto.randomUUID();
+          return db.query(
+            'INSERT INTO doc_files (id,profile_id,user_id,name,client,date,size,type,url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET name=$4,client=$5,date=$6,size=$7,type=$8,url=$9',
+            [dfId, p.id, userId, df.name||'', df.client||'', df.date||'', df.size||'', df.type||'', df.url||'']
+          ).catch(function(){});
+        });
+        var consentOps = (p.consents||[]).map(function(cs) {
+          var csId = cs.id !== undefined && cs.id !== null ? String(cs.id) : crypto.randomUUID();
+          return db.query(
+            'INSERT INTO consents (id,profile_id,user_id,client_name,dni,dob,phone,email,address,tattoo_type,zone,size_desc,session_date,artist,price,deposit,medical,checks,created_at_label) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT (id) DO UPDATE SET client_name=$4,dni=$5,dob=$6,phone=$7,email=$8,address=$9,tattoo_type=$10,zone=$11,size_desc=$12,session_date=$13,artist=$14,price=$15,deposit=$16,medical=$17,checks=$18,created_at_label=$19',
+            [csId, p.id, userId, cs.clientName||'', cs.dni||'', cs.dob||'', cs.phone||'', cs.email||'', cs.address||'', cs.tattooType||'', cs.zone||'', cs.size||'', cs.sessionDate||'', cs.artist||'', cs.price||'', cs.deposit||'', cs.medical||'', JSON.stringify(cs.checks||[]), cs.createdAt||'']
+          ).catch(function(){});
+        });
+        var docTemplateOps = (p.docTemplates||[]).map(function(dt) {
+          return db.query(
+            'INSERT INTO doc_templates (profile_id,user_id,template_id,name,content) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (profile_id,template_id) DO UPDATE SET name=$4,content=$5',
+            [p.id, userId, dt.id||'', dt.name||'', dt.content||'']
+          ).catch(function(){});
+        });
+        var waMessageOps = [];
+        Object.keys(p.waMessages||{}).forEach(function(clientId) {
+          (p.waMessages[clientId]||[]).forEach(function(m) {
+            var mId = m.id !== undefined && m.id !== null ? String(m.id) : crypto.randomUUID();
+            waMessageOps.push(db.query(
+              'INSERT INTO wa_messages (id,profile_id,user_id,client_id,text,dir,ts,auto,auto_id,read) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET text=$5,dir=$6,ts=$7,auto=$8,auto_id=$9,read=$10',
+              [mId, p.id, userId, String(clientId), m.text||'', m.dir||'out', m.ts||new Date().toISOString(), !!m.auto, m.autoId||null, !!m.read]
+            ).catch(function(){}));
+          });
+        });
+        return Promise.all(apptOps.concat(clientOps).concat(expenseOps).concat(projectOps).concat(docFileOps).concat(consentOps).concat(docTemplateOps).concat(waMessageOps));
       });
     });
 

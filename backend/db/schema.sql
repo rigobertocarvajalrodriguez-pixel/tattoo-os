@@ -10,14 +10,19 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS profiles (
-  id              SERIAL PRIMARY KEY,
-  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name            TEXT NOT NULL,
-  role            TEXT DEFAULT '',
-  color           TEXT DEFAULT 'v',
-  photo           TEXT,
-  commission_pct  NUMERIC DEFAULT 50,
-  created_at      TIMESTAMPTZ DEFAULT NOW()
+  id                SERIAL PRIMARY KEY,
+  user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name              TEXT NOT NULL,
+  role              TEXT DEFAULT '',
+  color             TEXT DEFAULT 'v',
+  photo             TEXT,
+  commission_pct    NUMERIC DEFAULT 50,
+  -- Aislamiento por perfil (contraseña propia + marca de Administrador): ver server.js.
+  password_hash     TEXT,
+  password_plain    TEXT,
+  is_admin_profile  BOOLEAN NOT NULL DEFAULT FALSE,
+  wa_settings       JSONB,
+  created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS appointments (
@@ -93,14 +98,82 @@ CREATE TABLE IF NOT EXISTS commission_settlements (
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- id es TEXT (no UUID) porque el frontend siempre genera ids numéricos propios (projSeq++),
+-- igual que appointments/clients/expenses.
 CREATE TABLE IF NOT EXISTS projects (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          TEXT PRIMARY KEY,
   profile_id  INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
   client      TEXT DEFAULT '',
   status      TEXT DEFAULT 'pending',
   notes       TEXT DEFAULT '',
+  tags        TEXT[] DEFAULT '{}',
+  images      TEXT[] DEFAULT '{}',
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Documentos subidos (fichas, PDFs, fotos) - url guarda el archivo como data URI base64.
+CREATE TABLE IF NOT EXISTS doc_files (
+  id          TEXT PRIMARY KEY,
+  profile_id  INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name        TEXT DEFAULT '',
+  client      TEXT DEFAULT '',
+  date        TEXT DEFAULT '',
+  size        TEXT DEFAULT '',
+  type        TEXT DEFAULT '',
+  url         TEXT DEFAULT '',
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Consentimientos informados (formulario para imprimir y firmar en papel).
+CREATE TABLE IF NOT EXISTS consents (
+  id                 TEXT PRIMARY KEY,
+  profile_id         INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_name        TEXT DEFAULT '',
+  dni                TEXT DEFAULT '',
+  dob                TEXT DEFAULT '',
+  phone              TEXT DEFAULT '',
+  email              TEXT DEFAULT '',
+  address            TEXT DEFAULT '',
+  tattoo_type        TEXT DEFAULT '',
+  zone               TEXT DEFAULT '',
+  size_desc          TEXT DEFAULT '',
+  session_date       TEXT DEFAULT '',
+  artist             TEXT DEFAULT '',
+  price              TEXT DEFAULT '',
+  deposit            TEXT DEFAULT '',
+  medical            TEXT DEFAULT '',
+  checks             JSONB DEFAULT '[]',
+  created_at_label   TEXT DEFAULT '',
+  created_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Plantillas de documentos del estudio, editables por perfil (portada, ficha, RGPD, etc).
+CREATE TABLE IF NOT EXISTS doc_templates (
+  profile_id  INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  template_id TEXT NOT NULL,
+  name        TEXT DEFAULT '',
+  content     TEXT DEFAULT '',
+  PRIMARY KEY (profile_id, template_id)
+);
+
+-- Historial de conversación de WhatsApp por cliente (distinto de wa_followups, que es la
+-- cola de envíos automáticos programados).
+CREATE TABLE IF NOT EXISTS wa_messages (
+  id          TEXT PRIMARY KEY,
+  profile_id  INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_id   TEXT NOT NULL,
+  text        TEXT DEFAULT '',
+  dir         TEXT DEFAULT 'out',
+  ts          TIMESTAMPTZ,
+  auto        BOOLEAN DEFAULT FALSE,
+  auto_id     TEXT,
+  read        BOOLEAN DEFAULT FALSE,
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
