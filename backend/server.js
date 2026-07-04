@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'rigobertocarvajalrodriguez@gmail.com';
@@ -74,6 +75,15 @@ Promise.all([
 }).then(function() {
   console.log('[DB] Migración de comisiones/artistas aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de comisiones:', e.message); });
+
+// Aislamiento por perfil: contraseña propia por perfil + marca del perfil Administrador
+// (el primer perfil creado en cada cuenta). Migración aditiva.
+Promise.all([
+  db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS password_hash TEXT'),
+  db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin_profile BOOLEAN NOT NULL DEFAULT FALSE'),
+]).then(function() {
+  console.log('[DB] Migración de aislamiento por perfil aplicada');
+}).catch(function(e) { console.error('[DB] Error en migración de aislamiento por perfil:', e.message); });
 
 db.query(`
   CREATE TABLE IF NOT EXISTS pos_sales (
@@ -668,53 +678,142 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
   var posSalesData = req.body.posSales || [];
   if (!profilesData || !profilesData.length) return res.json({ ok: true });
 
-  var ops = profilesData.map(function(p) {
-    return db.query(
-      'INSERT INTO profiles (id,user_id,name,role,color,commission_pct) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET name=$3,role=$4,color=$5,commission_pct=$6',
-      [p.id, userId, p.name||'', p.role||'', p.color||'v', typeof p.commissionPct==='number'?p.commissionPct:50]
-    ).then(function() {
-      var apptOps = (p.appts||[]).map(function(a) {
-        var apptId = a.id !== undefined && a.id !== null ? String(a.id) : crypto.randomUUID();
-        return db.query('SELECT status FROM appointments WHERE id=$1', [apptId]).then(function(prev) {
-          var oldStatus = prev.rows.length ? prev.rows[0].status : null;
+  // El perfil Administrador es el primero que existió para esta cuenta (id más bajo ya
+  // guardado en la BD); si es la primerísima sincronización, es el id más bajo de este envío.
+  db.query('SELECT id FROM profiles WHERE user_id=$1 ORDER BY id ASC LIMIT 1', [userId]).then(function(existingFirst) {
+    var adminId = existingFirst.rows.length
+      ? existingFirst.rows[0].id
+      : Math.min.apply(null, profilesData.map(function(p) { return p.id; }));
+
+    var ops = profilesData.map(function(p) {
+      return db.query(
+        'INSERT INTO profiles (id,user_id,name,role,color,commission_pct,is_admin_profile) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET name=$3,role=$4,color=$5,commission_pct=$6,is_admin_profile=$7',
+        [p.id, userId, p.name||'', p.role||'', p.color||'v', typeof p.commissionPct==='number'?p.commissionPct:50, p.id === adminId]
+      ).then(function() {
+        var apptOps = (p.appts||[]).map(function(a) {
+          var apptId = a.id !== undefined && a.id !== null ? String(a.id) : crypto.randomUUID();
+          return db.query('SELECT status FROM appointments WHERE id=$1', [apptId]).then(function(prev) {
+            var oldStatus = prev.rows.length ? prev.rows[0].status : null;
+            return db.query(
+              'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT (id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18',
+              [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
+            ).then(function() {
+              if (oldStatus !== 'completed' && a.status === 'completed') {
+                return scheduleAftercareFollowups(userId, apptId, a, p);
+              }
+            });
+          }).catch(function(){});
+        });
+        var clientOps = (p.clients||[]).map(function(c) {
+          var clientId = c.id !== undefined && c.id !== null ? String(c.id) : crypto.randomUUID();
           return db.query(
-            'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT (id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18',
-            [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
-          ).then(function() {
-            if (oldStatus !== 'completed' && a.status === 'completed') {
-              return scheduleAftercareFollowups(userId, apptId, a, p);
-            }
-          });
-        }).catch(function(){});
+            'INSERT INTO clients (id,profile_id,user_id,name,phone,email,instagram,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET name=$4,phone=$5,email=$6,instagram=$7,notes=$8',
+            [clientId, p.id, userId, c.name||'', c.phone||'', c.email||'', c.instagram||'', c.notes||'']
+          ).catch(function(){});
+        });
+        var expenseOps = (p.expenses||[]).map(function(ex) {
+          var expId = ex.id !== undefined && ex.id !== null ? String(ex.id) : crypto.randomUUID();
+          return db.query(
+            'INSERT INTO expenses (id,profile_id,user_id,amount,category,description,date,kind) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET amount=$4,category=$5,description=$6,date=$7,kind=$8',
+            [expId, p.id, userId, ex.amount||0, ex.cat||'', ex.name||'', ex.date||'', ex.kind||'variable']
+          ).catch(function(){});
+        });
+        return Promise.all(apptOps.concat(clientOps).concat(expenseOps));
       });
-      var clientOps = (p.clients||[]).map(function(c) {
-        var clientId = c.id !== undefined && c.id !== null ? String(c.id) : crypto.randomUUID();
-        return db.query(
-          'INSERT INTO clients (id,profile_id,user_id,name,phone,email,instagram,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET name=$4,phone=$5,email=$6,instagram=$7,notes=$8',
-          [clientId, p.id, userId, c.name||'', c.phone||'', c.email||'', c.instagram||'', c.notes||'']
-        ).catch(function(){});
-      });
-      var expenseOps = (p.expenses||[]).map(function(ex) {
-        var expId = ex.id !== undefined && ex.id !== null ? String(ex.id) : crypto.randomUUID();
-        return db.query(
-          'INSERT INTO expenses (id,profile_id,user_id,amount,category,description,date,kind) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET amount=$4,category=$5,description=$6,date=$7,kind=$8',
-          [expId, p.id, userId, ex.amount||0, ex.cat||'', ex.name||'', ex.date||'', ex.kind||'variable']
-        ).catch(function(){});
-      });
-      return Promise.all(apptOps.concat(clientOps).concat(expenseOps));
     });
-  });
 
-  var posSaleOps = posSalesData.map(function(s) {
-    var saleId = s.id !== undefined && s.id !== null ? String(s.id) : crypto.randomUUID();
-    return db.query(
-      'INSERT INTO pos_sales (id,user_id,item,amount,method,date) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET item=$3,amount=$4,method=$5,date=$6',
-      [saleId, userId, s.item||'', s.amount||0, s.method||'efectivo', s.date||'']
-    ).catch(function(){});
-  });
+    var posSaleOps = posSalesData.map(function(s) {
+      var saleId = s.id !== undefined && s.id !== null ? String(s.id) : crypto.randomUUID();
+      return db.query(
+        'INSERT INTO pos_sales (id,user_id,item,amount,method,date) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET item=$3,amount=$4,method=$5,date=$6',
+        [saleId, userId, s.item||'', s.amount||0, s.method||'efectivo', s.date||'']
+      ).catch(function(){});
+    });
 
-  Promise.all(ops.concat(posSaleOps))
+    return Promise.all(ops.concat(posSaleOps));
+  })
     .then(function() { res.json({ ok: true }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// ══════════════════════════════════════════
+// AISLAMIENTO POR PERFIL: contraseña propia + datos con alcance real
+// ══════════════════════════════════════════
+
+// Primer acceso a un perfil: define su contraseña. Accesos siguientes: la verifica.
+// Todos los perfiles (incluido el Administrador) pasan por aquí — la única diferencia
+// entre perfiles es qué datos ven después (ver /api/profile/:id/data), no cómo se autentican.
+app.post('/api/profile/:id/auth', authMiddleware, function(req, res) {
+  var profileId = parseInt(req.params.id, 10);
+  var password = req.body.password || '';
+  if (!password) return res.status(400).json({ error: 'Falta la contraseña' });
+
+  db.query('SELECT id, user_id, password_hash, is_admin_profile FROM profiles WHERE id=$1', [profileId])
+    .then(function(r) {
+      if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
+      var profile = r.rows[0];
+      if (profile.user_id !== req.userId) return res.status(403).json({ error: 'No autorizado' });
+
+      function unlock() {
+        if (!req.user.unlockedProfiles) req.user.unlockedProfiles = {};
+        req.user.unlockedProfiles[profileId] = true;
+        res.json({ ok: true, isAdminProfile: !!profile.is_admin_profile });
+      }
+
+      if (!profile.password_hash) {
+        // Primer acceso: esta contraseña queda establecida para este perfil.
+        bcrypt.hash(password, 10).then(function(hash) {
+          return db.query('UPDATE profiles SET password_hash=$1 WHERE id=$2', [hash, profileId]);
+        }).then(unlock).catch(function(e) { res.status(500).json({ error: e.message }); });
+      } else {
+        bcrypt.compare(password, profile.password_hash).then(function(match) {
+          if (!match) return res.status(401).json({ error: 'Contraseña incorrecta' });
+          unlock();
+        }).catch(function(e) { res.status(500).json({ error: e.message }); });
+      }
+    })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Datos de un perfil ya desbloqueado: Administrador ve todo (igual que hoy);
+// un artista solo ve sus propias citas/clientes/gastos — filtrado aquí, en el servidor,
+// para que los datos de otro artista nunca lleguen al navegador.
+app.get('/api/profile/:id/data', authMiddleware, function(req, res) {
+  var profileId = parseInt(req.params.id, 10);
+
+  db.query('SELECT id, user_id, is_admin_profile FROM profiles WHERE id=$1', [profileId])
+    .then(function(r) {
+      if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
+      var profile = r.rows[0];
+      if (profile.user_id !== req.userId) return res.status(403).json({ error: 'No autorizado' });
+      var unlocked = req.user.unlockedProfiles && req.user.unlockedProfiles[profileId];
+      if (!unlocked) return res.status(403).json({ error: 'Perfil no desbloqueado en esta sesión' });
+
+      return db.query('SELECT * FROM profiles WHERE user_id=$1 ORDER BY id ASC', [req.userId]).then(function(allProfiles) {
+        var roster = allProfiles.rows.map(function(p) {
+          return { id: p.id, name: p.name, role: p.role, color: p.color, isAdminProfile: !!p.is_admin_profile };
+        });
+
+        if (profile.is_admin_profile) {
+          var profileIds = allProfiles.rows.map(function(p) { return p.id; });
+          return Promise.all([
+            db.query('SELECT * FROM appointments WHERE profile_id=ANY($1) ORDER BY date,start', [profileIds]),
+            db.query('SELECT * FROM clients WHERE profile_id=ANY($1)', [profileIds]),
+            db.query('SELECT * FROM expenses WHERE profile_id=ANY($1)', [profileIds]),
+          ]).then(function(results) {
+            res.json({ roster: roster, scope: 'admin', appointments: results[0].rows, clients: results[1].rows, expenses: results[2].rows });
+          });
+        } else {
+          return Promise.all([
+            db.query('SELECT * FROM appointments WHERE profile_id=$1 ORDER BY date,start', [profileId]),
+            db.query('SELECT * FROM clients WHERE profile_id=$1', [profileId]),
+            db.query('SELECT * FROM expenses WHERE profile_id=$1', [profileId]),
+          ]).then(function(results) {
+            res.json({ roster: roster, scope: 'own', appointments: results[0].rows, clients: results[1].rows, expenses: results[2].rows });
+          });
+        }
+      });
+    })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
