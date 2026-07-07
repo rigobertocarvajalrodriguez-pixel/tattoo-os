@@ -2207,8 +2207,8 @@ function mkProfileData(name,role,color,demo=false){
 }
 let profileIdSeq=1;
 let profiles=[
-  {id:profileIdSeq++,name:'Marco Reyes',role:'Tatuador Principal',color:'v',appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null},
-  {id:profileIdSeq++,name:'Lucía Vidal',role:'Artista · Acuarela',color:'r',appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null},
+  {id:profileIdSeq++,name:'Marco Reyes',role:'Tatuador Principal',color:'v',appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null,activityLog:[]},
+  {id:profileIdSeq++,name:'Lucía Vidal',role:'Artista · Acuarela',color:'r',appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null,activityLog:[]},
 ];
 let activeProfileId=1;
 // Ventas de mostrador: compartidas por todo el estudio, no pertenecen a un artista concreto.
@@ -3015,17 +3015,28 @@ function buildRpStats(){
       <div style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--gr)">€${cl.spent.toLocaleString()}</div>
     </div>`).join('')}`;
 }
+// Registro real de actividad, por perfil - solo se ve la del artista activo (nunca la de otro).
+function logActivity(text,colorKey){
+  if(!ap().activityLog) ap().activityLog=[];
+  const log=ap().activityLog;
+  log.push({ts:new Date().toISOString(),txt:text,c:colorKey||'v'});
+  if(log.length>30) log.splice(0,log.length-30);
+}
+function relTime(iso){
+  const d=new Date(iso);
+  if(sameDay(d,new Date())) return d.toTimeString().slice(0,5);
+  const y=new Date();y.setDate(y.getDate()-1);
+  if(sameDay(d,y)) return 'Ayer';
+  const days=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const diffDays=Math.floor((new Date()-d)/86400000);
+  if(diffDays<7) return days[d.getDay()];
+  return d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'});
+}
 function buildRpActivity(){
-  const acts=[
-    {t:'10:30',txt:t('apptCreated')+'  -  Sofía Martínez',c:'v'},
-    {t:'09:15',txt:t('clientAdded')+': Roberto Fuentes',c:'c'},
-    {t:'Ayer',txt:'Pago recibido  -  Carlos Vega €200',c:'g'},
-    {t:'Ayer',txt:t('apptDeleted')+'  -  Pablo Gil',c:'a'},
-    {t:'Lun',txt:'Depósito €150  -  Iván Castro',c:'v'},
-  ];
+  const acts=(ap().activityLog||[]).slice(-10).reverse();
   const c=document.getElementById('rpc-activity');
   c.innerHTML=`<div class="seclbl">${t('rpActivity')}</div>
-  ${acts.map(a=>`<div class="upi"><div class="upt" style="background:var(--${a.c==='g'?'gr':a.c==='a'?'am':a.c==='c'?'cy':'v'}d)"><div class="uphr" style="font-size:9px;line-height:1.5;color:var(--${a.c==='g'?'gr':a.c==='a'?'am':a.c==='c'?'cy':'vl'})">${a.t}</div></div><div class="upd"><div class="upc" style="font-size:11px">${a.txt}</div></div></div>`).join('')}`;
+  ${acts.length?acts.map(a=>`<div class="upi"><div class="upt" style="background:var(--${a.c==='g'?'gr':a.c==='a'?'am':a.c==='c'?'cy':'v'}d)"><div class="uphr" style="font-size:9px;line-height:1.5;color:var(--${a.c==='g'?'gr':a.c==='a'?'am':a.c==='c'?'cy':'vl'})">${relTime(a.ts)}</div></div><div class="upd"><div class="upc" style="font-size:11px">${a.txt}</div></div></div>`).join(''):`<div style="font-size:11px;color:var(--t3);text-align:center;padding:16px">Sin actividad todavía</div>`}`;
 }
 
 // ==========================================
@@ -3964,7 +3975,7 @@ function performProfileSwitch(id){
     // artista tenga la sesión activa, sus citas/clientes/gastos no existen ni en memoria
     // ni (tras el próximo guardado) en localStorage de este navegador.
     profiles.forEach(function(p){
-      if(p.id!==id){ p.appts=[];p.clients=[];p.expenses=[];p.projects=[];p.consents=[];p.docFiles=[];p.waMessages={}; }
+      if(p.id!==id){ p.appts=[];p.clients=[];p.expenses=[];p.projects=[];p.consents=[];p.docFiles=[];p.waMessages={};p.activityLog=[]; }
     });
   }
   refreshProfileData();
@@ -4304,11 +4315,26 @@ function saveAppt(editId){
     balancePaid:balancePaidNow,
     balancePaidDate:balancePaidNow?((existing&&existing.balancePaid)?existing.balancePaidDate:dateStr(new Date())):null,
   };
-  if(editId){updateAppt(editId,a)}else{addAppt(a)}
-  closeModal();buildCalView();buildMiniCal();buildRpToday();updateTopbar();
+  if(editId){
+    updateAppt(editId,a);
+    if(existing.balancePaid!==a.balancePaid&&a.balancePaid) logActivity('Pago recibido: '+a.name+' (€'+a.price+')','g');
+    if(existing.status!==a.status){
+      const statusTxt=a.status==='completed'?'Cita completada':a.status==='confirmed'?'Cita confirmada':'Cita pendiente';
+      logActivity(statusTxt+': '+a.name,a.status==='completed'?'g':a.status==='pending'?'a':'v');
+    }
+  }else{
+    addAppt(a);
+    logActivity('Cita creada: '+a.name,'v');
+  }
+  closeModal();buildCalView();buildMiniCal();buildRpToday();buildRpActivity();updateTopbar();
   showToast(editId?t('apptUpdated'):t('apptCreated'));
 }
-function deleteAppt(id){removeAppt(id);closeModal();buildCalView();buildMiniCal();buildRpToday();updateTopbar();showToast(t('apptDeleted'))}
+function deleteAppt(id){
+  const a=appts.find(x=>x.id===id);
+  removeAppt(id);
+  if(a) logActivity('Cita eliminada: '+a.name,'a');
+  closeModal();buildCalView();buildMiniCal();buildRpToday();buildRpActivity();updateTopbar();showToast(t('apptDeleted'));
+}
 
 // Helper: open edit modal by appt ID (avoids JSON.stringify in onclick)
 function editApptById(id) {
@@ -4319,13 +4345,15 @@ function saveClient(){
   const nm=document.getElementById('m-cname').value.trim();if(!nm){showToast(t('fillFields'));return}
   const COLS=['v','c','r','a','g'];
   addClient({id:clientSeq++,name:nm,ig:document.getElementById('m-cig').value||' - ',phone:document.getElementById('m-cphone').value||' - ',notes:document.getElementById('m-cnotes').value,sessions:0,spent:0,color:COLS[Math.floor(Math.random()*COLS.length)]});
-  closeModal();renderClients();showToast(t('clientAdded'));
+  logActivity('Cliente añadido: '+nm,'c');
+  closeModal();renderClients();buildRpActivity();showToast(t('clientAdded'));
 }
 function saveExpense(){
   const nm=document.getElementById('m-ename').value.trim();const amt=parseFloat(document.getElementById('m-eamt').value);
   if(!nm||!amt){showToast(t('fillFields'));return}
   addExpense({id:expSeq++,name:nm,cat:document.getElementById('m-ecat').value,amount:amt,date:document.getElementById('m-edate').value});
-  closeModal();renderExpenses();showToast(t('expAdded'));
+  logActivity('Gasto registrado: '+nm+' (€'+amt+')','a');
+  closeModal();renderExpenses();buildRpActivity();showToast(t('expAdded'));
 }
 function saveProject(){
   const nm=document.getElementById('m-pname').value.trim();if(!nm){showToast(t('fillFields'));return}
@@ -4336,7 +4364,7 @@ function saveProfile(){
   const nm=document.getElementById('m-prname').value.trim();if(!nm){showToast(t('fillFields'));return}
   const addrEl=document.getElementById('m-praddr');
   const addr=addrEl?addrEl.value.trim():'';
-  const newProf={id:profileIdSeq++,name:nm,role:document.getElementById('m-prrole').value||'Artista',color:document.getElementById('m-prcolor').value,appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null,studioName:nm,studioAddress:addr,studioLat:null,studioLon:null};
+  const newProf={id:profileIdSeq++,name:nm,role:document.getElementById('m-prrole').value||'Artista',color:document.getElementById('m-prcolor').value,appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null,activityLog:[],studioName:nm,studioAddress:addr,studioLat:null,studioLon:null};
   profiles.push(newProf);
   closeModal();showToast(t('createProfile'));
   if(addr){
@@ -5707,14 +5735,14 @@ function loadUserProfiles(user) {
       profiles = [{
         id: profileIdSeq++, name: user.name, role: 'Tatuador/a',
         color: 'v', appts: [], clients: [], expenses: [], projects: [],
-        consents: [], docFiles: [], waMessages: {}, waSettings: null
+        consents: [], docFiles: [], waMessages: {}, waSettings: null, activityLog: []
       }];
       activeProfileId = profiles[0].id;
       // Only load demo data if this is the very first user (demo account)
       if (user.email === 'demo@tattooos.app') initDemoData();
     }
   } catch(e) {
-    profiles = [{id:1,name:user.name,role:'Tatuador/a',color:'v',appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null}];
+    profiles = [{id:1,name:user.name,role:'Tatuador/a',color:'v',appts:[],clients:[],expenses:[],projects:[],consents:[],docFiles:[],waMessages:{},waSettings:null,activityLog:[]}];
     activeProfileId = 1;
   }
   try { posSales = JSON.parse(lsGet('tos_possales_' + user.id) || '[]'); } catch(e2) { posSales = []; }
@@ -6808,7 +6836,7 @@ function confirmDeleteProfileData(){
 
 function executeDeleteProfileData(){
   const p=profiles.find(x=>x.id===activeProfileId)||profiles[0];
-  p.appts=[];p.clients=[];p.expenses=[];p.projects=[];p.consents=[];p.docFiles=[];p.waMessages={};
+  p.appts=[];p.clients=[];p.expenses=[];p.projects=[];p.consents=[];p.docFiles=[];p.waMessages={};p.activityLog=[];
   refreshProfileData();
   buildCalView();buildMiniCal();renderClients();renderFinance();renderExpenses();renderProjects();buildRP();
   closeModal();
