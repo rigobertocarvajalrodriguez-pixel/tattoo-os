@@ -3024,13 +3024,14 @@ function logActivity(text,colorKey){
 }
 function relTime(iso){
   const d=new Date(iso);
-  if(sameDay(d,new Date())) return d.toTimeString().slice(0,5);
+  const hhmm=d.toTimeString().slice(0,5);
+  if(sameDay(d,new Date())) return hhmm;
   const y=new Date();y.setDate(y.getDate()-1);
-  if(sameDay(d,y)) return 'Ayer';
+  if(sameDay(d,y)) return 'Ayer '+hhmm;
   const days=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
   const diffDays=Math.floor((new Date()-d)/86400000);
-  if(diffDays<7) return days[d.getDay()];
-  return d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'});
+  if(diffDays<7) return days[d.getDay()]+' '+hhmm;
+  return d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'})+' '+hhmm;
 }
 function buildRpActivity(){
   const acts=(ap().activityLog||[]).slice(-10).reverse();
