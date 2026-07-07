@@ -33,6 +33,9 @@ if (process.env.DATABASE_URL) {
   };
 }
 const db = new Pool(dbConfig);
+// Sin esto, un corte de red pasajero en una conexión inactiva del pool (p.ej. ECONNABORTED)
+// se propaga como excepción no capturada y tumba todo el proceso - recomendación oficial de pg.
+db.on('error', function(err) { console.error('[DB] Error inesperado en el pool de conexiones:', err.message); });
 db.connect()
   .then(function() { console.log('[DB] PostgreSQL conectado'); })
   .catch(function(e) { console.error('[DB] Error conexión PostgreSQL:', e.message); });
