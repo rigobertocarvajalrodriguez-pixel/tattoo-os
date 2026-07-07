@@ -140,8 +140,9 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .srch-wrap{position:relative}
 .srch-inp-box{display:flex;align-items:center;gap:6px;background:var(--elevated);border:1px solid var(--bd2);border-radius:var(--r2);padding:5px 10px;transition:border-color .2s,background .3s}
 .srch-inp-box:focus-within{border-color:rgba(124,92,252,.4);box-shadow:0 0 0 3px rgba(124,92,252,.08)}
-.srch-inp-box input{background:transparent;border:none;outline:none;color:var(--t1);font-size:11px;font-family:'DM Sans',sans-serif;width:140px}
+.srch-inp-box input{background:transparent;border:none;outline:none;color:var(--t1);font-size:11px;font-family:'DM Sans',sans-serif;width:140px;-webkit-appearance:none;appearance:none}
 .srch-inp-box input::placeholder{color:var(--t3)}
+.srch-inp-box input::-webkit-search-cancel-button,.srch-inp-box input::-webkit-search-decoration{-webkit-appearance:none;appearance:none}
 .srch-ico{color:var(--t3);font-size:13px}
 .srch-dd{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--elevated);border:1px solid var(--bd3);border-radius:var(--r3);overflow:hidden;z-index:50;box-shadow:0 16px 40px rgba(0,0,0,.5);display:none;max-height:300px;overflow-y:auto}
 .srch-dd.open{display:block}
@@ -320,7 +321,8 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .cc-del{position:absolute;top:9px;right:9px;width:20px;height:20px;border:1px solid var(--bd);background:transparent;border-radius:4px;color:var(--t3);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;opacity:0;transition:all .15s}
 .cc:hover .cc-del{opacity:1}
 .cc-del:hover{border-color:rgba(244,63,94,.4);color:var(--ro);background:rgba(244,63,94,.08)}
-.cs-inp{flex:1;background:var(--elevated);border:1px solid var(--bd2);border-radius:var(--r2);padding:8px 12px;color:var(--t1);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;transition:all .15s}
+.cs-inp{flex:1;background:var(--elevated);border:1px solid var(--bd2);border-radius:var(--r2);padding:8px 12px;color:var(--t1);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;transition:all .15s;-webkit-appearance:none;appearance:none}
+.cs-inp::-webkit-search-cancel-button,.cs-inp::-webkit-search-decoration{-webkit-appearance:none;appearance:none}
 .cs-inp:focus{border-color:rgba(124,92,252,.4)}
 
 /* ── PROJECTS ── */
@@ -1347,7 +1349,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
       <div class="srch-wrap" id="cal-srch">
         <div class="srch-inp-box">
           <span class="srch-ico">⌕</span>
-          <input type="text" id="srch-inp" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Buscar citas, clientes..." oninput="handleSearch(this.value)" onfocus="showSearchDrop()" onblur="setTimeout(hideSearchDrop,200)">
+          <input type="search" id="srch-inp" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Buscar citas, clientes..." oninput="handleSearch(this.value)" onfocus="showSearchDrop()" onblur="setTimeout(hideSearchDrop,200)">
         </div>
         <div class="srch-dd" id="srch-dd"></div>
       </div>
@@ -1406,7 +1408,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
     </div>
     <div class="pb">
       <div style="display:flex;gap:10px;margin-bottom:16px">
-        <input class="cs-inp" type="text" id="cl-search" placeholder="Buscar por nombre, Instagram..." oninput="renderClients(this.value)">
+        <input class="cs-inp" type="search" id="cl-search" autocomplete="off" placeholder="Buscar por nombre, Instagram..." oninput="renderClients(this.value)">
       </div>
       <div class="csgrid" id="csgrid"></div>
     </div>
@@ -1573,7 +1575,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
       <!-- DOCS HISTORY VIEW -->
       <div id="docs-history-view" style="display:none">
         <div style="display:flex;gap:10px;margin-bottom:14px">
-          <input class="cs-inp" type="text" id="docs-search" placeholder="Buscar documentos, clientes..." oninput="filterDocs(this.value)" style="flex:1">
+          <input class="cs-inp" type="search" id="docs-search" autocomplete="off" placeholder="Buscar documentos, clientes..." oninput="filterDocs(this.value)" style="flex:1">
           <select class="cs-inp" id="docs-client-filter" onchange="filterDocs()" style="width:180px">
             <option value="">Todos los clientes</option>
           </select>
@@ -1615,7 +1617,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
         <div class="wa-sidebar-hd">
           <div class="wa-sidebar-ttl">Conversaciones</div>
           <div class="wa-sidebar-sub" id="wa-conv-count">0 clientes</div>
-          <input class="cs-inp" type="text" placeholder="Buscar cliente..." style="margin-top:8px;font-size:11px;padding:6px 10px" oninput="filterWaClients(this.value)" id="wa-search">
+          <input class="cs-inp" type="search" autocomplete="off" placeholder="Buscar cliente..." style="margin-top:8px;font-size:11px;padding:6px 10px" oninput="filterWaClients(this.value)" id="wa-search">
         </div>
         <div class="wa-client-list" id="wa-client-list"></div>
       </div>
@@ -4222,7 +4224,7 @@ function openModal(type,data={}){
       </div>
       <div class="ms">${t('income')}: €${totalIncome.toLocaleString()} · ${t('expenses')}: €${totalExp.toLocaleString()} · Beneficio: €${(totalIncome-totalExp).toLocaleString()}</div>
       <div id="month-search-row" style="display:none;margin-top:10px">
-        <input class="fi" type="text" id="month-search-inp" placeholder="Buscar por nombre, categoría o importe..." oninput="renderMonthDetailList()">
+        <input class="fi" type="search" id="month-search-inp" autocomplete="off" placeholder="Buscar por nombre, categoría o importe..." oninput="renderMonthDetailList()">
       </div>
       <div id="month-detail-list" style="max-height:min(50vh,420px);overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:14px"></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">Cerrar</button></div>`;
@@ -4241,7 +4243,7 @@ function openModal(type,data={}){
       </div>
       <div class="ms">${d.jobs.length} trabajo${d.jobs.length===1?'':'s'} este mes · Ingresos: €${total.toLocaleString()} · Comisión (${pct}%): €${comision.toFixed(2)}</div>
       <div id="artist-search-row" style="display:none;margin-top:10px">
-        <input class="fi" type="text" id="artist-search-inp" placeholder="Buscar por cliente, fecha o importe..." oninput="renderArtistDetailList()">
+        <input class="fi" type="search" id="artist-search-inp" autocomplete="off" placeholder="Buscar por cliente, fecha o importe..." oninput="renderArtistDetailList()">
       </div>
       <div id="artist-detail-list" style="max-height:min(50vh,420px);overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:14px"></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">Cerrar</button></div>`;
