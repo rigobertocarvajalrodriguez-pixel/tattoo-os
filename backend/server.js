@@ -244,20 +244,28 @@ db.query(
 // a hash bcrypt cualquier valor que todavía no tenga pinta de hash bcrypt (no empieza por
 // $2a$/$2b$/$2y$), preservando el valor original para que cada usuario pueda seguir entrando
 // con su misma contraseña de siempre - esto no resetea ninguna contraseña, solo cambia cómo
-// se guarda. Aparte, si la del Admin seguía siendo el viejo valor por defecto "admin123", la
-// rota a la nueva (ADMIN_PASS) ya hasheada, ya que esa sí era pública/adivinable.
+// se guarda. Aparte, si la del Admin (en texto plano o ya hasheada) sigue resolviendo al
+// viejo valor por defecto "admin123", la rota a la nueva (ADMIN_PASS), ya que esa sí era
+// pública/adivinable - se comprueba con bcrypt.compare para que esto siga funcionando
+// incluso después de que la fila ya haya sido hasheada en un arranque anterior.
 var BCRYPT_RE = /^\$2[aby]\$/;
 db.query('SELECT id, email, password FROM users').then(function(r) {
-  var ops = r.rows.map(function(u) {
-    var current = u.password || '';
-    var toHash = (u.email === ADMIN_EMAIL && current === 'admin123') ? ADMIN_PASS : current;
-    if (BCRYPT_RE.test(current) && toHash === current) return null; // ya migrada, nada que hacer
-    return bcrypt.hash(toHash, 10).then(function(hash) {
-      return db.query('UPDATE users SET password=$1 WHERE id=$2', [hash, u.id]);
+  var adminRow = r.rows.find(function(u) { return u.email === ADMIN_EMAIL; });
+  var adminIsWeak = adminRow
+    ? (BCRYPT_RE.test(adminRow.password) ? bcrypt.compare('admin123', adminRow.password) : Promise.resolve(adminRow.password === 'admin123'))
+    : Promise.resolve(false);
+  return adminIsWeak.then(function(isWeak) {
+    var ops = r.rows.map(function(u) {
+      var current = u.password || '';
+      var toHash = (u.email === ADMIN_EMAIL && isWeak) ? ADMIN_PASS : current;
+      if (BCRYPT_RE.test(current) && toHash === current) return null; // ya migrada, nada que hacer
+      return bcrypt.hash(toHash, 10).then(function(hash) {
+        return db.query('UPDATE users SET password=$1 WHERE id=$2', [hash, u.id]);
+      });
+    }).filter(Boolean);
+    return Promise.all(ops).then(function() {
+      if (ops.length) console.log('[AUTH] Contraseñas migradas a bcrypt:', ops.length);
     });
-  }).filter(Boolean);
-  return Promise.all(ops).then(function() {
-    if (ops.length) console.log('[AUTH] Contraseñas migradas a bcrypt:', ops.length);
   });
 }).catch(function(e) { console.error('[AUTH] Error migrando contraseñas a bcrypt:', e.message); });
 
