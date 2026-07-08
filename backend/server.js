@@ -1,9 +1,11 @@
-// NOTA DE SEGURIDAD: aquí existía `process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'` a nivel
-// global, lo que desactivaba la verificación de certificados TLS para TODAS las conexiones
-// salientes del proceso (no solo la base de datos), exponiendo al servidor a ataques
-// man-in-the-middle en cualquier petición HTTPS. Se elimina: la conexión a PostgreSQL ya
-// tiene su propia configuración `ssl:{rejectUnauthorized:false}` más abajo, limitada solo a
-// esa conexión (necesaria para el pooler de Supabase/Render), que es lo único que lo requería.
+// NOTA DE SEGURIDAD: se intentó quitar esto (afecta a TODAS las conexiones salientes del
+// proceso, no solo la base de datos, lo cual es un riesgo real de man-in-the-middle) pero el
+// pooler de Supabase/Render en este proyecto concreto no conecta sin él - la opción
+// `ssl:{rejectUnauthorized:false}` puesta solo en la conexión de PostgreSQL (más abajo) no fue
+// suficiente por sí sola y rompió la conexión a la base de datos en producción. Se mantiene
+// hasta poder investigar con más cuidado una alternativa que no debilite todo el proceso
+// (por ejemplo, apuntar al certificado CA correcto en vez de desactivar la verificación).
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const express = require('express');
 const cors = require('cors');
