@@ -1,5 +1,9 @@
-// Allow self-signed certs (needed for Supabase pooler on Render)
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// NOTA DE SEGURIDAD: aquí existía `process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'` a nivel
+// global, lo que desactivaba la verificación de certificados TLS para TODAS las conexiones
+// salientes del proceso (no solo la base de datos), exponiendo al servidor a ataques
+// man-in-the-middle en cualquier petición HTTPS. Se elimina: la conexión a PostgreSQL ya
+// tiene su propia configuración `ssl:{rejectUnauthorized:false}` más abajo, limitada solo a
+// esa conexión (necesaria para el pooler de Supabase/Render), que es lo único que lo requería.
 
 const express = require('express');
 const cors = require('cors');
@@ -234,6 +238,27 @@ db.query(
   }
 });
 
+// Migración de seguridad: las contraseñas de cuenta se guardaban en texto plano. Convertimos
+// a hash bcrypt cualquier valor que todavía no tenga pinta de hash bcrypt (no empieza por
+// $2a$/$2b$/$2y$), preservando el valor original para que cada usuario pueda seguir entrando
+// con su misma contraseña de siempre - esto no resetea ninguna contraseña, solo cambia cómo
+// se guarda. Aparte, si la del Admin seguía siendo el viejo valor por defecto "admin123", la
+// rota a la nueva (ADMIN_PASS) ya hasheada, ya que esa sí era pública/adivinable.
+var BCRYPT_RE = /^\$2[aby]\$/;
+db.query('SELECT id, email, password FROM users').then(function(r) {
+  var ops = r.rows.map(function(u) {
+    var current = u.password || '';
+    var toHash = (u.email === ADMIN_EMAIL && current === 'admin123') ? ADMIN_PASS : current;
+    if (BCRYPT_RE.test(current) && toHash === current) return null; // ya migrada, nada que hacer
+    return bcrypt.hash(toHash, 10).then(function(hash) {
+      return db.query('UPDATE users SET password=$1 WHERE id=$2', [hash, u.id]);
+    });
+  }).filter(Boolean);
+  return Promise.all(ops).then(function() {
+    if (ops.length) console.log('[AUTH] Contraseñas migradas a bcrypt:', ops.length);
+  });
+}).catch(function(e) { console.error('[AUTH] Error migrando contraseñas a bcrypt:', e.message); });
+
 // Auth sessions in memory: token → { userId, email, name, isAdmin }
 const authSessions = {};
 
@@ -241,13 +266,18 @@ const authSessions = {};
 app.post('/api/auth/login', function(req, res) {
   var email = (req.body.email || '').trim().toLowerCase();
   var pass = req.body.password || '';
-  db.query('SELECT * FROM users WHERE email=$1 AND password=$2', [email, pass])
+  db.query('SELECT * FROM users WHERE email=$1', [email])
     .then(function(r) {
       if (!r.rows.length) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
       var user = r.rows[0];
-      var token = crypto.randomUUID();
-      authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin };
-      res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
+      var stored = user.password || '';
+      var check = BCRYPT_RE.test(stored) ? bcrypt.compare(pass, stored) : Promise.resolve(pass === stored);
+      return check.then(function(match) {
+        if (!match) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+        var token = crypto.randomUUID();
+        authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin };
+        res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
+      });
     })
     .catch(function(e) { res.status(500).json({ error: 'Error de base de datos' }); });
 });
@@ -258,17 +288,18 @@ app.post('/api/auth/register', function(req, res) {
   var name = (req.body.name || email.split('@')[0]).trim();
   if (!email || !pass) return res.status(400).json({ error: 'Email y contraseña requeridos' });
   if (pass.length < 8) return res.status(400).json({ error: 'Contraseña mínimo 8 caracteres' });
-  db.query('INSERT INTO users (email, name, password) VALUES ($1,$2,$3) RETURNING *', [email, name, pass])
-    .then(function(r) {
-      var user = r.rows[0];
-      var token = crypto.randomUUID();
-      authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: false };
-      res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
-    })
-    .catch(function(e) {
-      if (e.code === '23505') return res.status(400).json({ error: 'El email ya está registrado' });
-      res.status(500).json({ error: 'Error de base de datos' });
-    });
+  bcrypt.hash(pass, 10).then(function(hash) {
+    return db.query('INSERT INTO users (email, name, password) VALUES ($1,$2,$3) RETURNING *', [email, name, hash])
+      .then(function(r) {
+        var user = r.rows[0];
+        var token = crypto.randomUUID();
+        authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: false };
+        res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
+      });
+  }).catch(function(e) {
+    if (e.code === '23505') return res.status(400).json({ error: 'El email ya está registrado' });
+    res.status(500).json({ error: 'Error de base de datos' });
+  });
 });
 
 app.get('/api/auth/me', function(req, res) {
@@ -567,7 +598,7 @@ app.delete('/api/expenses/:id', authMiddleware, function(req, res) {
 // ══════════════════════════════════════════
 
 app.get('/api/admin/users', adminMiddleware, function(req, res) {
-  db.query('SELECT id, email, name, password, is_admin, created_at FROM users ORDER BY created_at ASC')
+  db.query('SELECT id, email, name, is_admin, created_at FROM users ORDER BY created_at ASC')
     .then(function(r) { res.json(r.rows); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });

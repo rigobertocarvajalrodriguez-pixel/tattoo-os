@@ -6446,18 +6446,9 @@ function renderAdminContent() {
           </div>
           ${u.email!==ADMIN_EMAIL?`<button class="bsec" style="padding:5px 10px;font-size:11px;border-color:rgba(124,92,252,.35);color:var(--vl);flex-shrink:0" onclick="adminViewUserProfiles('${u.id}','${(u.name||u.email||'').replace(/'/g,"\\'")}')">Ver perfiles</button>`:''}
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <div style="background:var(--void);border:1px solid var(--bd);border-radius:var(--r1);padding:8px 10px">
-            <div style="font-size:9px;color:var(--t3);font-weight:600;letter-spacing:.5px;margin-bottom:3px">EMAIL</div>
-            <div style="font-size:12px;color:var(--t1);font-family:monospace;word-break:break-all">${u.email||'-'}</div>
-          </div>
-          <div style="background:var(--void);border:1px solid var(--bd);border-radius:var(--r1);padding:8px 10px">
-            <div style="font-size:9px;color:var(--t3);font-weight:600;letter-spacing:.5px;margin-bottom:3px">CONTRASEÑA</div>
-            <div style="display:flex;align-items:center;gap:6px">
-              <div id="pw-${u.id}" style="font-size:12px;color:var(--t1);font-family:monospace;letter-spacing:2px">••••••••</div>
-              <button onclick="toggleAdminPw('${u.id}','${(u.password||'').replace(/'/g,"\\'")}',this)" style="background:transparent;border:none;cursor:pointer;color:var(--t3);padding:0;font-size:11px;flex-shrink:0">mostrar</button>
-            </div>
-          </div>
+        <div style="background:var(--void);border:1px solid var(--bd);border-radius:var(--r1);padding:8px 10px">
+          <div style="font-size:9px;color:var(--t3);font-weight:600;letter-spacing:.5px;margin-bottom:3px">EMAIL</div>
+          <div style="font-size:12px;color:var(--t1);font-family:monospace;word-break:break-all">${u.email||'-'}</div>
         </div>
       </div>`;
     }
@@ -6510,20 +6501,6 @@ function renderAdminContent() {
 async function adminUpdateTicket(id, data) {
   await fetch(API_BASE+'/api/admin/tickets/'+id, { method:'PATCH', headers: adminHeaders(), body: JSON.stringify(data) });
   adminRefresh();
-}
-
-function toggleAdminPw(userId, pass, btn) {
-  var el = document.getElementById('pw-'+userId);
-  if (!el) return;
-  if (el.dataset.shown === '1') {
-    el.textContent = '••••••••';
-    el.dataset.shown = '0';
-    btn.textContent = 'mostrar';
-  } else {
-    el.textContent = pass || '(sin contraseña)';
-    el.dataset.shown = '1';
-    btn.textContent = 'ocultar';
-  }
 }
 
 // Admin: view a user's profiles and data
