@@ -6622,7 +6622,7 @@ function adminRequestView(userId, ticketId) {
   initSocket();
   var roomId = 'room-' + ticketId + '-' + Date.now();
   _viewRoomId = roomId;
-  _socket.emit('admin:request-view', { roomId: roomId, targetUserId: userId });
+  _socket.emit('admin:request-view', { roomId: roomId, targetUserId: userId, authToken: _authToken });
   showToast('📡 Solicitud enviada al usuario…');
   // Mostrar ventana de espera con el visor
   document.getElementById('mcontent').innerHTML = `
@@ -8299,7 +8299,7 @@ playTosSplash();
   // Conectar socket al iniciar sesión
   window._initRemoteView = function(userId) {
     initSocket();
-    _socket.emit('user:join', { userId: userId });
+    _socket.emit('user:join', { userId: userId, authToken: _authToken });
   };
 
   // 0. --vh hack: corrige la altura real en iOS (Safari y PWA instalada)

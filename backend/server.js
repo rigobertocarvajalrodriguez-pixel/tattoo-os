@@ -184,7 +184,13 @@ db.query(`
 }).catch(function(e) { console.error('[DB] Error creando commission_settlements:', e.message); });
 
 const app = express();
-app.use(cors());
+app.set('trust proxy', 1);
+// CORS abierto solo fuera de producción (desarrollo local / pruebas por LAN con el móvil, donde
+// el frontend se sirve desde otro origen pero API_BASE sigue apuntando a Render). En producción
+// los usuarios reales siempre acceden a la API desde el mismo origen (misma URL de Render), así
+// que restringir aquí no les afecta y sí bloquea a cualquier otra web que intente llamar a la API.
+const PROD_ORIGIN = 'https://tattoo-os-pdbp.onrender.com';
+app.use(cors(process.env.NODE_ENV === 'production' ? { origin: PROD_ORIGIN } : {}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 
@@ -272,8 +278,30 @@ db.query('SELECT id, email, password FROM users').then(function(r) {
 // Auth sessions in memory: token → { userId, email, name, isAdmin }
 const authSessions = {};
 
+// Límite de intentos simple en memoria (sin Redis en este proyecto, pero con una sola instancia
+// Render es suficiente) para frenar fuerza bruta contra login/registro por IP.
+var loginAttempts = {};
+var RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+var RATE_LIMIT_MAX = 10;
+function loginRateLimiter(req, res, next) {
+  var ip = req.ip || 'unknown';
+  var now = Date.now();
+  var attempts = (loginAttempts[ip] || []).filter(function(t) { return now - t < RATE_LIMIT_WINDOW_MS; });
+  if (attempts.length >= RATE_LIMIT_MAX) return res.status(429).json({ error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' });
+  attempts.push(now);
+  loginAttempts[ip] = attempts;
+  next();
+}
+setInterval(function() {
+  var now = Date.now();
+  Object.keys(loginAttempts).forEach(function(ip) {
+    loginAttempts[ip] = loginAttempts[ip].filter(function(t) { return now - t < RATE_LIMIT_WINDOW_MS; });
+    if (!loginAttempts[ip].length) delete loginAttempts[ip];
+  });
+}, RATE_LIMIT_WINDOW_MS);
+
 // ── AUTH ENDPOINTS ──
-app.post('/api/auth/login', function(req, res) {
+app.post('/api/auth/login', loginRateLimiter, function(req, res) {
   var email = (req.body.email || '').trim().toLowerCase();
   var pass = req.body.password || '';
   db.query('SELECT * FROM users WHERE email=$1', [email])
@@ -292,7 +320,7 @@ app.post('/api/auth/login', function(req, res) {
     .catch(function(e) { res.status(500).json({ error: 'Error de base de datos' }); });
 });
 
-app.post('/api/auth/register', function(req, res) {
+app.post('/api/auth/register', loginRateLimiter, function(req, res) {
   var email = (req.body.email || '').trim().toLowerCase();
   var pass = req.body.password || '';
   var name = (req.body.name || email.split('@')[0]).trim();
@@ -628,24 +656,37 @@ app.patch('/api/admin/tickets/:id', adminMiddleware, function(req, res) {
 });
 
 app.get('/api/tickets/:id/messages', authMiddleware, function(req, res) {
-  db.query('SELECT * FROM ticket_messages WHERE ticket_id=$1 ORDER BY created_at ASC', [req.params.id])
-    .then(function(r) { res.json(r.rows); })
-    .catch(function(e) { res.status(500).json({ error: e.message }); });
+  db.query('SELECT user_id FROM tickets WHERE id=$1', [req.params.id])
+    .then(function(t) {
+      if (!t.rows.length) { res.status(404).json({ error: 'Ticket no encontrado' }); return null; }
+      var isAdm = req.user.isAdmin || req.user.email === ADMIN_EMAIL;
+      if (!isAdm && t.rows[0].user_id !== req.userId) { res.status(403).json({ error: 'No autorizado' }); return null; }
+      return db.query('SELECT * FROM ticket_messages WHERE ticket_id=$1 ORDER BY created_at ASC', [req.params.id]);
+    })
+    .then(function(r) { if (r) res.json(r.rows); })
+    .catch(function(e) { if (!res.headersSent) res.status(500).json({ error: e.message }); });
 });
 
+// El emisor ("admin" o "user") se decide con la sesión autenticada del servidor, nunca con
+// req.body.sender - antes cualquier usuario podía mandar sender:"admin" y suplantar al soporte.
 app.post('/api/tickets/:id/messages', authMiddleware, function(req, res) {
-  var isAdm = req.body.sender === 'admin';
-  var sender = isAdm ? 'admin' : 'user';
-  var senderName = isAdm ? 'Admin' : (req.body.sender_name || '');
-  db.query('INSERT INTO ticket_messages (ticket_id,sender,sender_name,message) VALUES ($1,$2,$3,$4) RETURNING *',
-    [req.params.id, sender, senderName, req.body.message])
-    .then(function(r) {
-      var newStatus = isAdm ? 'in_progress' : 'open';
-      db.query('UPDATE tickets SET status=$1, updated_at=NOW(), has_unread=$2 WHERE id=$3',
-        [newStatus, !isAdm, req.params.id]).catch(function(){});
-      res.json(r.rows[0]);
+  db.query('SELECT user_id FROM tickets WHERE id=$1', [req.params.id])
+    .then(function(t) {
+      if (!t.rows.length) { res.status(404).json({ error: 'Ticket no encontrado' }); return null; }
+      var isAdm = req.user.isAdmin || req.user.email === ADMIN_EMAIL;
+      if (!isAdm && t.rows[0].user_id !== req.userId) { res.status(403).json({ error: 'No autorizado' }); return null; }
+      var sender = isAdm ? 'admin' : 'user';
+      var senderName = isAdm ? 'Admin' : (req.user.name || '');
+      return db.query('INSERT INTO ticket_messages (ticket_id,sender,sender_name,message) VALUES ($1,$2,$3,$4) RETURNING *',
+        [req.params.id, sender, senderName, req.body.message])
+        .then(function(r) {
+          var newStatus = isAdm ? 'in_progress' : 'open';
+          db.query('UPDATE tickets SET status=$1, updated_at=NOW(), has_unread=$2 WHERE id=$3',
+            [newStatus, !isAdm, req.params.id]).catch(function(){});
+          res.json(r.rows[0]);
+        });
     })
-    .catch(function(e) { res.status(500).json({ error: e.message }); });
+    .catch(function(e) { if (!res.headersSent) res.status(500).json({ error: e.message }); });
 });
 
 app.get('/api/tickets/mine', authMiddleware, function(req, res) {
@@ -662,7 +703,7 @@ app.patch('/api/tickets/:id/read', authMiddleware, function(req, res) {
 
 app.post('/api/tickets', authMiddleware, function(req, res) {
   db.query('INSERT INTO tickets (user_id,user_email,user_name,title,description,priority) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-    [req.userId, req.body.user_email, req.body.user_name, req.body.title, req.body.description, req.body.priority||'normal'])
+    [req.userId, req.user.email, req.user.name, req.body.title, req.body.description, req.body.priority||'normal'])
     .then(function(r) { res.json(r.rows[0]); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
@@ -1175,19 +1216,28 @@ if (process.env.NODE_ENV === 'production' && process.env.RENDER_URL) {
 const http = require('http');
 const { Server } = require('socket.io');
 const httpServer = http.createServer(app);
-const io = new Server(httpServer, { cors: { origin: '*' } });
+const io = new Server(httpServer, { cors: { origin: process.env.NODE_ENV === 'production' ? PROD_ORIGIN : '*' } });
 
 // rooms: { roomId: { admin: socketId, user: socketId, userId: string } }
 const rooms = {};
 
 io.on('connection', function(socket) {
-  // Admin solicita ver la pantalla de un usuario
+  // Admin solicita ver la pantalla de un usuario - antes cualquiera podía emitir este evento y
+  // hacerse pasar por Admin para pedirle a otro usuario que comparta su pantalla. Ahora se exige
+  // el token de sesión real y que esa sesión sea efectivamente de administrador.
   socket.on('admin:request-view', function(data) {
+    var session = authSessions[data.authToken];
+    var isAdm = session && (session.isAdmin || session.email === ADMIN_EMAIL);
+    if (!isAdm) return;
     rooms[data.roomId] = { admin: socket.id, userId: data.targetUserId };
     io.to('user:' + data.targetUserId).emit('view:request', { roomId: data.roomId, adminName: 'Admin' });
   });
 
+  // Un cliente solo puede unirse a la "sala" de su propio userId (verificado con su sesión),
+  // para que no pueda suscribirse a las solicitudes de ver pantalla dirigidas a otro usuario.
   socket.on('user:join', function(data) {
+    var session = authSessions[data.authToken];
+    if (!session || session.userId !== data.userId) return;
     socket.join('user:' + data.userId);
     socket.userId = data.userId;
   });
