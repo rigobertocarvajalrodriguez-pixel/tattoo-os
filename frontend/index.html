@@ -3249,17 +3249,53 @@ function setFinanceTab(tab, el){
 // ==========================================
 // VENTAS DE MOSTRADOR (POS)
 // ==========================================
-function renderPosSales(){
-  const total=posSales.reduce((s,e)=>s+e.amount,0);
-  document.getElementById('pos-total-lbl').textContent='Total: €'+total.toLocaleString();
-  document.getElementById('pos-list').innerHTML=posSales.map(s=>`
-    <div class="exi">
+function posSaleRowHTML(s){
+  return `<div class="exi" id="possale-row-${s.id}">
       <div class="exdot" style="background:var(--gr)"></div>
       <div class="exinf"><div class="exnm">${s.item}</div><div class="excat">${PAYMENT_METHOD_LABELS[s.method]||'Sin especificar'}</div></div>
       <div class="exdate">${s.date}</div>
       <div class="examt">+€${s.amount}</div>
-      <button class="exdel" onclick="deletePosSale(${s.id})"></button>
-    </div>`).join('');
+      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+        <button class="addbtn" style="background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none;padding:4px 10px;font-size:10px" onclick="editPosSaleRow(${s.id})">Editar</button>
+        <button class="exdel" onclick="deletePosSale(${s.id})"></button>
+      </div>
+    </div>`;
+}
+function posSaleEditHTML(s){
+  return `<div class="exi" id="possale-row-${s.id}" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+      <div class="fg" style="margin:0;flex:1 1 160px"><label class="fl">Producto</label><input class="fi" type="text" id="edit-pos-item-${s.id}" value="${(s.item||'').replace(/"/g,'&quot;')}"></div>
+      <div class="fg" style="margin:0"><label class="fl">Importe</label><input class="fi" type="number" id="edit-pos-amt-${s.id}" value="${s.amount}" style="width:100px"></div>
+      <div class="fg" style="margin:0"><label class="fl">Método</label><select class="fi" id="edit-pos-method-${s.id}" style="width:150px">${paymentMethodOpts(s.method)}</select></div>
+      <div class="fg" style="margin:0"><label class="fl">Fecha</label><input class="fi" type="date" id="edit-pos-date-${s.id}" value="${s.date}" style="width:150px"></div>
+      <div style="display:flex;gap:6px">
+        <button class="bprim" style="width:auto;padding:8px 14px" onclick="savePosSaleEdit(${s.id})">Guardar</button>
+        <button class="bsec" style="width:auto;padding:8px 14px;color:var(--ro);border-color:rgba(244,63,94,.3)" onclick="deletePosSale(${s.id})">Eliminar</button>
+      </div>
+    </div>`;
+}
+function renderPosSales(){
+  const total=posSales.reduce((s,e)=>s+e.amount,0);
+  document.getElementById('pos-total-lbl').textContent='Total: €'+total.toLocaleString();
+  document.getElementById('pos-list').innerHTML=posSales.map(posSaleRowHTML).join('');
+}
+function editPosSaleRow(id){
+  const s=posSales.find(x=>x.id===id);
+  const rowEl=document.getElementById('possale-row-'+id);
+  if(!s||!rowEl) return;
+  rowEl.outerHTML=posSaleEditHTML(s);
+}
+function savePosSaleEdit(id){
+  const s=posSales.find(x=>x.id===id);
+  if(!s) return;
+  const item=document.getElementById('edit-pos-item-'+id).value.trim();
+  const amt=parseFloat(document.getElementById('edit-pos-amt-'+id).value);
+  if(!item||isNaN(amt)){showToast(t('fillFields'));return}
+  s.item=item; s.amount=amt;
+  s.method=document.getElementById('edit-pos-method-'+id).value;
+  s.date=document.getElementById('edit-pos-date-'+id).value;
+  saveUserProfiles();
+  renderPosSales();
+  showToast('Venta actualizada');
 }
 function savePosSale(){
   const item=document.getElementById('m-positem').value.trim();
