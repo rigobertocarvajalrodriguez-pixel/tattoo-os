@@ -191,6 +191,16 @@ app.set('trust proxy', 1);
 // que restringir aquí no les afecta y sí bloquea a cualquier otra web que intente llamar a la API.
 const PROD_ORIGIN = 'https://tattoo-os-pdbp.onrender.com';
 app.use(cors(process.env.NODE_ENV === 'production' ? { origin: PROD_ORIGIN } : {}));
+// Cabeceras de seguridad básicas. Deliberadamente sin Content-Security-Policy todavía: el
+// frontend es un único HTML con mucho <script>/<style> inline y onclick="", una CSP por defecto
+// lo rompería - queda pendiente para cuando se audite ese código con más calma.
+app.use(function(req, res, next) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  next();
+});
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 
@@ -434,16 +444,18 @@ function startWASession(userId) {
   var clientOptions = {
     authStrategy: new LocalAuth({ dataPath: sessionDir, clientId: userId }),
     puppeteer: {
+      // --disable-web-security e --ignore-certificate-errors se quitan a propósito: apagaban la
+      // política de mismo origen y la verificación de certificados TLS para todo lo que cargue
+      // este Chrome (web.whatsapp.com usa certificados públicos normales, no hay razón real para
+      // desactivar la verificación aquí, a diferencia del pooler de la base de datos).
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-web-security',
         '--no-first-run',
         '--no-zygote',
-        '--disable-extensions',
-        '--ignore-certificate-errors'
+        '--disable-extensions'
       ],
       headless: true
     }
