@@ -2638,6 +2638,8 @@ function fmtDate(base,dayOff,monthOff){
 }
 function parseDate(s){const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)}
 function sameDay(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate()}
+// Escapa texto de usuario/terceros antes de interpolarlo en innerHTML
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function getMonday(d){const dd=new Date(d);const day=dd.getDay();dd.setDate(dd.getDate()-(day===0?6:day-1));return dd}
 function dateStr(d){return d.toISOString().split('T')[0]}
 
@@ -2874,7 +2876,7 @@ function makeAB(a){
   el.style.top=top+'%';el.style.height='calc('+height+'% - 3px)';
   const badge=a.status==='confirmed'?'conf':a.status==='pending'?'pend':'done';
   const btext=t(a.status);
-  el.innerHTML=`<div class="ab-nm">${a.name}</div><div class="ab-tp">${a.type}</div><div class="ab-ft"><span class="b${badge}">${btext}</span><span class="ab-pr">€${a.price}</span><span class="ab-edit"> ${LANG==='en'?'edit':'editar'}</span></div>`;
+  el.innerHTML=`<div class="ab-nm">${esc(a.name)}</div><div class="ab-tp">${esc(a.type)}</div><div class="ab-ft"><span class="b${badge}">${btext}</span><span class="ab-pr">€${a.price}</span><span class="ab-edit"> ${LANG==='en'?'edit':'editar'}</span></div>`;
   // click only if not dragged (handled by mousedown delta)
   el._wasDragged = false;
   el.onclick=(e)=>{if(!el._wasDragged){e.stopPropagation();openModal('editAppt',a)}};
@@ -2898,7 +2900,7 @@ function buildDay(){
     const top=((a.start-8)/14)*100;const height=(a.dur/14)*100;
     el.style.top=top+'%';el.style.height='calc('+height+'% - 4px)';el.style.left='10px';el.style.right='10px';
     const btext=t(a.status);
-    el.innerHTML=`<span class="dab-edit"></span><div class="ab-nm" style="font-size:12px">${a.name}</div><div class="ab-tp" style="margin-top:2px">${a.type}</div><div class="ab-ft" style="margin-top:5px"><span class="b${a.status==='confirmed'?'conf':a.status==='pending'?'pend':'done'}">${btext}</span><span class="ab-pr" style="font-size:10px">€${a.price} · ${a.dur}h</span></div>`;
+    el.innerHTML=`<span class="dab-edit"></span><div class="ab-nm" style="font-size:12px">${esc(a.name)}</div><div class="ab-tp" style="margin-top:2px">${esc(a.type)}</div><div class="ab-ft" style="margin-top:5px"><span class="b${a.status==='confirmed'?'conf':a.status==='pending'?'pend':'done'}">${btext}</span><span class="ab-pr" style="font-size:10px">€${a.price} · ${a.dur}h</span></div>`;
     el.onclick=(e)=>{e.stopPropagation();openModal('editAppt',a)};
     initDrag(el, a, true);
     col.appendChild(el);
@@ -2988,7 +2990,7 @@ function buildRpToday(){
   ${todayA.length?todayA.map(a=>`
     <div class="upi" onclick="editApptById(${a.id})">
       <div class="upt"><div class="uphr">${a.start}</div><div class="upap">${a.start<12?'AM':'PM'}</div></div>
-      <div class="upd"><div class="upc">${a.name}</div><div class="uptp">${a.type}</div><div class="updur">${a.dur}h · €${a.price}</div></div>
+      <div class="upd"><div class="upc">${esc(a.name)}</div><div class="uptp">${esc(a.type)}</div><div class="updur">${a.dur}h · €${a.price}</div></div>
       <div class="updot" style="background:${a.color==='v'?'var(--v)':a.color==='c'?'var(--cy)':a.color==='r'?'var(--ro)':'var(--am)'}"></div>
     </div>`).join(''):`<div style="font-size:11px;color:var(--t3);text-align:center;padding:16px">${t('noAppts')}</div>`}`;
 }
@@ -3010,8 +3012,8 @@ function buildRpStats(){
   <div class="seclbl">Top clientes</div>
   ${clients.sort((a,b)=>b.spent-a.spent).slice(0,4).map(cl=>`
     <div class="upi">
-      <div class="ua-av" style="width:26px;height:26px;font-size:9px;flex-shrink:0;background:${AVCOLS[cl.color]};box-shadow:none">${cl.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
-      <div class="upd"><div class="upc">${cl.name}</div><div class="uptp">${cl.sessions} ${t('sessions')}</div></div>
+      <div class="ua-av" style="width:26px;height:26px;font-size:9px;flex-shrink:0;background:${AVCOLS[cl.color]};box-shadow:none">${esc(cl.name.split(' ').map(n=>n[0]).join('').slice(0,2))}</div>
+      <div class="upd"><div class="upc">${esc(cl.name)}</div><div class="uptp">${cl.sessions} ${t('sessions')}</div></div>
       <div style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--gr)">€${cl.spent.toLocaleString()}</div>
     </div>`).join('')}`;
 }
@@ -3037,7 +3039,7 @@ function buildRpActivity(){
   const acts=(ap().activityLog||[]).slice(-10).reverse();
   const c=document.getElementById('rpc-activity');
   c.innerHTML=`<div class="seclbl">${t('rpActivity')}</div>
-  ${acts.length?acts.map(a=>`<div class="upi"><div class="upt" style="background:var(--${a.c==='g'?'gr':a.c==='a'?'am':a.c==='c'?'cy':'v'}d)"><div class="uphr" style="font-size:9px;line-height:1.5;color:var(--${a.c==='g'?'gr':a.c==='a'?'am':a.c==='c'?'cy':'vl'})">${relTime(a.ts)}</div></div><div class="upd"><div class="upc" style="font-size:11px">${a.txt}</div></div></div>`).join(''):`<div style="font-size:11px;color:var(--t3);text-align:center;padding:16px">Sin actividad todavía</div>`}`;
+  ${acts.length?acts.map(a=>`<div class="upi"><div class="upt" style="background:var(--${a.c==='g'?'gr':a.c==='a'?'am':a.c==='c'?'cy':'v'}d)"><div class="uphr" style="font-size:9px;line-height:1.5;color:var(--${a.c==='g'?'gr':a.c==='a'?'am':a.c==='c'?'cy':'vl'})">${relTime(a.ts)}</div></div><div class="upd"><div class="upc" style="font-size:11px">${esc(a.txt)}</div></div></div>`).join(''):`<div style="font-size:11px;color:var(--t3);text-align:center;padding:16px">Sin actividad todavía</div>`}`;
 }
 
 // ==========================================
@@ -3060,11 +3062,11 @@ function showSearchDrop(v=''){
     let html='';
     if(foundA.length){
       html+=`<div class="srch-section">${t('apptLabel')}</div>`;
-      html+=foundA.map(a=>`<div class="srch-item" onclick="editApptById(${a.id});document.getElementById('srch-inp').value='';hideSearchDrop()"><div class="srch-item-ico" style="background:${AVCOLS[a.color]}">${a.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><div class="srch-item-main">${a.name}</div><div class="srch-item-sub">${a.type} · ${a.date}</div></div></div>`).join('');
+      html+=foundA.map(a=>`<div class="srch-item" onclick="editApptById(${a.id});document.getElementById('srch-inp').value='';hideSearchDrop()"><div class="srch-item-ico" style="background:${AVCOLS[a.color]}">${esc(a.name.split(' ').map(n=>n[0]).join('').slice(0,2))}</div><div><div class="srch-item-main">${esc(a.name)}</div><div class="srch-item-sub">${esc(a.type)} · ${a.date}</div></div></div>`).join('');
     }
     if(foundC.length){
       html+=`<div class="srch-section" style="margin-top:4px">${t('clientLabel')}</div>`;
-      html+=foundC.map(c=>`<div class="srch-item" onclick="navTo('clients',null);setTimeout(()=>{document.getElementById('cl-search').value='${c.name}';renderClients('${c.name}')},100);document.getElementById('srch-inp').value='';hideSearchDrop()"><div class="srch-item-ico" style="background:${AVCOLS[c.color]}">${c.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><div class="srch-item-main">${c.name}</div><div class="srch-item-sub">${c.ig}</div></div></div>`).join('');
+      html+=foundC.map(c=>`<div class="srch-item" onclick="navTo('clients',null);setTimeout(()=>{document.getElementById('cl-search').value=${esc(JSON.stringify(c.name))};renderClients(${esc(JSON.stringify(c.name))})},100);document.getElementById('srch-inp').value='';hideSearchDrop()"><div class="srch-item-ico" style="background:${AVCOLS[c.color]}">${esc(c.name.split(' ').map(n=>n[0]).join('').slice(0,2))}</div><div><div class="srch-item-main">${esc(c.name)}</div><div class="srch-item-sub">${esc(c.ig)}</div></div></div>`).join('');
     }
     dd.innerHTML=html;
   }
@@ -3081,9 +3083,9 @@ function renderClients(filter=''){
   document.getElementById('csgrid').innerHTML=filtered.map(cl=>`
     <div class="cc" onclick="openClientProfile(${cl.id})">
       <button class="cc-del" onclick="event.stopPropagation();deleteClient(${cl.id})"></button>
-      <div class="cc-av" style="background:${AVCOLS[cl.color]}">${cl.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
-      <div class="cc-nm">${cl.name}</div>
-      <div class="cc-ig">${cl.ig}</div>
+      <div class="cc-av" style="background:${AVCOLS[cl.color]}">${esc(cl.name.split(' ').map(n=>n[0]).join('').slice(0,2))}</div>
+      <div class="cc-nm">${esc(cl.name)}</div>
+      <div class="cc-ig">${esc(cl.ig)}</div>
       <div class="cc-tags">
         <span class="cctag" style="background:var(--vd);color:var(--vl)">${cl.sessions} ${t('sessions')}</span>
         <span class="cctag" style="background:rgba(16,185,129,.1);color:var(--gr)">€${cl.spent.toLocaleString()}</span>
@@ -3096,20 +3098,20 @@ function openClientProfile(id){
   const clientAppts=appts.filter(a=>a.name===cl.name);
   document.getElementById('drawer-content').innerHTML=`
     <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:18px;margin-top:4px">
-      <div style="width:48px;height:48px;border-radius:50%;background:${AVCOLS[cl.color]};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0;box-shadow:0 0 18px var(--vg)">${cl.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
-      <div><div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;margin-bottom:2px;color:var(--t1)">${cl.name}</div><div style="font-size:11px;color:var(--vl)">${cl.ig}</div><div style="font-size:11px;color:var(--t3)">${cl.phone}</div></div>
+      <div style="width:48px;height:48px;border-radius:50%;background:${AVCOLS[cl.color]};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0;box-shadow:0 0 18px var(--vg)">${esc(cl.name.split(' ').map(n=>n[0]).join('').slice(0,2))}</div>
+      <div><div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;margin-bottom:2px;color:var(--t1)">${esc(cl.name)}</div><div style="font-size:11px;color:var(--vl)">${esc(cl.ig)}</div><div style="font-size:11px;color:var(--t3)">${esc(cl.phone)}</div></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:16px">
       ${[['Sessions',cl.sessions,'var(--t1)'],['Total','€'+cl.spent.toLocaleString(),'var(--gr)'],['Media','€'+Math.round(cl.spent/(cl.sessions||1)),'var(--vl)']].map(([k,v,c2])=>`<div style="background:var(--surface);border:1px solid var(--bd);border-radius:var(--r2);padding:9px;text-align:center"><div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">${k}</div><div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:${c2}">${v}</div></div>`).join('')}
     </div>
     <div style="background:var(--surface);border:1px solid var(--bd);border-radius:var(--r2);padding:11px;margin-bottom:14px">
       <div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">${t('notes')}</div>
-      <div style="font-size:12px;color:var(--t2);line-height:1.7">${cl.notes||' - '}</div>
+      <div style="font-size:12px;color:var(--t2);line-height:1.7">${esc(cl.notes)||' - '}</div>
     </div>
     <div style="font-size:9px;text-transform:uppercase;letter-spacing:.9px;color:var(--t3);font-weight:700;margin-bottom:7px">Historial</div>
-    ${clientAppts.map(a=>`<div style="background:var(--surface);border:1px solid var(--bd);border-radius:var(--r2);padding:9px 11px;display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><div><div style="font-size:12px;font-weight:500;color:var(--t1)">${a.type}</div><div style="font-size:10px;color:var(--t3);margin-top:1px">${a.dur}h · ${a.date}</div></div><span style="font-size:8px;font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:3px;background:${a.status==='confirmed'?'rgba(16,185,129,.14)':'rgba(255,255,255,.05)'};color:${a.status==='confirmed'?'var(--gr)':'var(--t3)'}">${t(a.status)}</span></div>`).join('')}
+    ${clientAppts.map(a=>`<div style="background:var(--surface);border:1px solid var(--bd);border-radius:var(--r2);padding:9px 11px;display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><div><div style="font-size:12px;font-weight:500;color:var(--t1)">${esc(a.type)}</div><div style="font-size:10px;color:var(--t3);margin-top:1px">${a.dur}h · ${a.date}</div></div><span style="font-size:8px;font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:3px;background:${a.status==='confirmed'?'rgba(16,185,129,.14)':'rgba(255,255,255,.05)'};color:${a.status==='confirmed'?'var(--gr)':'var(--t3)'}">${t(a.status)}</span></div>`).join('')}
     <div style="margin-top:14px;display:flex;gap:8px">
-      <button class="bprim" style="font-size:11px;padding:8px" onclick="openModal('appt',{name:'${cl.name}'});closeDrawer()">+ Nueva cita</button>
+      <button class="bprim" style="font-size:11px;padding:8px" onclick="openModal('appt',{name:${esc(JSON.stringify(cl.name))}});closeDrawer()">+ Nueva cita</button>
       <button class="bsec" style="font-size:11px;padding:8px" onclick="closeDrawer()">Cerrar</button>
     </div>`;
   openDrawer();
@@ -3169,7 +3171,7 @@ function renderArtistsFinance(){
   listEl.innerHTML=rows.map(r=>`
     <div class="exi" style="cursor:pointer" onclick="openArtistDetail(${r.id})">
       <div class="exdot" style="background:var(--v)"></div>
-      <div class="exinf"><div class="exnm">${r.name}</div><div class="excat">${r.pct}% de comisión</div></div>
+      <div class="exinf"><div class="exnm">${esc(r.name)}</div><div class="excat">${r.pct}% de comisión</div></div>
       <div class="exdate">Ingresos mensuales: €${r.ingresos.toLocaleString()}</div>
       <div class="examt" style="color:var(--gr)">€${r.comision.toFixed(2)}</div>
     </div>`).join('') || '<div style="padding:20px 14px;color:var(--t3);font-size:12px;text-align:center">Sin artistas todavía.</div>';
@@ -3190,8 +3192,8 @@ function renderArtistDetailList(){
   const listEl=document.getElementById('artist-detail-list');
   if(!listEl) return;
   listEl.innerHTML = jobs.length ? jobs.map(a=>`
-    <div class="exi"><div class="exdot" style="background:var(--v)"></div><div class="exinf"><div class="exnm">${a.name}</div><div class="excat">${a.date}${a.type?' · '+a.type:''}</div></div><div class="examt" style="color:var(--gr)">+€${a.price}</div></div>`).join('')
-    : `<div style="text-align:center;padding:30px;color:var(--t3)">${q?'Sin resultados para "'+q+'".':'Sin trabajos este mes.'}</div>`;
+    <div class="exi"><div class="exdot" style="background:var(--v)"></div><div class="exinf"><div class="exnm">${esc(a.name)}</div><div class="excat">${a.date}${a.type?' · '+esc(a.type):''}</div></div><div class="examt" style="color:var(--gr)">+€${a.price}</div></div>`).join('')
+    : `<div style="text-align:center;padding:30px;color:var(--t3)">${q?'Sin resultados para "'+esc(q)+'".':'Sin trabajos este mes.'}</div>`;
 }
 function toggleArtistSearch(){
   const row=document.getElementById('artist-search-row');
@@ -3220,12 +3222,12 @@ function renderMonthDetailList(){
   if(!listEl) return;
   listEl.innerHTML=`
     ${mAppts.length?'<div class="set-section-t">Citas completadas</div>'+mAppts.map(a=>`
-      <div class="exi"><div class="exdot" style="background:var(--v)"></div><div class="exinf"><div class="exnm">${a.name}</div><div class="excat">${a.date}</div></div><div class="examt" style="color:var(--gr)">+€${a.price}</div></div>`).join(''):''}
+      <div class="exi"><div class="exdot" style="background:var(--v)"></div><div class="exinf"><div class="exnm">${esc(a.name)}</div><div class="excat">${a.date}</div></div><div class="examt" style="color:var(--gr)">+€${a.price}</div></div>`).join(''):''}
     ${mSales.length?'<div class="set-section-t">Ventas de mostrador</div>'+mSales.map(s=>`
-      <div class="exi"><div class="exdot" style="background:var(--gr)"></div><div class="exinf"><div class="exnm">${s.item}</div><div class="excat">${s.date}</div></div><div class="examt" style="color:var(--gr)">+€${s.amount}</div></div>`).join(''):''}
+      <div class="exi"><div class="exdot" style="background:var(--gr)"></div><div class="exinf"><div class="exnm">${esc(s.item)}</div><div class="excat">${s.date}</div></div><div class="examt" style="color:var(--gr)">+€${s.amount}</div></div>`).join(''):''}
     ${mExp.length?'<div class="set-section-t">Gastos</div>'+mExp.map(e=>`
-      <div class="exi"><div class="exdot" style="background:${CATCOLS[e.cat]||'var(--t3)'}"></div><div class="exinf"><div class="exnm">${e.name}</div><div class="excat">${e.date}</div></div><div class="examt">-€${e.amount}</div></div>`).join(''):''}
-    ${(!mAppts.length&&!mSales.length&&!mExp.length)?'<div style="text-align:center;padding:30px;color:var(--t3)">'+(q?'Sin resultados para "'+q+'".':'Sin movimientos este mes.')+'</div>':''}
+      <div class="exi"><div class="exdot" style="background:${CATCOLS[e.cat]||'var(--t3)'}"></div><div class="exinf"><div class="exnm">${esc(e.name)}</div><div class="excat">${e.date}</div></div><div class="examt">-€${e.amount}</div></div>`).join(''):''}
+    ${(!mAppts.length&&!mSales.length&&!mExp.length)?'<div style="text-align:center;padding:30px;color:var(--t3)">'+(q?'Sin resultados para "'+esc(q)+'".':'Sin movimientos este mes.')+'</div>':''}
   `;
 }
 function toggleMonthSearch(){
@@ -3252,7 +3254,7 @@ function setFinanceTab(tab, el){
 function posSaleRowHTML(s){
   return `<div class="exi" id="possale-row-${s.id}">
       <div class="exdot" style="background:var(--gr)"></div>
-      <div class="exinf"><div class="exnm">${s.item}</div><div class="excat">${PAYMENT_METHOD_LABELS[s.method]||'Sin especificar'}</div></div>
+      <div class="exinf"><div class="exnm">${esc(s.item)}</div><div class="excat">${PAYMENT_METHOD_LABELS[s.method]||'Sin especificar'}</div></div>
       <div class="exdate">${s.date}</div>
       <div class="examt">+€${s.amount}</div>
       <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
@@ -3263,7 +3265,7 @@ function posSaleRowHTML(s){
 }
 function posSaleEditHTML(s){
   return `<div class="exi" id="possale-row-${s.id}" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
-      <div class="fg" style="margin:0;flex:1 1 160px"><label class="fl">Producto</label><input class="fi" type="text" id="edit-pos-item-${s.id}" value="${(s.item||'').replace(/"/g,'&quot;')}"></div>
+      <div class="fg" style="margin:0;flex:1 1 160px"><label class="fl">Producto</label><input class="fi" type="text" id="edit-pos-item-${s.id}" value="${esc(s.item)}"></div>
       <div class="fg" style="margin:0"><label class="fl">Importe</label><input class="fi" type="number" id="edit-pos-amt-${s.id}" value="${s.amount}" style="width:100px"></div>
       <div class="fg" style="margin:0"><label class="fl">Método</label><select class="fi" id="edit-pos-method-${s.id}" style="width:150px">${paymentMethodOpts(s.method)}</select></div>
       <div class="fg" style="margin:0"><label class="fl">Fecha</label><input class="fi" type="date" id="edit-pos-date-${s.id}" value="${s.date}" style="width:150px"></div>
@@ -3312,7 +3314,7 @@ function deletePosSale(id){posSales=posSales.filter(s=>s.id!==id);saveUserProfil
 // ==========================================
 function renderSettlementsTab(){
   const sel=document.getElementById('settle-artist');
-  sel.innerHTML=profiles.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  sel.innerHTML=profiles.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
   const fromEl=document.getElementById('settle-from'), toEl=document.getElementById('settle-to');
   if(!fromEl.value){
     const d=new Date(); d.setDate(1);
@@ -3439,7 +3441,7 @@ function renderExpenses(){
   document.getElementById('expl').innerHTML=expenses.map(e=>`
     <div class="exi">
       <div class="exdot" style="background:${CATCOLS[e.cat]||'var(--t3)'}"></div>
-      <div class="exinf"><div class="exnm">${e.name}</div><div class="excat">${t(e.cat)||e.cat}</div></div>
+      <div class="exinf"><div class="exnm">${esc(e.name)}</div><div class="excat">${t(e.cat)||esc(e.cat)}</div></div>
       <div class="exdate">${e.date}</div>
       <div class="examt">-€${e.amount}</div>
       <button class="exdel" onclick="deleteExpense(${e.id})"></button>
@@ -3459,9 +3461,9 @@ function renderProjects(){
         ${p.images&&p.images[0]?`<img class="pj-img" src="${p.images[0]}" alt="">`:`<div class="pj-no-img"><svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg><span style="font-size:10px">${t('addImage')}</span></div>`}
       </div>
       <div class="pj-body">
-        <div class="pj-nm">${p.name}</div>
-        <div class="pj-cl">${p.client||' - '}</div>
-        <div class="pj-tags">${(p.tags||[]).map(tag=>`<span class="pjtag">${tag}</span>`).join('')}</div>
+        <div class="pj-nm">${esc(p.name)}</div>
+        <div class="pj-cl">${esc(p.client)||' - '}</div>
+        <div class="pj-tags">${(p.tags||[]).map(tag=>`<span class="pjtag">${esc(tag)}</span>`).join('')}</div>
       </div>
     </div>`).join('');
 }
@@ -3488,7 +3490,7 @@ function renderProjectDetail(p){
     </div>
     <div class="pj-notes">
       <div class="pj-notes-t">${t('notes')}</div>
-      <textarea class="pj-notes-area" placeholder="${t('notesPlaceholder')}" onchange="saveProjectNote(${p.id},this.value)">${p.notes||''}</textarea>
+      <textarea class="pj-notes-area" placeholder="${t('notesPlaceholder')}" onchange="saveProjectNote(${p.id},this.value)">${esc(p.notes)}</textarea>
     </div>`;
 }
 function saveProjectNote(id,val){const p=projects.find(x=>x.id===id);if(p){p.notes=val;showToast('Notas guardadas')}}
@@ -3606,8 +3608,8 @@ function renderSettings(){
       <div class="set-section">
         <div class="set-section-t">${t('studioName')}</div>
         <div class="set-section-s">${t('studioNameDesc')}</div>
-        <div class="fg" style="margin-top:12px"><label class="fl">${t('studioName')}</label><input class="fi" id="st-name" type="text" value="${_sp.studioName||''}" placeholder="Nombre del estudio"></div>
-        <div class="fg"><label class="fl">Dirección del estudio</label><input class="fi" id="st-addr" type="text" value="${_sp.studioAddress||''}" placeholder="Calle, ciudad, país"></div>
+        <div class="fg" style="margin-top:12px"><label class="fl">${t('studioName')}</label><input class="fi" id="st-name" type="text" value="${esc(_sp.studioName)}" placeholder="Nombre del estudio"></div>
+        <div class="fg"><label class="fl">Dirección del estudio</label><input class="fi" id="st-addr" type="text" value="${esc(_sp.studioAddress)}" placeholder="Calle, ciudad, país"></div>
         <div id="st-geo-status" style="font-size:11px;color:var(--t3);margin-bottom:10px">${typeof _sp.studioLat==='number'?('Ubicación guardada ('+_sp.studioLat.toFixed(4)+', '+_sp.studioLon.toFixed(4)+') — se usará en la animación de bienvenida al iniciar sesión.'):'Añade la dirección para activar la animación de bienvenida al iniciar sesión.'}</div>
         <button class="bprim" id="st-save-btn" style="width:auto;padding:9px 20px;margin-top:4px" onclick="saveStudioSettings()">${t('saveChanges')}</button>
         ${typeof _sp.studioLat==='number'?`<button class="addbtn" style="background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none;margin-left:8px" onclick="previewEarthZoom()">Ver animación</button>`:''}
@@ -3624,8 +3626,8 @@ function renderSettings(){
         ${profiles.map(p=>`
           <div class="set-row">
             <div class="set-row-l">
-              <div class="set-row-t">${p.name}</div>
-              <div class="set-row-s">${p.role||''}</div>
+              <div class="set-row-t">${esc(p.name)}</div>
+              <div class="set-row-s">${esc(p.role)}</div>
             </div>
             <input class="fi" type="number" min="0" max="100" step="1" style="width:90px;text-align:center;flex:none" id="artist-comm-${p.id}" value="${typeof p.commissionPct==='number'?p.commissionPct:50}">
           </div>`).join('')}
@@ -3659,7 +3661,7 @@ function renderSettings(){
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:16px">
-          <input type="password" id="ia-key-inp" class="fi" placeholder="gsk_…" value="${localStorage.getItem('nova_groq_key')||''}" style="flex:1">
+          <input type="password" id="ia-key-inp" class="fi" placeholder="gsk_…" value="${esc(localStorage.getItem('nova_groq_key'))}" style="flex:1">
           <button class="bprim" style="flex:none;padding:8px 16px" onclick="
             var k=document.getElementById('ia-key-inp').value.trim();
             if(!k)return;
@@ -3940,10 +3942,10 @@ function renderProfilePicker(){
   document.getElementById('pp-list').innerHTML=profiles.map(p=>{
     const photo=localStorage.getItem('profile_photo_'+p.id);
     const avStyle=photo?`background:${AVCOLS[p.color]};background-image:url(${photo});background-size:cover;background-position:center`:`background:${AVCOLS[p.color]}`;
-    const avContent=photo?'':p.name.split(' ').map(n=>n[0]).join('').slice(0,2);
+    const avContent=photo?'':esc(p.name.split(' ').map(n=>n[0]).join('').slice(0,2));
     return `<div class="pp-item${p.id===activeProfileId?' active':''}" onclick="switchProfile(${p.id})">
       <div class="pp-av" style="${avStyle}">${avContent}</div>
-      <div><div class="pp-nm">${p.name}</div><div class="pp-rl">${p.role}</div></div>
+      <div><div class="pp-nm">${esc(p.name)}</div><div class="pp-rl">${esc(p.role)}</div></div>
       ${profiles.length>1?`<button onclick="event.stopPropagation();deleteProfile(${p.id})" style="margin-left:auto;background:transparent;border:none;color:var(--t3);cursor:pointer;font-size:10px;padding:2px 4px;border-radius:4px" title="${t('deleteProfile')}"></button>`:''}
     </div>`;
   }).join('');
@@ -4181,7 +4183,7 @@ function openModal(type,data={}){
   const statusOpts=['pending','confirmed','completed'].map(s=>`<option value="${s}" ${(data.status||'confirmed')===s?'selected':''}>${t(s)}</option>`).join('');
   const colorOpts=['v','c','r','a'].map(c=>`<option value="${c}" ${(data.color||'v')===c?'selected':''}>${t(c==='v'?'violet':c==='c'?'cyan':c==='r'?'rose':'amber')}</option>`).join('');
   const catOpts=['tinta','agujas','alquiler','maquinaria','marketing','impuestos','suministros','otros'].map(c=>`<option value="${c}">${t(c)}</option>`).join('');
-  const clientOpts=clients.map(c=>`<option value="${c.name}">`).join('');
+  const clientOpts=clients.map(c=>`<option value="${esc(c.name)}">`).join('');
   const projClientOpts=[' - ',...clients.map(c=>c.name)].map(c=>`<option value="${c}">${c}</option>`).join('');
 
   if(type==='appt'||type==='editAppt'){
@@ -4191,17 +4193,17 @@ function openModal(type,data={}){
     const curCol=data.color||'v';
     const colorDots=Object.entries(COLORS).map(([k,hex])=>`<div class="cp-dot${k===curCol?' sel':''}" data-c="${k}" style="background:${hex};--cp-col:${hex}" onclick="selectApptColor(this)"></div>`).join('');
     const curArtistId=data.artistId||activeProfileId;
-    const artistOpts=profiles.map(p=>`<option value="${p.id}" ${curArtistId===p.id?'selected':''}>${p.name}</option>`).join('');
+    const artistOpts=profiles.map(p=>`<option value="${p.id}" ${curArtistId===p.id?'selected':''}>${esc(p.name)}</option>`).join('');
     // Un artista no puede asignarle una cita a otro perfil - solo el Administrador elige.
     const artistField=activeIsAdmin()
       ?`<select class="fi" id="m-artist">${artistOpts}</select>`
-      :`<input class="fi" type="text" value="${ap().name}" disabled>`;
+      :`<input class="fi" type="text" value="${esc(ap().name)}" disabled>`;
     box.innerHTML=`
       <div class="mt">${isEdit?t('editApptTitle'):t('newApptTitle')}</div>
       <div class="ms">${isEdit?t('editApptSub'):t('newApptSub')}</div>
-      <div class="fg"><label class="fl">${t('name')}</label><input class="fi" id="m-name" type="text" value="${data.name||''}" placeholder="Nombre del cliente" list="cl-l"><datalist id="cl-l">${clientOpts}</datalist></div>
+      <div class="fg"><label class="fl">${t('name')}</label><input class="fi" id="m-name" type="text" value="${esc(data.name)}" placeholder="Nombre del cliente" list="cl-l"><datalist id="cl-l">${clientOpts}</datalist></div>
       <div class="fr2">
-        <div class="fg"><label class="fl">${t('workType')}</label><input class="fi" id="m-type" type="text" value="${data.type||''}" placeholder="Blackwork..."></div>
+        <div class="fg"><label class="fl">${t('workType')}</label><input class="fi" id="m-type" type="text" value="${esc(data.type)}" placeholder="Blackwork..."></div>
         <div class="fg"><label class="fl">${t('color')}</label><div class="color-pick" id="m-color" data-val="${curCol}">${colorDots}</div></div>
       </div>
       <div class="fg"><label class="fl">Fecha</label><input class="fi" id="m-date" type="date" value="${defDate}"></div>
@@ -4222,7 +4224,7 @@ function openModal(type,data={}){
         <div class="fg"><label class="fl">Método balance</label><select class="fi" id="m-balmethod">${paymentMethodOpts(data.balanceMethod)}</select></div>
       </div>
       <div class="fg" style="display:flex;align-items:center;justify-content:space-between"><label class="fl" style="margin:0">Balance cobrado</label><div class="tog${data.balancePaid?' on':''}" id="m-balpaid" onclick="this.classList.toggle('on')"></div></div>
-      <div class="fg"><label class="fl">${t('notes')}</label><textarea class="fi" id="m-note" rows="2" style="resize:none" placeholder="Referencias...">${data.note||''}</textarea></div>
+      <div class="fg"><label class="fl">${t('notes')}</label><textarea class="fi" id="m-note" rows="2" style="resize:none" placeholder="Referencias...">${esc(data.note)}</textarea></div>
       <div class="mac">
         <button class="bsec" onclick="closeModal()">${t('cancel')}</button>
         ${isEdit?`<button class="bsec" style="color:var(--ro);border-color:rgba(244,63,94,.3)" onclick="deleteAppt(${data.id})">Eliminar</button>`:''}
@@ -4284,7 +4286,7 @@ function openModal(type,data={}){
     const comision=total*pct/100;
     box.innerHTML=`
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <div class="mt">${d.profile.name}</div>
+        <div class="mt">${esc(d.profile.name)}</div>
         <button onclick="toggleArtistSearch()" style="background:var(--elevated);border:1px solid var(--bd3);border-radius:8px;width:32px;height:32px;margin-right:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2);flex-shrink:0" title="Buscar">
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
         </button>
@@ -4314,8 +4316,8 @@ function openModal(type,data={}){
       <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="saveProfile()">${t('createProfile')} </button></div>`;
   } else if(type==='profileAuth'){
     box.innerHTML=`
-      <div class="mt">${data.mode==='set'?'Crear contraseña':'Ingresar a '+data.name}</div>
-      <div class="ms">${data.mode==='set'?('Es la primera vez que entras a '+data.name+'. Crea una contraseña para proteger este perfil.'):('Escribe la contraseña de '+data.name+' para continuar.')}</div>
+      <div class="mt">${data.mode==='set'?'Crear contraseña':'Ingresar a '+esc(data.name)}</div>
+      <div class="ms">${data.mode==='set'?('Es la primera vez que entras a '+esc(data.name)+'. Crea una contraseña para proteger este perfil.'):('Escribe la contraseña de '+esc(data.name)+' para continuar.')}</div>
       <div class="fg"><label class="fl">Contraseña</label><input class="fi" id="pa-password" type="password" placeholder="••••••••" autofocus onkeydown="if(event.key==='Enter')submitProfileAuth(${data.id})"></div>
       ${data.mode==='set'?`<div class="fg"><label class="fl">Confirmar contraseña</label><input class="fi" id="pa-confirm" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')submitProfileAuth(${data.id})"></div>`:''}
       <div id="pa-error" style="display:none;color:var(--ro);font-size:11px;margin-top:-6px;margin-bottom:10px"></div>
@@ -4323,7 +4325,7 @@ function openModal(type,data={}){
   } else if(type==='resetProfilePw'){
     box.innerHTML=`
       <div class="mt">Restablecer contraseña</div>
-      <div class="ms">Nueva contraseña para ${data.name}. La usará la próxima vez que entre a su perfil.</div>
+      <div class="ms">Nueva contraseña para ${esc(data.name)}. La usará la próxima vez que entre a su perfil.</div>
       <div class="fg"><label class="fl">Nueva contraseña</label><input class="fi" id="rpw-password" type="password" placeholder="••••••••" autofocus onkeydown="if(event.key==='Enter')submitResetProfilePw(${data.id})"></div>
       <div id="rpw-error" style="display:none;color:var(--ro);font-size:11px;margin-top:-6px;margin-bottom:10px"></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="submitResetProfilePw(${data.id})">Restablecer</button></div>`;
@@ -4607,7 +4609,7 @@ function renderDocs() {
   const sel = document.getElementById('docs-client-filter');
   if (sel) {
     sel.innerHTML = '<option value="">Todos los clientes</option>' +
-      clients.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+      clients.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
   }
 }
 
@@ -4626,11 +4628,11 @@ function renderConsentCards() {
   grid.innerHTML = cons.map(c => `
     <div class="doc-card">
       <div class="doc-card-icon" style="background:var(--vd)"></div>
-      <div class="doc-card-title">${c.clientName}</div>
-      <div class="doc-card-sub">${c.tattooType} · ${c.sessionDate}</div>
+      <div class="doc-card-title">${esc(c.clientName)}</div>
+      <div class="doc-card-sub">${esc(c.tattooType)} · ${c.sessionDate}</div>
       <div class="doc-card-tags">
         <span class="doc-status-badge" style="background:rgba(16,185,129,.12);color:var(--gr)">Generado</span>
-        <span class="doc-status-badge" style="background:var(--vd);color:var(--vl)">${c.zone}</span>
+        <span class="doc-status-badge" style="background:var(--vd);color:var(--vl)">${esc(c.zone)}</span>
       </div>
       <div style="display:flex;gap:6px;margin-top:12px">
         <button class="addbtn" style="flex:1;font-size:10px;padding:6px;background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none" onclick="previewConsent(${c.id})">
@@ -4672,8 +4674,8 @@ function renderDocHistory(filter = '') {
     <div class="doc-item">
       <div class="doc-item-icon" style="background:var(--vd)">${icons[d.type]||icons.other}</div>
       <div class="doc-item-info">
-        <div class="doc-item-name">${d.name}</div>
-        <div class="doc-item-meta">${d.client||'Sin cliente'} · ${d.date} · ${d.size}</div>
+        <div class="doc-item-name">${esc(d.name)}</div>
+        <div class="doc-item-meta">${esc(d.client)||'Sin cliente'} · ${d.date} · ${esc(d.size)}</div>
       </div>
       <div class="doc-item-actions">
         ${d.url ? `<button class="doc-act-btn" onclick="downloadDoc(${d.id})" title="Descargar"></button>` : ''}
@@ -4717,7 +4719,7 @@ function renderDocTemplatesTab() {
   if (!activeTplId && docTemplates.length) activeTplId = docTemplates[0].id;
   list.innerHTML = docTemplates.map(tp => `
     <div class="ni${tp.id===activeTplId?' on':''}" style="cursor:pointer" onclick="selectDocTemplate('${tp.id}')">
-      <span>${tp.name}</span>
+      <span>${esc(tp.name)}</span>
     </div>`).join('');
   renderDocTemplateViewer();
 }
@@ -4738,19 +4740,19 @@ function renderDocTemplateViewer() {
   const tpl = currentDocTemplate();
   if (!tpl) { viewer.innerHTML = `<div style="text-align:center;padding:48px;color:var(--t3)">Selecciona un tipo de documento</div>`; return; }
 
-  const typeOpts = docTemplates.map(t => `<option value="${t.id}" ${t.id===tpl.id?'selected':''}>${t.name}</option>`).join('');
+  const typeOpts = docTemplates.map(t => `<option value="${t.id}" ${t.id===tpl.id?'selected':''}>${esc(t.name)}</option>`).join('');
   const clientOpts = ['<option value="">Sin cliente (variables en blanco)</option>']
-    .concat(clients.map(c => `<option value="${c.id}" ${String(c.id)===String(tplClientId)?'selected':''}>${c.name}</option>`)).join('');
+    .concat(clients.map(c => `<option value="${c.id}" ${String(c.id)===String(tplClientId)?'selected':''}>${esc(c.name)}</option>`)).join('');
 
   let bodyHtml;
   if (tplEditMode) {
-    bodyHtml = `<textarea id="tpl-edit-area" style="width:100%;min-height:420px;background:var(--elevated);border:1px solid var(--bd3);border-radius:var(--r2);color:var(--t1);font-family:'DM Sans',monospace;font-size:12.5px;line-height:1.7;padding:14px;resize:vertical">${tpl.content}</textarea>
+    bodyHtml = `<textarea id="tpl-edit-area" style="width:100%;min-height:420px;background:var(--elevated);border:1px solid var(--bd3);border-radius:var(--r2);color:var(--t1);font-family:'DM Sans',monospace;font-size:12.5px;line-height:1.7;padding:14px;resize:vertical">${esc(tpl.content)}</textarea>
       <div class="vars-hint" style="margin-top:8px">Variables: <code>{nombre_cliente}</code> <code>{telefono}</code> <code>{fecha}</code> <code>{tatuaje}</code> <code>{precio}</code> <code>{senal}</code> <code>{artista}</code> <code>{estudio}</code></div>`;
   } else {
     const cl = tplClientId ? clients.find(c => String(c.id) === String(tplClientId)) : null;
     const vars = docTplVars(cl);
     const rendered = applyDocVars(tpl.content, vars);
-    bodyHtml = `<div id="tpl-print-content" style="white-space:pre-wrap;font-size:12.5px;line-height:1.8;color:var(--t1);min-height:420px">${rendered.replace(/</g,'&lt;')}</div>`;
+    bodyHtml = `<div id="tpl-print-content" style="white-space:pre-wrap;font-size:12.5px;line-height:1.8;color:var(--t1);min-height:420px">${esc(rendered)}</div>`;
   }
 
   viewer.innerHTML = `
@@ -4765,7 +4767,7 @@ function renderDocTemplateViewer() {
         ${!tplEditMode ? `<button class="addbtn" onclick="printDocTemplate()">Imprimir</button>` : ''}
       </div>
     </div>
-    <div class="mt" style="margin-bottom:14px">${tpl.name}</div>
+    <div class="mt" style="margin-bottom:14px">${esc(tpl.name)}</div>
     ${bodyHtml}
   `;
 }
@@ -4802,11 +4804,11 @@ function printDocTemplate() {
   if (!tpl) return;
   const cl = tplClientId ? clients.find(c => String(c.id) === String(tplClientId)) : null;
   const vars = docTplVars(cl);
-  const rendered = applyDocVars(tpl.content, vars).replace(/</g,'&lt;');
+  const rendered = esc(applyDocVars(tpl.content, vars));
   const w = window.open('', '_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${tpl.name}</title>
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(tpl.name)}</title>
     <style>body{font-family:'DM Sans',Arial,sans-serif;font-size:13px;line-height:1.8;white-space:pre-wrap;padding:40px;color:#111}h1{font-size:16px;margin-bottom:20px}</style>
-    </head><body><h1>${tpl.name}</h1>${rendered}</body></html>`);
+    </head><body><h1>${esc(tpl.name)}</h1>${rendered}</body></html>`);
   w.document.close();
   w.focus();
   setTimeout(() => { w.print(); }, 250);
@@ -4845,7 +4847,7 @@ function openDocsUpload() {
 // -- CONSENT MODAL --
 function openConsentModal(prefill = {}) {
   const clientOpts = ['', ...clients.map(c => c.name)].map(n =>
-    `<option value="${n}" ${prefill.clientName === n ? 'selected' : ''}>${n || ' -  Seleccionar cliente  - '}</option>`
+    `<option value="${esc(n)}" ${prefill.clientName === n ? 'selected' : ''}>${n ? esc(n) : ' -  Seleccionar cliente  - '}</option>`
   ).join('');
   const artistName = ap().name;
   const today = new Date().toISOString().split('T')[0];
@@ -4858,21 +4860,21 @@ function openConsentModal(prefill = {}) {
         <div class="consent-section-title">Datos del cliente</div>
         <div class="consent-form">
           <div class="fg"><label class="fl">Nombre completo *</label><select class="fi" id="cn-client" onchange="prefillConsentClient(this.value)">${clientOpts}</select></div>
-          <div class="fg"><label class="fl">DNI / NIE / Pasaporte *</label><input class="fi" id="cn-dni" type="text" placeholder="12345678A" value="${prefill.dni||''}"></div>
+          <div class="fg"><label class="fl">DNI / NIE / Pasaporte *</label><input class="fi" id="cn-dni" type="text" placeholder="12345678A" value="${esc(prefill.dni)}"></div>
           <div class="fg"><label class="fl">Fecha de nacimiento</label><input class="fi" id="cn-dob" type="date" value="${prefill.dob||''}"></div>
-          <div class="fg"><label class="fl">Teléfono</label><input class="fi" id="cn-phone" type="text" value="${prefill.phone||''}"></div>
-          <div class="fg consent-full"><label class="fl">Email</label><input class="fi" id="cn-email" type="email" value="${prefill.email||''}"></div>
-          <div class="fg consent-full"><label class="fl">Dirección</label><input class="fi" id="cn-address" type="text" placeholder="Calle, ciudad, CP" value="${prefill.address||''}"></div>
+          <div class="fg"><label class="fl">Teléfono</label><input class="fi" id="cn-phone" type="text" value="${esc(prefill.phone)}"></div>
+          <div class="fg consent-full"><label class="fl">Email</label><input class="fi" id="cn-email" type="email" value="${esc(prefill.email)}"></div>
+          <div class="fg consent-full"><label class="fl">Dirección</label><input class="fi" id="cn-address" type="text" placeholder="Calle, ciudad, CP" value="${esc(prefill.address)}"></div>
         </div>
       </div>
       <div class="consent-section">
         <div class="consent-section-title">Información del tatuaje</div>
         <div class="consent-form">
-          <div class="fg consent-full"><label class="fl">Descripción del tatuaje</label><input class="fi" id="cn-desc" type="text" placeholder="Ej: Mandala geométrico con detalles florales" value="${prefill.tattooType||''}"></div>
-          <div class="fg"><label class="fl">Zona del cuerpo</label><input class="fi" id="cn-zone" type="text" placeholder="Brazo, espalda, pierna..." value="${prefill.zone||''}"></div>
-          <div class="fg"><label class="fl">Tamaño aprox.</label><input class="fi" id="cn-size" type="text" placeholder="Ej: 15x10 cm" value="${prefill.size||''}"></div>
+          <div class="fg consent-full"><label class="fl">Descripción del tatuaje</label><input class="fi" id="cn-desc" type="text" placeholder="Ej: Mandala geométrico con detalles florales" value="${esc(prefill.tattooType)}"></div>
+          <div class="fg"><label class="fl">Zona del cuerpo</label><input class="fi" id="cn-zone" type="text" placeholder="Brazo, espalda, pierna..." value="${esc(prefill.zone)}"></div>
+          <div class="fg"><label class="fl">Tamaño aprox.</label><input class="fi" id="cn-size" type="text" placeholder="Ej: 15x10 cm" value="${esc(prefill.size)}"></div>
           <div class="fg"><label class="fl">Fecha de sesión *</label><input class="fi" id="cn-date" type="date" value="${prefill.sessionDate||today}"></div>
-          <div class="fg"><label class="fl">Tatuador responsable</label><input class="fi" id="cn-artist" type="text" value="${artistName}"></div>
+          <div class="fg"><label class="fl">Tatuador responsable</label><input class="fi" id="cn-artist" type="text" value="${esc(artistName)}"></div>
           <div class="fg"><label class="fl">Precio (€)</label><input class="fi" id="cn-price" type="number" value="${prefill.price||0}"></div>
           <div class="fg"><label class="fl">Señal entregada (€)</label><input class="fi" id="cn-deposit" type="number" value="${prefill.deposit||0}"></div>
         </div>
@@ -4952,7 +4954,7 @@ function buildConsentHTML(c) {
   var checksHtml = (c.checks||[]).map(function(ch){
     return '<div class="cb-item"><div class="cb-box ' + (ch.checked?'cb-checked':'') + '">' + (ch.checked?'&#10003;':'') + '</div>' + ch.label + '</div>';
   }).join('');
-  var signSection = '<div class="sign-section"><div class="sign-box"><div class="sign-line"></div><div class="sign-label">Firma del cliente</div><div class="sign-sub">' + c.clientName + '</div><div class="sign-sub">DNI: ' + (c.dni||'__________________') + '</div></div><div class="sign-box"><div class="sign-line"></div><div class="sign-label">Firma del tatuador</div><div class="sign-sub">' + c.artist + '</div><div class="sign-sub">' + studioName + '</div></div></div>';
+  var signSection = '<div class="sign-section"><div class="sign-box"><div class="sign-line"></div><div class="sign-label">Firma del cliente</div><div class="sign-sub">' + esc(c.clientName) + '</div><div class="sign-sub">DNI: ' + (c.dni?esc(c.dni):'__________________') + '</div></div><div class="sign-box"><div class="sign-line"></div><div class="sign-label">Firma del tatuador</div><div class="sign-sub">' + esc(c.artist) + '</div><div class="sign-sub">' + esc(studioName) + '</div></div></div>';
   
   var css = [
     '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}',
@@ -4996,30 +4998,30 @@ function buildConsentHTML(c) {
     '</head><body><div class="page">',
     '<div class="header"><div>',
     '<div class="header-logo">Tattoo<span>OS</span></div>',
-    '<div style="font-size:8pt;color:#888;margin-top:2px">' + studioName + '</div>',
-    '</div><div class="header-meta"><div>N&ordm; Doc: ' + docNum + '</div><div>Fecha: ' + dateStr + '</div></div></div>',
+    '<div style="font-size:8pt;color:#888;margin-top:2px">' + esc(studioName) + '</div>',
+    '</div><div class="header-meta"><div>N&ordm; Doc: ' + esc(docNum) + '</div><div>Fecha: ' + esc(dateStr) + '</div></div></div>',
     '<div class="doc-title">Consentimiento informado para tatuaje</div>',
     '<div class="doc-subtitle">Documento legal obligatorio &middot; Leer detenidamente antes de firmar</div>',
     '<div class="section"><div class="section-title">1. Datos del cliente</div><div class="grid-2">',
-    '<div class="field"><div class="field-label">Nombre completo</div><div class="field-value">' + c.clientName + '</div></div>',
-    '<div class="field"><div class="field-label">DNI / NIE / Pasaporte</div><div class="field-value">' + (c.dni||'') + '</div></div>',
-    '<div class="field"><div class="field-label">Fecha de nacimiento</div><div class="field-value">' + (c.dob||'') + '</div></div>',
-    '<div class="field"><div class="field-label">Tel&eacute;fono</div><div class="field-value">' + (c.phone||'') + '</div></div>',
-    '<div class="field"><div class="field-label">Email</div><div class="field-value">' + (c.email||'') + '</div></div>',
-    '<div class="field"><div class="field-label">Direcci&oacute;n</div><div class="field-value">' + (c.address||'') + '</div></div>',
+    '<div class="field"><div class="field-label">Nombre completo</div><div class="field-value">' + esc(c.clientName) + '</div></div>',
+    '<div class="field"><div class="field-label">DNI / NIE / Pasaporte</div><div class="field-value">' + esc(c.dni) + '</div></div>',
+    '<div class="field"><div class="field-label">Fecha de nacimiento</div><div class="field-value">' + esc(c.dob) + '</div></div>',
+    '<div class="field"><div class="field-label">Tel&eacute;fono</div><div class="field-value">' + esc(c.phone) + '</div></div>',
+    '<div class="field"><div class="field-label">Email</div><div class="field-value">' + esc(c.email) + '</div></div>',
+    '<div class="field"><div class="field-label">Direcci&oacute;n</div><div class="field-value">' + esc(c.address) + '</div></div>',
     '</div></div>',
     '<div class="section"><div class="section-title">2. Datos de la sesi&oacute;n</div><div class="grid-2">',
-    '<div class="field" style="grid-column:1/-1"><div class="field-label">Descripci&oacute;n del tatuaje</div><div class="field-value">' + c.tattooType + '</div></div>',
-    '<div class="field"><div class="field-label">Zona del cuerpo</div><div class="field-value">' + c.zone + '</div></div>',
-    '<div class="field"><div class="field-label">Tama&ntilde;o aproximado</div><div class="field-value">' + c.size + '</div></div>',
-    '<div class="field"><div class="field-label">Fecha de sesi&oacute;n</div><div class="field-value">' + c.sessionDate + '</div></div>',
-    '<div class="field"><div class="field-label">Tatuador responsable</div><div class="field-value">' + c.artist + '</div></div>',
-    '<div class="field"><div class="field-label">Precio total</div><div class="field-value">&euro; ' + c.price + '</div></div>',
-    '<div class="field"><div class="field-label">Se&ntilde;al entregada</div><div class="field-value">&euro; ' + c.deposit + '</div></div>',
+    '<div class="field" style="grid-column:1/-1"><div class="field-label">Descripci&oacute;n del tatuaje</div><div class="field-value">' + esc(c.tattooType) + '</div></div>',
+    '<div class="field"><div class="field-label">Zona del cuerpo</div><div class="field-value">' + esc(c.zone) + '</div></div>',
+    '<div class="field"><div class="field-label">Tama&ntilde;o aproximado</div><div class="field-value">' + esc(c.size) + '</div></div>',
+    '<div class="field"><div class="field-label">Fecha de sesi&oacute;n</div><div class="field-value">' + esc(c.sessionDate) + '</div></div>',
+    '<div class="field"><div class="field-label">Tatuador responsable</div><div class="field-value">' + esc(c.artist) + '</div></div>',
+    '<div class="field"><div class="field-label">Precio total</div><div class="field-value">&euro; ' + esc(c.price) + '</div></div>',
+    '<div class="field"><div class="field-label">Se&ntilde;al entregada</div><div class="field-value">&euro; ' + esc(c.deposit) + '</div></div>',
     '</div></div>',
     '<div class="section"><div class="section-title">3. Estado de salud</div>',
     '<div class="checkboxes">' + checksHtml + '</div>',
-    (c.medical ? '<div style="margin-top:8px"><div class="field-label">Notas m&eacute;dicas</div><div class="field-value" style="min-height:30px">' + c.medical + '</div></div>' : ''),
+    (c.medical ? '<div style="margin-top:8px"><div class="field-label">Notas m&eacute;dicas</div><div class="field-value" style="min-height:30px">' + esc(c.medical) + '</div></div>' : ''),
     '</div>',
     '<div class="section"><div class="section-title">4. Declaraci&oacute;n de consentimiento y riesgos</div>',
     '<div class="legal-text">',
@@ -5036,7 +5038,7 @@ function buildConsentHTML(c) {
     '<p>&bull; No rascar ni arrancar la piel durante descamaci&oacute;n.</p>',
     '</div></div>',
     '<div class="section"><div class="section-title">6. Firmas</div>' + signSection + '</div>',
-    '<div class="footer">Documento generado por Tattoo OS &middot; ' + studioName + ' &middot; ' + docNum + ' &middot; ' + new Date().toLocaleDateString('es-ES') + '</div>',
+    '<div class="footer">Documento generado por Tattoo OS &middot; ' + esc(studioName) + ' &middot; ' + esc(docNum) + ' &middot; ' + new Date().toLocaleDateString('es-ES') + '</div>',
     '</div></body></html>'
   ];
   return parts.join('\n');
@@ -5094,7 +5096,7 @@ function addDocTabToDrawer(clientId) {
     ${clientConsents.map(c=>`
       <div class="doc-item">
         <div class="doc-item-icon" style="background:var(--vd)"></div>
-        <div class="doc-item-info"><div class="doc-item-name">Consentimiento · ${c.tattooType}</div><div class="doc-item-meta">${c.sessionDate}</div></div>
+        <div class="doc-item-info"><div class="doc-item-name">Consentimiento · ${esc(c.tattooType)}</div><div class="doc-item-meta">${c.sessionDate}</div></div>
         <div class="doc-item-actions">
           <button class="doc-act-btn" onclick="previewConsent(${c.id})"></button>
           <button class="doc-act-btn" onclick="printConsent(${c.id})"></button>
@@ -5103,15 +5105,15 @@ function addDocTabToDrawer(clientId) {
     ${clientDocs.map(d=>`
       <div class="doc-item">
         <div class="doc-item-icon" style="background:var(--elevated)"></div>
-        <div class="doc-item-info"><div class="doc-item-name">${d.name}</div><div class="doc-item-meta">${d.date} · ${d.size}</div></div>
+        <div class="doc-item-info"><div class="doc-item-name">${esc(d.name)}</div><div class="doc-item-meta">${d.date} · ${esc(d.size)}</div></div>
         <div class="doc-item-actions">
           ${d.url?`<button class="doc-act-btn" onclick="downloadDoc(${d.id})"></button>`:''}
           <button class="doc-act-btn del" onclick="deleteDoc(${d.id});addDocTabToDrawer(${clientId})"></button>
         </div>
       </div>`).join('')}
     ${!clientDocs.length && !clientConsents.length ? `<div style="font-size:11px;color:var(--t3);text-align:center;padding:12px">Sin documentos</div>`:''}
-    <button class="addbtn" style="width:100%;margin-top:8px;font-size:10px;padding:7px;background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none" onclick="openClientDocUpload('${cl.name}',${clientId})">
-      + Subir documento para ${cl.name}
+    <button class="addbtn" style="width:100%;margin-top:8px;font-size:10px;padding:7px;background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none" onclick="openClientDocUpload(${esc(JSON.stringify(cl.name))},${clientId})">
+      + Subir documento para ${esc(cl.name)}
     </button>`;
   drawer.appendChild(section);
 }
@@ -5835,7 +5837,7 @@ function renderUserBadge() {
   badge.className = 'user-badge';
   badge.style.cssText = 'margin-left:8px;cursor:pointer';
   badge.title = currentUser.email;
-  badge.innerHTML = `<div class="user-badge-av">${currentUser.name.slice(0,2).toUpperCase()}</div><span>${currentUser.email}</span>`;
+  badge.innerHTML = `<div class="user-badge-av">${esc(currentUser.name.slice(0,2).toUpperCase())}</div><span>${esc(currentUser.email)}</span>`;
   badge.onclick = () => { if(confirm('¿Cerrar sesión?')) doLogout(); };
   const tbLeft = document.querySelector('.topbar > div');
   if (tbLeft) tbLeft.appendChild(badge);
@@ -5992,10 +5994,10 @@ function renderWaClientList(filter = '') {
     const last = msgs[msgs.length - 1];
     const unread = msgs.filter(m => m.dir === 'in' && !m.read).length;
     return `<div class="wa-ci${c.id === activeWaClientId ? ' on' : ''}" onclick="openWaChat(${c.id})">
-      <div class="wa-ci-av" style="background:${AVCOLS[c.color]}">${c.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
+      <div class="wa-ci-av" style="background:${AVCOLS[c.color]}">${esc(c.name.split(' ').map(n=>n[0]).join('').slice(0,2))}</div>
       <div class="wa-ci-info">
-        <div class="wa-ci-nm">${c.name}</div>
-        <div class="wa-ci-last">${last ? last.text.slice(0,40) + (last.text.length > 40 ? '' : '') : c.phone || 'Sin teléfono'}</div>
+        <div class="wa-ci-nm">${esc(c.name)}</div>
+        <div class="wa-ci-last">${last ? esc(last.text.slice(0,40)) + (last.text.length > 40 ? '' : '') : esc(c.phone) || 'Sin teléfono'}</div>
       </div>
       ${unread ? `<div class="wa-ci-badge">${unread}</div>` : ''}
     </div>`;
@@ -6015,10 +6017,10 @@ function openWaChat(clientId) {
   chat.style.display = 'flex';
   // Header
   document.getElementById('wa-chat-hd').innerHTML = `
-    <div class="wa-ci-av" style="background:${AVCOLS[cl.color]};width:36px;height:36px;font-size:12px">${cl.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
+    <div class="wa-ci-av" style="background:${AVCOLS[cl.color]};width:36px;height:36px;font-size:12px">${esc(cl.name.split(' ').map(n=>n[0]).join('').slice(0,2))}</div>
     <div>
-      <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--t1)">${cl.name}</div>
-      <div class="wa-phone-tag">${cl.phone || 'Sin teléfono'} · ${getWaMessages(clientId).length} mensajes</div>
+      <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--t1)">${esc(cl.name)}</div>
+      <div class="wa-phone-tag">${esc(cl.phone) || 'Sin teléfono'} · ${getWaMessages(clientId).length} mensajes</div>
     </div>
     <div style="margin-left:auto;display:flex;gap:6px">
       ${cl.phone ? `<button class="doc-act-btn" onclick="openWhatsApp(${cl.id})" title="Abrir en WhatsApp" style="width:auto;padding:0 10px;font-size:11px">
@@ -6030,7 +6032,7 @@ function openWaChat(clientId) {
   // Templates bar
   const tpls = waSettings.templates;
   document.getElementById('wa-tpl-row').innerHTML = tpls.map(tp =>
-    `<div class="wa-tpl-btn" onclick="insertTemplate('${tp.id}',${clientId})">${tp.name}</div>`
+    `<div class="wa-tpl-btn" onclick="insertTemplate(${esc(JSON.stringify(tp.id))},${clientId})">${esc(tp.name)}</div>`
   ).join('') + `<div class="wa-tpl-btn" style="background:var(--grd);border-color:rgba(16,185,129,.2);color:var(--gr)" onclick="simulateIncoming(${clientId})"> Simular respuesta</div>`;
   renderWaMsgs(clientId);
   renderWaClientList((document.getElementById('wa-search') ? document.getElementById('wa-search').value : '') || '');
@@ -6049,7 +6051,7 @@ function renderWaMsgs(clientId) {
     const date = new Date(m.ts).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
     return `<div class="wa-msg ${m.dir === 'out' ? (m.auto ? 'auto' : 'out') : 'in'}" style="max-width:72%">
       ${m.auto ? '<div class="wa-msg-tag" style="color:var(--gr)"> Automatización</div>' : ''}
-      ${m.text.replace(/\n/g, '<br>')}
+      ${esc(m.text).replace(/\n/g, '<br>')}
       <div class="wa-msg-time">${date} ${time}${m.dir==='out'?' ':''}</div>
     </div>`;
   }).join('');
@@ -6250,12 +6252,12 @@ function renderWaSettings(container) {
         <div class="auto-card">
           <div class="auto-card-hd">
             <div>
-              <div class="auto-card-title">${auto.name}</div>
-              <div class="auto-card-sub">${auto.desc} · ${auto.delay > 0 ? auto.delay + ' ' + (auto.delayUnit === 'hours' ? 'horas' : 'días') : 'inmediato'} ${auto.trigger.includes('after') ? 'después' : 'antes'}</div>
+              <div class="auto-card-title">${esc(auto.name)}</div>
+              <div class="auto-card-sub">${esc(auto.desc)} · ${auto.delay > 0 ? auto.delay + ' ' + (auto.delayUnit === 'hours' ? 'horas' : 'días') : 'inmediato'} ${auto.trigger.includes('after') ? 'después' : 'antes'}</div>
             </div>
             <div class="tog${auto.enabled?' on':''}" onclick="toggleAutoEnabled(${i})"></div>
           </div>
-          <textarea class="auto-card-tpl" id="auto-tpl-${i}" rows="5">${auto.template}</textarea>
+          <textarea class="auto-card-tpl" id="auto-tpl-${i}" rows="5">${esc(auto.template)}</textarea>
           <div class="vars-hint">Variables: <code>{nombre}</code> <code>{tattoo}</code> <code>{fecha}</code> <code>{proxima_cita}</code> <code>{precio}</code> <code>{senal}</code></div>
           <div style="display:flex;justify-content:flex-end;margin-top:8px">
             <button class="addbtn" style="font-size:10px;padding:5px 12px" onclick="saveAutoTemplate(${i})">Guardar</button>
@@ -6268,10 +6270,10 @@ function renderWaSettings(container) {
       ${s.templates.map((tpl, i) => `
         <div class="auto-card" style="margin-bottom:8px">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-            <input class="fi" value="${tpl.name}" id="tpl-nm-${i}" style="width:140px;padding:5px 8px;font-size:11px">
+            <input class="fi" value="${esc(tpl.name)}" id="tpl-nm-${i}" style="width:140px;padding:5px 8px;font-size:11px">
             <button class="doc-act-btn del" onclick="deleteTemplate(${i})"></button>
           </div>
-          <textarea class="auto-card-tpl" id="tpl-txt-${i}" rows="3">${tpl.text}</textarea>
+          <textarea class="auto-card-tpl" id="tpl-txt-${i}" rows="3">${esc(tpl.text)}</textarea>
           <div style="display:flex;justify-content:flex-end;margin-top:6px">
             <button class="addbtn" style="font-size:10px;padding:5px 12px" onclick="saveTemplate(${i})">Guardar</button>
           </div>
@@ -6295,7 +6297,7 @@ function loadWaFollowups() {
         var when = new Date(f.sent_at || f.scheduled_at).toLocaleString('es-ES', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
         var color = f.status === 'sent' ? 'var(--gr)' : f.status === 'failed' ? '#f66' : 'var(--t3)';
         return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)">' +
-          '<span>' + f.client_name + ' &middot; ' + (labels[f.kind]||f.kind) + '</span>' +
+          '<span>' + esc(f.client_name) + ' &middot; ' + (labels[f.kind]||f.kind) + '</span>' +
           '<span style="color:' + color + '">' + (statusLabels[f.status]||f.status) + ' &middot; ' + when + '</span></div>';
       }).join('');
     })
@@ -6417,10 +6419,10 @@ function renderMyProfilePasswords() {
   c.innerHTML = myProfilePasswords.map(p => `
     <div class="adm-user" style="flex-direction:column;align-items:stretch;gap:10px">
       <div style="display:flex;align-items:center;gap:12px">
-        <div class="adm-av" style="${p.isAdminProfile?'background:linear-gradient(135deg,#7c5cfc,#a78bfa)':''}">${(p.name||'?')[0].toUpperCase()}</div>
+        <div class="adm-av" style="${p.isAdminProfile?'background:linear-gradient(135deg,#7c5cfc,#a78bfa)':''}">${esc((p.name||'?')[0].toUpperCase())}</div>
         <div style="flex:1;min-width:0">
-          <div class="adm-uname">${p.name||'Sin nombre'}${p.isAdminProfile?' · Administrador':''}</div>
-          <div class="adm-uemail">${p.role||''}</div>
+          <div class="adm-uname">${esc(p.name)||'Sin nombre'}${p.isAdminProfile?' · Administrador':''}</div>
+          <div class="adm-uemail">${esc(p.role)}</div>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center">
@@ -6429,7 +6431,7 @@ function renderMyProfilePasswords() {
           <div style="font-size:12px;color:var(--t1);font-family:monospace" id="pw-val-${p.id}">${p.hasPassword?'••••••••':'Sin contraseña todavía'}</div>
         </div>
         ${p.hasPassword?`<button class="bsec" style="padding:8px 12px;font-size:11px" onclick="togglePasswordReveal(${p.id})" id="pw-btn-${p.id}">Ver</button>`:''}
-        <button class="bsec" style="padding:8px 12px;font-size:11px" onclick="resetProfilePassword(${p.id},'${(p.name||'').replace(/'/g,"\\'")}')">Restablecer</button>
+        <button class="bsec" style="padding:8px 12px;font-size:11px" onclick="resetProfilePassword(${p.id},${esc(JSON.stringify(p.name||''))})">Restablecer</button>
       </div>
     </div>`).join('');
 }
@@ -6475,16 +6477,16 @@ function renderAdminContent() {
     function userCard(u) {
       return `<div class="adm-user" style="flex-direction:column;align-items:stretch;gap:10px">
         <div style="display:flex;align-items:center;gap:12px">
-          <div class="adm-av" style="${u.email===ADMIN_EMAIL?'background:linear-gradient(135deg,#7c5cfc,#a78bfa)':''}">${(u.name||u.email||'?')[0].toUpperCase()}</div>
+          <div class="adm-av" style="${u.email===ADMIN_EMAIL?'background:linear-gradient(135deg,#7c5cfc,#a78bfa)':''}">${esc((u.name||u.email||'?')[0].toUpperCase())}</div>
           <div style="flex:1;min-width:0">
-            <div class="adm-uname">${u.name||'Sin nombre'}</div>
-            <div class="adm-uemail">${u.email||''}</div>
+            <div class="adm-uname">${esc(u.name)||'Sin nombre'}</div>
+            <div class="adm-uemail">${esc(u.email)}</div>
           </div>
-          ${u.email!==ADMIN_EMAIL?`<button class="bsec" style="padding:5px 10px;font-size:11px;border-color:rgba(124,92,252,.35);color:var(--vl);flex-shrink:0" onclick="adminViewUserProfiles('${u.id}','${(u.name||u.email||'').replace(/'/g,"\\'")}')">Ver perfiles</button>`:''}
+          ${u.email!==ADMIN_EMAIL?`<button class="bsec" style="padding:5px 10px;font-size:11px;border-color:rgba(124,92,252,.35);color:var(--vl);flex-shrink:0" onclick="adminViewUserProfiles(${esc(JSON.stringify(u.id))},${esc(JSON.stringify(u.name||u.email||''))})">Ver perfiles</button>`:''}
         </div>
         <div style="background:var(--void);border:1px solid var(--bd);border-radius:var(--r1);padding:8px 10px">
           <div style="font-size:9px;color:var(--t3);font-weight:600;letter-spacing:.5px;margin-bottom:3px">EMAIL</div>
-          <div style="font-size:12px;color:var(--t1);font-family:monospace;word-break:break-all">${u.email||'-'}</div>
+          <div style="font-size:12px;color:var(--t1);font-family:monospace;word-break:break-all">${esc(u.email)||'-'}</div>
         </div>
       </div>`;
     }
@@ -6502,8 +6504,8 @@ function renderAdminContent() {
       <div class="adm-ticket" id="atk-${tk.id}">
         <div class="adm-ticket-hd">
           <div>
-            <div class="adm-ticket-title">${tk.title||'Sin título'}</div>
-            <div class="adm-ticket-from">De: <b>${tk.user_name||tk.user_email||'Usuario'}</b> · ${new Date(tk.created_at).toLocaleDateString('es-ES')}</div>
+            <div class="adm-ticket-title">${esc(tk.title)||'Sin título'}</div>
+            <div class="adm-ticket-from">De: <b>${esc(tk.user_name||tk.user_email)||'Usuario'}</b> · ${new Date(tk.created_at).toLocaleDateString('es-ES')}</div>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
             <span class="adm-status ${tk.status==='open'?'adm-open':tk.status==='in_progress'?'adm-progress':'adm-resolved'}">${tk.status==='open'?'Abierto':tk.status==='in_progress'?'En proceso':'Resuelto'}</span>
@@ -6514,7 +6516,7 @@ function renderAdminContent() {
             </select>
           </div>
         </div>
-        <div class="adm-ticket-body" style="background:var(--surface);border:1px solid var(--bd);border-radius:var(--r1);padding:10px;margin-bottom:10px">${tk.description||''}</div>
+        <div class="adm-ticket-body" style="background:var(--surface);border:1px solid var(--bd);border-radius:var(--r1);padding:10px;margin-bottom:10px">${esc(tk.description)}</div>
         <!-- Hilo de mensajes -->
         <div id="adm-thread-${tk.id}" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;max-height:220px;overflow-y:auto"></div>
         <!-- Responder -->
@@ -6558,7 +6560,7 @@ async function adminViewUserProfiles(userId, userName) {
     var profs = data.profiles || [];
     panel.innerHTML = `
       <button onclick="document.getElementById('adm-profiles-overlay').style.display='none'" style="position:absolute;top:14px;right:14px;background:transparent;border:none;color:var(--t3);font-size:20px;cursor:pointer;line-height:1">✕</button>
-      <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--t1);margin-bottom:4px">Perfiles de ${userName}</div>
+      <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--t1);margin-bottom:4px">Perfiles de ${esc(userName)}</div>
       <div style="font-size:11px;color:var(--t3);margin-bottom:20px">Última sincronización: ${data.updated_at ? new Date(data.updated_at).toLocaleString('es-ES') : 'desconocida'}</div>
       ${profs.map(p => {
         var appts = (p.appts||[]).length;
@@ -6567,10 +6569,10 @@ async function adminViewUserProfiles(userId, userName) {
         var col = colMap[p.color] || '#7c5cfc';
         return `<div style="background:var(--surface);border:1px solid var(--bd);border-radius:var(--r3);padding:16px;margin-bottom:12px">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-            <div style="width:40px;height:40px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0">${(p.name||'?')[0].toUpperCase()}</div>
+            <div style="width:40px;height:40px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0">${esc((p.name||'?')[0].toUpperCase())}</div>
             <div>
-              <div style="font-weight:600;font-size:14px;color:var(--t1)">${p.name||'Sin nombre'}</div>
-              <div style="font-size:11px;color:var(--t3)">${p.role||''}</div>
+              <div style="font-weight:600;font-size:14px;color:var(--t1)">${esc(p.name)||'Sin nombre'}</div>
+              <div style="font-size:11px;color:var(--t3)">${esc(p.role)}</div>
             </div>
             <div style="margin-left:auto;display:flex;gap:16px;text-align:center">
               <div><div style="font-size:18px;font-weight:700;color:var(--t1)">${appts}</div><div style="font-size:9px;color:var(--t3)">CITAS</div></div>
@@ -6580,7 +6582,7 @@ async function adminViewUserProfiles(userId, userName) {
           ${appts > 0 ? `<div style="font-size:11px;color:var(--t2);font-weight:600;margin-bottom:6px">Próximas citas:</div>
           <div style="display:flex;flex-direction:column;gap:4px">${(p.appts||[]).slice(0,5).map(a=>`
             <div style="display:flex;justify-content:space-between;align-items:center;background:var(--void);border-radius:6px;padding:6px 10px;font-size:11px">
-              <span style="color:var(--t1)">${a.name||'Sin nombre'}</span>
+              <span style="color:var(--t1)">${esc(a.name)||'Sin nombre'}</span>
               <span style="color:var(--t3)">${a.date||''} ${a.start?a.start+'h':''}</span>
               <span style="color:var(--t2)">${a.price?a.price+'€':''}</span>
             </div>`).join('')}
@@ -6610,9 +6612,9 @@ async function adminLoadThread(ticketId) {
     <div style="display:flex;flex-direction:column;align-items:${m.sender==='admin'?'flex-end':'flex-start'}">
       <div style="max-width:85%;padding:8px 11px;border-radius:12px;font-size:12px;line-height:1.5;
         ${m.sender==='admin'?'background:linear-gradient(135deg,rgba(124,92,252,.25),rgba(124,92,252,.12));border:1px solid rgba(124,92,252,.3);color:var(--t1)':'background:var(--surface);border:1px solid var(--bd);color:var(--t1)'}">
-        ${m.message}
+        ${esc(m.message)}
       </div>
-      <span style="font-size:9px;color:var(--t3);margin-top:2px">${m.sender==='admin'?'Tú':m.sender_name||'Usuario'} · ${new Date(m.created_at).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})}</span>
+      <span style="font-size:9px;color:var(--t3);margin-top:2px">${m.sender==='admin'?'Tú':esc(m.sender_name)||'Usuario'} · ${new Date(m.created_at).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})}</span>
     </div>`).join('');
   el.scrollTop = el.scrollHeight;
 }
@@ -6681,9 +6683,9 @@ async function loadUserTickets() {
   if (!tickets.length) { el.innerHTML = ''; return; }
   el.innerHTML = '<div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);font-weight:700;margin-bottom:8px">Tus reportes</div>' +
     tickets.map(tk=>`
-    <div style="background:var(--elevated);border:1px solid ${tk.has_unread?'rgba(124,92,252,.4)':' var(--bd)'};border-radius:var(--r2);padding:10px 12px;margin-bottom:6px;cursor:pointer" onclick="openTicketThread('${tk.id}','${(tk.title||'').replace(/'/g,"\\'")}')">
+    <div style="background:var(--elevated);border:1px solid ${tk.has_unread?'rgba(124,92,252,.4)':' var(--bd)'};border-radius:var(--r2);padding:10px 12px;margin-bottom:6px;cursor:pointer" onclick="openTicketThread('${tk.id}',${esc(JSON.stringify(tk.title||''))})">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <div style="font-size:12px;font-weight:500;color:var(--t1)">${tk.title||'Sin título'}</div>
+        <div style="font-size:12px;font-weight:500;color:var(--t1)">${esc(tk.title)||'Sin título'}</div>
         <div style="display:flex;align-items:center;gap:6px">
           ${tk.has_unread?'<span style="width:8px;height:8px;border-radius:50%;background:var(--v);box-shadow:0 0 6px var(--vg);flex-shrink:0"></span>':''}
           <span class="adm-status ${tk.status==='open'?'adm-open':tk.status==='in_progress'?'adm-progress':'adm-resolved'}">${tk.status==='open'?'Abierto':tk.status==='in_progress'?'En proceso':'Resuelto'}</span>
@@ -6702,14 +6704,14 @@ async function openTicketThread(ticketId, title) {
     <div style="display:flex;flex-direction:column;align-items:${m.sender==='admin'?'flex-start':'flex-end'}">
       <div style="max-width:85%;padding:9px 12px;border-radius:12px;font-size:12px;line-height:1.5;
         ${m.sender==='admin'?'background:var(--elevated);border:1px solid var(--bd)':'background:linear-gradient(135deg,rgba(124,92,252,.25),rgba(124,92,252,.12));border:1px solid rgba(124,92,252,.3)'}">
-        ${m.message}
+        ${esc(m.message)}
       </div>
       <span style="font-size:9px;color:var(--t3);margin-top:2px">${m.sender==='admin'?'Soporte':'Tú'} · ${new Date(m.created_at).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})}</span>
     </div>`).join('');
 
   document.getElementById('mcontent').innerHTML = `
     <div class="pull-handle"></div>
-    <div class="mt">${title}</div>
+    <div class="mt">${esc(title)}</div>
     <div style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;margin-bottom:14px;padding:4px 0" id="tkthread">${thread||'<div style="text-align:center;color:var(--t3);font-size:12px;padding:20px">Sin mensajes aún</div>'}</div>
     <div style="display:flex;gap:8px">
       <textarea class="fi" id="tk-user-reply" rows="2" style="resize:none;font-size:13px" placeholder="Añadir información o respuesta…"></textarea>
@@ -6754,7 +6756,7 @@ function renderAccountSettings(container) {
       <div class="set-section-t">Foto de perfil</div>
       <div class="set-section-s">Aparece en la esquina inferior izquierda junto a tu nombre</div>
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
-        <div id="acc-av-preview" style="width:64px;height:64px;border-radius:50%;background:${(()=>{const p=profiles.find(p=>p.id===activeProfileId)||profiles[0];const ph=localStorage.getItem('profile_photo_'+p.id);return ph?'none':AVCOLS[p.color];})()};background-image:${(()=>{const p=profiles.find(p=>p.id===activeProfileId)||profiles[0];const ph=localStorage.getItem('profile_photo_'+p.id);return ph?'url('+ph+')':'none';})()};background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden;border:2px solid var(--bd3)">${(()=>{const p=profiles.find(p=>p.id===activeProfileId)||profiles[0];const ph=localStorage.getItem('profile_photo_'+p.id);return ph?'':p.name.split(' ').map(n=>n[0]).join('').slice(0,2);})()}</div>
+        <div id="acc-av-preview" style="width:64px;height:64px;border-radius:50%;background:${(()=>{const p=profiles.find(p=>p.id===activeProfileId)||profiles[0];const ph=localStorage.getItem('profile_photo_'+p.id);return ph?'none':AVCOLS[p.color];})()};background-image:${(()=>{const p=profiles.find(p=>p.id===activeProfileId)||profiles[0];const ph=localStorage.getItem('profile_photo_'+p.id);return ph?'url('+ph+')':'none';})()};background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden;border:2px solid var(--bd3)">${(()=>{const p=profiles.find(p=>p.id===activeProfileId)||profiles[0];const ph=localStorage.getItem('profile_photo_'+p.id);return ph?'':esc(p.name.split(' ').map(n=>n[0]).join('').slice(0,2));})()}</div>
         <div style="display:flex;flex-direction:column;gap:8px">
           <label class="bprim" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:12px">
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -6768,8 +6770,8 @@ function renderAccountSettings(container) {
     <div class="set-section">
       <div class="set-section-t">Mi cuenta</div>
       <div class="set-section-s">Información de acceso a Tattoo OS</div>
-      <div class="set-row"><div class="set-row-l"><div class="set-row-t">Nombre</div><div class="set-row-s">${user.name}</div></div></div>
-      <div class="set-row"><div class="set-row-l"><div class="set-row-t">Email</div><div class="set-row-s">${user.email}</div></div></div>
+      <div class="set-row"><div class="set-row-l"><div class="set-row-t">Nombre</div><div class="set-row-s">${esc(user.name)}</div></div></div>
+      <div class="set-row"><div class="set-row-l"><div class="set-row-t">Email</div><div class="set-row-s">${esc(user.email)}</div></div></div>
       <div class="set-row"><div class="set-row-l"><div class="set-row-t">Cuenta creada</div><div class="set-row-s">${user.createdAt ? new Date(user.createdAt).toLocaleDateString('es-ES') : ' - '}</div></div></div>
       <div class="set-row" style="margin-top:4px">
         <div class="set-row-l"><div class="set-row-t">Seguridad</div><div class="set-row-s">Autenticación por email y contraseña</div></div>
@@ -6835,7 +6837,7 @@ function confirmDeleteProfileData(){
           </div>`).join('')}
       </div>
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bd);font-size:11px;color:var(--t3)">
-        Total: <strong style="color:var(--ro)">${total} registros</strong> del perfil <strong style="color:var(--t1)">${p.name}</strong>
+        Total: <strong style="color:var(--ro)">${total} registros</strong> del perfil <strong style="color:var(--t1)">${esc(p.name)}</strong>
       </div>
     </div>
     <div style="background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.2);border-radius:var(--r2);padding:10px 12px;font-size:11px;color:var(--ro);margin-bottom:16px;line-height:1.6">
@@ -6860,7 +6862,7 @@ function executeDeleteProfileData(){
 // -- BULK WA MODAL --
 function openBulkWaModal() {
   const box = document.getElementById('mcontent');
-  const clientOpts = clients.map(c => `<option value="${c.id}">${c.name} ${c.phone ? '' : ''}</option>`).join('');
+  const clientOpts = clients.map(c => `<option value="${c.id}">${esc(c.name)} ${c.phone ? '' : ''}</option>`).join('');
   box.innerHTML = `
     <div class="mt"> Envío masivo WhatsApp</div>
     <div class="ms">Envía un mensaje a varios clientes a la vez</div>
