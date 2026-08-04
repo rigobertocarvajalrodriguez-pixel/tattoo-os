@@ -2,7 +2,7 @@
   "name": "Tattoo OS",
   "short_name": "Tattoo OS",
   "description": "Sistema operativo para estudios de tatuaje",
-  "start_url": "/",
+  "start_url": "/app",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

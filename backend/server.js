@@ -202,7 +202,26 @@ app.use(function(req, res, next) {
   next();
 });
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'frontend')));
+// index:false — ya no queremos que express.static sirva frontend/app.html automáticamente en
+// "/" (comportamiento por defecto de static con un archivo index.html). La landing pública y la
+// app autenticada ahora son documentos distintos, servidos explícitamente más abajo.
+app.use(express.static(path.join(__dirname, '..', 'frontend'), { index: false }));
+
+// ── LANDING PÚBLICA vs APP ──
+// "/" es la landing pública (marketing, sin login). "/app" es el dashboard real (login/registro +
+// app), que sigue decidiendo por sí mismo -vía el token en localStorage- si mostrar la pantalla de
+// login o el panel. La landing detecta ese mismo token en el navegador y redirige a /app antes de
+// pintar nada si el usuario ya tiene sesión, así que un usuario logueado nunca ve la landing.
+app.get('/', function(req, res) {
+  res.sendFile(path.join(__dirname, '..', 'frontend', 'landing.html'));
+});
+app.get('/app', function(req, res) {
+  res.sendFile(path.join(__dirname, '..', 'frontend', 'app.html'));
+});
+// Alias amigables usados por los CTA de la landing — igual que hoy, la pantalla real de
+// login/registro vive dentro de app.html (pestañas), esto solo abre en la pestaña correcta.
+app.get('/login', function(req, res) { res.redirect('/app'); });
+app.get('/register', function(req, res) { res.redirect('/app?auth=register'); });
 
 // Iconos PWA generados server-side como SVG → PNG equivalente
 app.get('/icon-:size.png', function(req, res) {

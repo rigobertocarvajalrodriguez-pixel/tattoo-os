@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07070f">
+<title>Tattoo OS — Software de gestión para estudios de tatuaje</title>
+<meta name="description" content="Software de gestión para estudios de tatuaje: agenda citas, controla clientes, finanzas y documentos de consentimiento desde una sola app.">
+<link rel="canonical" href="https://tattoo-os-pdbp.onrender.com/">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Tattoo OS">
+<meta property="og:title" content="Tattoo OS — Software de gestión para estudios de tatuaje">
+<meta property="og:description" content="Agenda, clientes, finanzas y documentos de consentimiento en un solo lugar. Para artistas independientes y estudios con equipo.">
+<meta property="og:url" content="https://tattoo-os-pdbp.onrender.com/">
+<!-- TODO(rigo): sustituir por una imagen OG dedicada de 1200x630px (captura del dashboard o key art de marca). De momento usa el icono de la app como placeholder. -->
+<meta property="og:image" content="https://tattoo-os-pdbp.onrender.com/icon-512.png">
+<meta property="og:image:alt" content="Logotipo de Tattoo OS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Tattoo OS — Software de gestión para estudios de tatuaje">
+<meta name="twitter:description" content="Agenda, clientes, finanzas y documentos de consentimiento en un solo lugar. Para artistas independientes y estudios con equipo.">
+<meta name="twitter:image" content="https://tattoo-os-pdbp.onrender.com/icon-512.png">
+
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+
+<script>
+// Si ya hay una sesión guardada (mismo mecanismo que usa app.html), no mostramos la landing:
+// vamos directo a /app y que sea app.html quien valide el token contra el servidor, como ya
+// hace hoy. Esto evita que un usuario logueado vea la página de marketing.
+(function () {
+  try {
+    if (localStorage.getItem('tos_local_token')) location.replace('/app');
+  } catch (e) {}
+})();
+</script>
+
+<style>
+:root{
+  --void:#04040a;--base:#07070f;--surface:#0d0d18;--elevated:#13131f;--raised:#191929;
+  --bd:rgba(255,255,255,.05);--bd2:rgba(255,255,255,.08);--bd3:rgba(255,255,255,.13);--bd4:rgba(255,255,255,.22);
+  --t1:#ededf5;--t2:#9090a8;--t3:#6a6a82;
+  --v:#7c5cfc;--vl:#a78bfa;--vg:rgba(124,92,252,.4);--vd:rgba(124,92,252,.12);
+  --gr:#10b981;
+  /* Botón sólido, algo más oscuro que --v, para asegurar ≥4.5:1 con texto blanco (~5.6:1) */
+  --cta:#6b46f0;--cta-hover:#5b37e0;
+  --r1:10px;--r2:14px;--r3:20px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--base);color:var(--t1);
+  font-family:'DM Sans',-apple-system,sans-serif;
+  font-size:16px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+h1,h2,h3{font-family:'Syne',sans-serif;letter-spacing:-.02em;line-height:1.12;color:var(--t1)}
+a{color:inherit}
+img{max-width:100%;display:block}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+
+/* Foco visible por teclado en toda la página */
+a:focus-visible,button:focus-visible{
+  outline:3px solid var(--vl);outline-offset:3px;border-radius:6px;
+}
+
+/* Skip link */
+.skip-link{
+  position:absolute;left:12px;top:-60px;z-index:1000;
+  background:var(--cta);color:#fff;padding:10px 16px;border-radius:var(--r1);
+  font-weight:600;font-size:14px;transition:top .15s;
+}
+.skip-link:focus{top:12px}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
+
+/* ── Header ── */
+header{
+  position:sticky;top:0;z-index:100;
+  background:rgba(7,7,15,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--bd2);
+}
+.hd-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0}
+.brand{display:flex;align-items:center;gap:9px;text-decoration:none}
+.brand-ic{
+  width:32px;height:32px;border-radius:9px;flex-shrink:0;
+  background:linear-gradient(135deg,var(--v),var(--vl));
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:#fff;
+  box-shadow:0 0 16px var(--vg);
+}
+.brand-nm{font-family:'Syne',sans-serif;font-weight:700;font-size:16px;letter-spacing:-.02em;color:var(--t1)}
+.hd-actions{display:flex;align-items:center;gap:8px}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  border-radius:999px;border:none;cursor:pointer;text-decoration:none;
+  font-family:'DM Sans',sans-serif;font-weight:700;font-size:14px;
+  transition:transform .15s,background .15s,box-shadow .15s;
+  white-space:nowrap;
+}
+.btn:active{transform:translateY(1px)}
+.btn-ghost{color:var(--t1);background:transparent;border:1px solid var(--bd3);padding:9px 16px}
+.btn-ghost:hover{border-color:var(--bd4);background:var(--elevated)}
+.btn-primary{
+  color:#fff;background:var(--cta);padding:10px 20px;
+  box-shadow:0 6px 22px rgba(107,70,240,.35);
+}
+.btn-primary:hover{background:var(--cta-hover);box-shadow:0 8px 28px rgba(107,70,240,.45)}
+.btn-lg{padding:15px 28px;font-size:15.5px;border-radius:var(--r2)}
+.hd-actions .btn-ghost{padding:8px 14px;font-size:13.5px}
+@media (max-width:420px){
+  .hd-actions .btn-ghost span{display:none}
+}
+
+/* ── Hero ── */
+.hero{
+  position:relative;padding:64px 0 56px;overflow:hidden;
+  background:
+    radial-gradient(560px 320px at 15% -10%, var(--vd), transparent 60%),
+    radial-gradient(480px 280px at 100% 0%, rgba(16,185,129,.08), transparent 55%);
+}
+.hero-inner{display:grid;gap:36px;align-items:center}
+@media (min-width:960px){
+  .hero-inner{grid-template-columns:1.05fr .95fr;gap:48px}
+}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:7px;
+  background:var(--vd);border:1px solid var(--bd3);color:var(--vl);
+  font-size:12.5px;font-weight:700;letter-spacing:.02em;
+  padding:6px 13px;border-radius:999px;margin-bottom:18px;
+}
+.eyebrow-dot{width:6px;height:6px;border-radius:50%;background:var(--gr);flex-shrink:0}
+.hero h1{font-size:clamp(32px,6vw,52px);font-weight:800;margin-bottom:18px}
+.hero-sub{font-size:clamp(15px,2.2vw,18px);color:var(--t2);max-width:52ch;margin-bottom:28px}
+.hero-cta-row{display:flex;flex-direction:column;align-items:flex-start;gap:12px}
+.hero-fine{font-size:13px;color:var(--t3)}
+
+/* Mock visual del dashboard — placeholder decorativo, se sustituye por una captura real */
+.hero-shot{
+  position:relative;border-radius:var(--r3);
+  background:linear-gradient(165deg,var(--surface),var(--void));
+  border:1px solid var(--bd3);
+  box-shadow:0 30px 70px -20px rgba(0,0,0,.6),0 0 0 1px var(--bd);
+  padding:18px;overflow:hidden;
+}
+.hero-shot::before{
+  content:'';position:absolute;inset:-40% -40% auto auto;width:60%;height:60%;
+  background:radial-gradient(circle,var(--vg),transparent 65%);opacity:.5;pointer-events:none;
+}
+.hs-dots{display:flex;gap:6px;margin-bottom:14px}
+.hs-dots span{width:8px;height:8px;border-radius:50%;background:var(--bd4)}
+.hs-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.hs-cell{aspect-ratio:1;border-radius:5px;background:var(--elevated);border:1px solid var(--bd)}
+.hs-cell.on{background:linear-gradient(135deg,var(--v),var(--vl));box-shadow:0 0 12px var(--vg)}
+.hs-cell.gr{background:var(--gr);opacity:.55}
+.hs-stats{display:flex;gap:10px;margin-top:14px}
+.hs-stat{flex:1;background:var(--elevated);border:1px solid var(--bd2);border-radius:var(--r1);padding:10px 12px}
+.hs-stat b{display:block;font-family:'Syne',sans-serif;font-size:17px;color:var(--t1)}
+.hs-stat span{font-size:11px;color:var(--t3)}
+
+/* ── Secciones genéricas ── */
+section{padding:64px 0}
+.section-head{max-width:640px;margin:0 auto 40px;text-align:center}
+.section-head h2{font-size:clamp(24px,4vw,34px);font-weight:800;margin-bottom:12px}
+.section-head p{color:var(--t2);font-size:16px}
+.problema{background:var(--surface);border-top:1px solid var(--bd2);border-bottom:1px solid var(--bd2)}
+.problema .wrap{max-width:760px;text-align:center}
+.problema h2{margin-bottom:16px}
+.problema p{color:var(--t2);font-size:17px;line-height:1.75}
+
+/* Funcionalidades */
+.feat-grid{display:grid;gap:16px;grid-template-columns:1fr}
+@media (min-width:640px){.feat-grid{grid-template-columns:repeat(2,1fr)}}
+@media (min-width:960px){.feat-grid{grid-template-columns:repeat(3,1fr)}}
+.feat-card{
+  background:var(--surface);border:1px solid var(--bd2);border-radius:var(--r2);
+  padding:22px;transition:border-color .15s,transform .15s;
+}
+.feat-card:hover{border-color:var(--bd4);transform:translateY(-2px)}
+.feat-ic{
+  width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  background:var(--vd);border:1px solid var(--bd3);font-size:20px;margin-bottom:14px;
+}
+.feat-card h3{font-size:16px;font-weight:700;margin-bottom:7px}
+.feat-card p{color:var(--t2);font-size:14px;line-height:1.6}
+/* TODO(rigo): capturas reales por módulo — se pueden añadir como <img> dentro de cada .feat-card,
+   debajo del <p>, con alt describiendo lo que muestra la pantalla (ej. "Vista semanal de la
+   agenda con tres artistas y dos citas confirmadas"). */
+
+/* Para quién es */
+.audience{display:grid;gap:16px;grid-template-columns:1fr}
+@media (min-width:760px){.audience{grid-template-columns:1fr 1fr}}
+.aud-card{
+  background:linear-gradient(160deg,var(--surface),var(--void));
+  border:1px solid var(--bd2);border-radius:var(--r2);padding:28px;
+}
+.aud-card h3{font-size:19px;font-weight:700;margin-bottom:10px;color:var(--vl)}
+.aud-card p{color:var(--t2);font-size:15px;line-height:1.65}
+
+/* Beta / Precio */
+.beta{
+  background:var(--surface);border-top:1px solid var(--bd2);border-bottom:1px solid var(--bd2);
+}
+.beta-card{
+  max-width:640px;margin:0 auto;text-align:center;
+  border:1px solid var(--bd3);border-radius:var(--r3);
+  background:radial-gradient(420px 220px at 50% 0%,var(--vd),transparent 65%),var(--elevated);
+  padding:44px 28px;
+}
+.beta-badge{
+  display:inline-block;background:var(--vd);color:var(--vl);border:1px solid var(--bd3);
+  font-size:12px;font-weight:700;letter-spacing:.04em;padding:5px 12px;border-radius:999px;
+  margin-bottom:16px;text-transform:uppercase;
+}
+.beta-card h2{font-size:clamp(22px,4vw,30px);margin-bottom:14px}
+.beta-card p{color:var(--t2);font-size:15.5px;line-height:1.7;margin-bottom:26px}
+
+/* Seguridad */
+.security-grid{display:flex;flex-direction:column;gap:22px;align-items:center;text-align:center;max-width:640px;margin:0 auto}
+.security-ic{
+  width:56px;height:56px;border-radius:16px;display:flex;align-items:center;justify-content:center;
+  background:var(--vd);border:1px solid var(--bd3);font-size:26px;
+}
+.security-grid h2{font-size:clamp(22px,4vw,30px)}
+.security-grid p{color:var(--t2);font-size:15.5px;line-height:1.75}
+
+/* CTA final */
+.cta-final{
+  text-align:center;
+  background:
+    radial-gradient(600px 300px at 50% 0%,var(--vd),transparent 60%),
+    var(--base);
+}
+.cta-final h2{font-size:clamp(26px,5vw,38px);margin-bottom:14px}
+.cta-final .hero-sub{margin:0 auto 30px}
+.cta-final .hero-cta-row{align-items:center;margin:0 auto}
+
+/* Footer */
+footer{border-top:1px solid var(--bd2);padding:28px 0;background:var(--void)}
+.ft-row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}
+.ft-brand{display:flex;align-items:center;gap:8px;color:var(--t3);font-size:13px}
+.ft-links{display:flex;gap:18px;font-size:13px}
+.ft-links a{color:var(--t2);text-decoration:none}
+.ft-links a:hover{color:var(--t1);text-decoration:underline}
+</style>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Saltar al contenido principal</a>
+
+<header>
+  <div class="wrap hd-row">
+    <a class="brand" href="/" aria-label="Tattoo OS — página de inicio">
+      <img class="brand-ic" src="/icon.svg" alt="" width="32" height="32" style="border-radius:9px">
+      <span class="brand-nm">Tattoo OS</span>
+    </a>
+    <div class="hd-actions">
+      <a class="btn btn-ghost" href="/login"><span>Iniciar sesión</span></a>
+      <a class="btn btn-primary" href="/register">Empieza gratis</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- 1. HERO -->
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap hero-inner">
+      <div>
+        <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Beta abierta — acceso completo gratis</span>
+        <h1 id="hero-title">Gestiona tu estudio de tatuaje sin caos</h1>
+        <p class="hero-sub">Agenda, clientes, finanzas y documentos de consentimiento en un solo lugar. Para artistas independientes y estudios con equipo.</p>
+        <div class="hero-cta-row">
+          <a class="btn btn-primary btn-lg" href="/register">Empieza gratis — es beta</a>
+          <span class="hero-fine">Sin tarjeta de crédito · Acceso completo mientras dure la beta</span>
+        </div>
+      </div>
+
+      <!-- TODO(rigo): sustituir este bloque .hero-shot por una captura real del dashboard
+           (calendario semanal o panel de Hoy), formato PNG/WebP, con alt descriptivo, ej.:
+           <img src="/screenshots/hero-dashboard.png" alt="Calendario semanal de Tattoo OS con citas de varios artistas y panel de ingresos del día"> -->
+      <div class="hero-shot" aria-hidden="true">
+        <div class="hs-dots"><span></span><span></span><span></span></div>
+        <div class="hs-grid">
+          <div class="hs-cell"></div><div class="hs-cell on"></div><div class="hs-cell"></div>
+          <div class="hs-cell"></div><div class="hs-cell gr"></div><div class="hs-cell"></div><div class="hs-cell"></div>
+          <div class="hs-cell"></div><div class="hs-cell"></div><div class="hs-cell on"></div>
+          <div class="hs-cell"></div><div class="hs-cell"></div><div class="hs-cell"></div><div class="hs-cell"></div>
+          <div class="hs-cell gr"></div><div class="hs-cell"></div><div class="hs-cell"></div>
+          <div class="hs-cell on"></div><div class="hs-cell"></div><div class="hs-cell"></div><div class="hs-cell"></div>
+        </div>
+        <div class="hs-stats">
+          <div class="hs-stat"><b>€1.240</b><span>Ingresos semana</span></div>
+          <div class="hs-stat"><b>12</b><span>Citas activas</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. EL PROBLEMA -->
+  <section class="problema" aria-labelledby="problema-title">
+    <div class="wrap">
+      <h2 id="problema-title">Citas en el móvil, cuentas en una libreta, consentimientos en papel</h2>
+      <p>Gestionar un estudio de tatuaje a mano funciona… hasta que no. Tattoo OS junta todo lo que ya haces en herramientas sueltas (WhatsApp, Excel, papel) en una sola app pensada para tu día a día.</p>
+    </div>
+  </section>
+
+  <!-- 3. FUNCIONALIDADES -->
+  <section aria-labelledby="feat-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="feat-title">Todo lo que ya haces, en un solo sitio</h2>
+        <p>Seis módulos pensados para el trabajo real de un estudio de tatuaje.</p>
+      </div>
+      <div class="feat-grid">
+        <article class="feat-card">
+          <div class="feat-ic" aria-hidden="true">📅</div>
+          <h3>Citas sin dobles reservas</h3>
+          <p>Vista día, semana, mes y año. Gestiona varios artistas a la vez.</p>
+        </article>
+        <article class="feat-card">
+          <div class="feat-ic" aria-hidden="true">👥</div>
+          <h3>El historial completo de cada cliente</h3>
+          <p>Datos, historial de sesiones y documentos enlazados.</p>
+        </article>
+        <article class="feat-card">
+          <div class="feat-ic" aria-hidden="true">💰</div>
+          <h3>Sabe cuánto gana tu estudio, de verdad</h3>
+          <p>Ingresos, gastos, comisiones y liquidaciones automáticas.</p>
+        </article>
+        <article class="feat-card">
+          <div class="feat-ic" aria-hidden="true">📄</div>
+          <h3>Consentimientos firmados, guardados y listos</h3>
+          <p>Sube o genera documentos con historial por cliente.</p>
+        </article>
+        <article class="feat-card">
+          <div class="feat-ic" aria-hidden="true">💬</div>
+          <h3>Habla con tus clientes sin salir de la app</h3>
+          <p>Automatizaciones y envíos masivos por WhatsApp.</p>
+        </article>
+        <article class="feat-card">
+          <div class="feat-ic" aria-hidden="true">✦</div>
+          <h3>Un asistente que conoce tu estudio</h3>
+          <p>Nova responde preguntas sobre tu agenda, clientes o finanzas.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. PARA QUIÉN ES -->
+  <section aria-labelledby="audience-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="audience-title">Para quién es Tattoo OS</h2>
+      </div>
+      <div class="audience">
+        <div class="aud-card">
+          <h3>Artistas independientes</h3>
+          <p>Organiza tu agenda y tus cuentas sin depender de nadie. Todo desde el móvil.</p>
+        </div>
+        <div class="aud-card">
+          <h3>Estudios con varios artistas</h3>
+          <p>Gestiona citas, comisiones y liquidaciones de todo tu equipo desde un único panel.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. PRECIO / BETA -->
+  <section class="beta" aria-labelledby="beta-title">
+    <div class="wrap">
+      <div class="beta-card">
+        <span class="beta-badge">Beta</span>
+        <h2 id="beta-title">Gratis mientras dure la beta</h2>
+        <p>Tattoo OS está en fase beta. Tienes acceso completo a todas las funciones sin coste. Cuando lancemos los planes de pago, los primeros usuarios de la beta tendrán condiciones especiales.</p>
+        <a class="btn btn-primary btn-lg" href="/register">Crear cuenta gratis</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. SEGURIDAD -->
+  <section aria-labelledby="security-title">
+    <div class="wrap security-grid">
+      <div class="security-ic" aria-hidden="true">🔒</div>
+      <h2 id="security-title">Tus datos y los de tus clientes, protegidos</h2>
+      <!-- Copy ajustado a la implementación real (auth propia sobre PostgreSQL con bcrypt +
+           tokens de sesión), en vez de la mención a Supabase Auth/RLS del brief original, que
+           no se corresponde con backend/server.js. -->
+      <p>Las contraseñas se guardan cifradas con bcrypt, nunca en texto plano, y cada cuenta solo puede acceder a sus propios datos: citas, clientes, finanzas y documentos quedan aislados por estudio. La conexión con la base de datos va cifrada, y los documentos de consentimiento se almacenan de forma privada, ligados únicamente a tu cuenta.</p>
+    </div>
+  </section>
+
+  <!-- 7. CTA FINAL -->
+  <section class="cta-final" aria-labelledby="cta-final-title">
+    <div class="wrap">
+      <h2 id="cta-final-title">Deja de gestionar tu estudio a trozos</h2>
+      <p class="hero-sub">Prueba Tattoo OS gratis durante la beta y organiza tu agenda, clientes y finanzas en un solo lugar.</p>
+      <div class="hero-cta-row">
+        <a class="btn btn-primary btn-lg" href="/register">Empieza gratis →</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap ft-row">
+    <div class="ft-brand">
+      <img src="/icon.svg" alt="" width="18" height="18" style="border-radius:5px">
+      <span>© 2026 Tattoo OS</span>
+    </div>
+    <nav class="ft-links" aria-label="Enlaces de pie de página">
+      <a href="/login">Iniciar sesión</a>
+      <a href="/register">Crear cuenta</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

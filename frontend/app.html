@@ -1748,7 +1748,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
   </div>
   <div style="margin-top:20px;font-size:10px;color:var(--t3);text-align:center">
     Tattoo OS · Gestión profesional de estudios de tatuaje<br>
-    <span style="opacity:.5">Powered by Supabase Auth · Row Level Security</span>
+    <span style="opacity:.5">Contraseñas cifradas con bcrypt · Conexión segura a la base de datos</span>
   </div>
 </div>
 
@@ -7284,6 +7284,12 @@ function initMobile() {
 
     _step = 'checkSession';
     checkSession();
+
+    _step = 'authTabFromQuery';
+    try {
+      var _authParam = new URLSearchParams(location.search).get('auth');
+      if (_authParam === 'register') setLoginTab('register');
+    } catch(eAuthQ) {}
 
   } catch(e) {
     console.error('Tattoo OS init error at step [' + _step + ']:', e);
