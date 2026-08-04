@@ -144,28 +144,28 @@ header{
 .hero-cta-row{display:flex;flex-direction:column;align-items:flex-start;gap:12px}
 .hero-fine{font-size:13px;color:var(--t3)}
 
-/* Mock visual del dashboard — placeholder decorativo, se sustituye por una captura real */
+/* Captura real del dashboard (agenda semanal), enmarcada como una ventana de app.
+   aspect-ratio fija al tamaño real de hero-agenda.png/webp (1917x907) para reservar el
+   espacio antes de que cargue la imagen y evitar saltos de layout (CLS). */
 .hero-shot{
   position:relative;border-radius:var(--r3);
   background:linear-gradient(165deg,var(--surface),var(--void));
   border:1px solid var(--bd3);
   box-shadow:0 30px 70px -20px rgba(0,0,0,.6),0 0 0 1px var(--bd);
-  padding:18px;overflow:hidden;
+  padding:14px;overflow:hidden;
 }
 .hero-shot::before{
   content:'';position:absolute;inset:-40% -40% auto auto;width:60%;height:60%;
   background:radial-gradient(circle,var(--vg),transparent 65%);opacity:.5;pointer-events:none;
 }
-.hs-dots{display:flex;gap:6px;margin-bottom:14px}
+.hs-dots{display:flex;gap:6px;margin-bottom:12px;position:relative}
 .hs-dots span{width:8px;height:8px;border-radius:50%;background:var(--bd4)}
-.hs-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
-.hs-cell{aspect-ratio:1;border-radius:5px;background:var(--elevated);border:1px solid var(--bd)}
-.hs-cell.on{background:linear-gradient(135deg,var(--v),var(--vl));box-shadow:0 0 12px var(--vg)}
-.hs-cell.gr{background:var(--gr);opacity:.55}
-.hs-stats{display:flex;gap:10px;margin-top:14px}
-.hs-stat{flex:1;background:var(--elevated);border:1px solid var(--bd2);border-radius:var(--r1);padding:10px 12px}
-.hs-stat b{display:block;font-family:'Syne',sans-serif;font-size:17px;color:var(--t1)}
-.hs-stat span{font-size:11px;color:var(--t3)}
+.hero-shot picture{position:relative;display:block}
+.hero-shot img{
+  display:block;width:100%;height:auto;aspect-ratio:1917/907;
+  border-radius:var(--r1);border:1px solid var(--bd2);
+  background:var(--elevated);object-fit:cover;
+}
 
 /* ── Secciones genéricas ── */
 section{padding:64px 0}
@@ -285,23 +285,17 @@ footer{border-top:1px solid var(--bd2);padding:28px 0;background:var(--void)}
         </div>
       </div>
 
-      <!-- TODO(rigo): sustituir este bloque .hero-shot por una captura real del dashboard
-           (calendario semanal o panel de Hoy), formato PNG/WebP, con alt descriptivo, ej.:
-           <img src="/screenshots/hero-dashboard.png" alt="Calendario semanal de Tattoo OS con citas de varios artistas y panel de ingresos del día"> -->
-      <div class="hero-shot" aria-hidden="true">
-        <div class="hs-dots"><span></span><span></span><span></span></div>
-        <div class="hs-grid">
-          <div class="hs-cell"></div><div class="hs-cell on"></div><div class="hs-cell"></div>
-          <div class="hs-cell"></div><div class="hs-cell gr"></div><div class="hs-cell"></div><div class="hs-cell"></div>
-          <div class="hs-cell"></div><div class="hs-cell"></div><div class="hs-cell on"></div>
-          <div class="hs-cell"></div><div class="hs-cell"></div><div class="hs-cell"></div><div class="hs-cell"></div>
-          <div class="hs-cell gr"></div><div class="hs-cell"></div><div class="hs-cell"></div>
-          <div class="hs-cell on"></div><div class="hs-cell"></div><div class="hs-cell"></div><div class="hs-cell"></div>
-        </div>
-        <div class="hs-stats">
-          <div class="hs-stat"><b>€1.240</b><span>Ingresos semana</span></div>
-          <div class="hs-stat"><b>12</b><span>Citas activas</span></div>
-        </div>
+      <!-- Captura real del calendario/agenda de Tattoo OS -->
+      <div class="hero-shot">
+        <div class="hs-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        <picture>
+          <source srcset="/assets/hero-agenda.webp" type="image/webp">
+          <img
+            src="/assets/hero-agenda.png"
+            alt="Vista de calendario con citas del estudio de tatuaje"
+            width="1917" height="907"
+            loading="eager" fetchpriority="high" decoding="async">
+        </picture>
       </div>
     </div>
   </section>
