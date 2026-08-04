@@ -6780,9 +6780,9 @@ function renderAccountSettings(container) {
     </div>
     <div class="set-section">
       <div class="set-section-t">Datos y privacidad</div>
-      <div class="set-section-s">Tus datos se guardan localmente. En producción se sincronizarán con Supabase con RLS.</div>
+      <div class="set-section-s">Tus datos se guardan de forma segura en el servidor, sincronizados automáticamente con la base de datos.</div>
       <div style="background:var(--vd);border:1px solid rgba(124,92,252,.2);border-radius:var(--r2);padding:12px;font-size:11px;color:var(--vl);line-height:1.6">
-        <strong>Aislamiento total garantizado:</strong> cada cuenta solo puede ver, editar y eliminar sus propios datos. En la versión con Supabase, Row Level Security impone estas políticas a nivel de base de datos  -  ni el propio servidor puede mezclar datos entre usuarios.
+        <strong>Aislamiento por cuenta:</strong> cada cuenta solo puede ver, editar y eliminar sus propios datos. El servidor verifica tu sesión en cada petición y filtra todas las consultas a la base de datos por tu cuenta, así que no es posible acceder a datos de otro estudio.
       </div>
     </div>
     <div class="set-section">
