@@ -40,6 +40,12 @@ input,textarea,[contenteditable]{user-select:text!important;-webkit-user-select:
   --gr:#10b981;--grd:rgba(16,185,129,.1);
   --r1:6px;--r2:10px;--r3:14px;--r4:20px;
   --sw:220px;--rw:272px;
+  /* Tokens de "cristal" para el tema Hormigón (--glass-*, no confundir con los --glass/
+     --glass-h/--glass-a de arriba, que son el tinte sutil de hover/active de siempre).
+     Por defecto no-op; .concrete (más abajo) les da valores reales. Mismo patrón/nombres
+     que landing.html, para que sea el mismo mecanismo en toda la web. */
+  --glass-bg:transparent;--glass-blur:none;--glass-border:transparent;--glass-shadow:none;
+  --theme-text-shadow:none;
 }
 .light{
   --void:#f0f0f5;--base:#f8f8fc;--surface:#ffffff;--elevated:#ffffff;--raised:#f2f2f8;
@@ -48,6 +54,117 @@ input,textarea,[contenteditable]{user-select:text!important;-webkit-user-select:
   --t1:#1a1a2e;--t2:#5a5a7a;--t3:#6d6d87;--t4:#6e6e7e;
   --vd:rgba(124,92,252,.08);--vs:rgba(124,92,252,.16);--vg:rgba(124,92,252,.3);
 }
+/* ── Tema "Hormigón" ── mismo tratamiento que landing.html: fondo de foto con overlay
+   oscuro, paneles en glassmorphism, texto blanco con text-shadow. Ver comentario de los
+   tokens --glass-* en :root de arriba. */
+.concrete{
+  --t1:#ffffff;--t2:rgba(255,255,255,.82);--t3:rgba(255,255,255,.62);--t4:rgba(255,255,255,.5);
+  --glass-bg:rgba(255,255,255,.08);
+  --glass-blur:blur(20px) saturate(160%);
+  --glass-border:rgba(255,255,255,.15);
+  --glass-shadow:0 12px 40px rgba(0,0,0,.35);
+  --theme-text-shadow:0 1px 3px rgba(0,0,0,.4);
+  text-shadow:var(--theme-text-shadow);
+}
+body.concrete{
+  background-color:#111;
+  /* TODO(rigo): mismo aviso que en landing.html — bg-concrete.png pesa 3.7MB, valdría la
+     pena pasarlo a .webp cuando haya tiempo. */
+  background-image:
+    linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),
+    url('/assets/bg-concrete.png');
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+  background-attachment:fixed;
+}
+/* Paneles/chrome con fondo sólido → glassmorphism. Mismo criterio que landing.html: un
+   selector agrupado que consume los tokens --glass-* de arriba. Para sumar otro panel al
+   tema, añadir su clase aquí. */
+.concrete .sidebar,
+.concrete .topbar,
+.concrete .rp,
+.concrete .drawer,
+.concrete .login-card,
+/* Menús / desplegables */
+.concrete .prof-picker,
+.concrete .vtabs,
+.concrete .arr,
+.concrete .yr-tag,
+.concrete .srch-dd,
+.concrete .adm-tabs,
+.concrete .back-btn,
+.concrete .bnav-circle,
+.concrete .mb-menu-btn,
+/* Buscadores / inputs */
+.concrete .srch-inp-box,
+.concrete .cs-inp,
+.concrete .fi,
+.concrete .wa-compose-input,
+.concrete .auto-card-tpl,
+.concrete .adm-note,
+.concrete .magic-btn,
+.concrete .login-tab-row,
+/* Tarjetas (clientes, finanzas, proyectos, documentos, automatizaciones, admin...) */
+.concrete .cc,
+.concrete .fc,
+.concrete .ymc,
+.concrete .sc,
+.concrete .mnchart,
+.concrete .upi,
+.concrete .pj,
+.concrete .pj-notes,
+.concrete .bigchart,
+.concrete .exi,
+.concrete .set-row,
+.concrete .doc-card,
+.concrete .doc-item,
+.concrete .auto-card,
+.concrete .adm-user,
+.concrete .adm-ticket,
+.concrete .consent-section,
+.concrete .wa-msg.in,
+.concrete .wp-wrap,
+/* Modales */
+.concrete .modal,
+.concrete .plan-upgrade-box,
+.concrete #cookie-banner{
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border-color:var(--glass-border);
+}
+.concrete .login-card,
+.concrete .modal,
+.concrete .plan-upgrade-box,
+.concrete .drawer{box-shadow:var(--glass-shadow)}
+/* Paneles con el fondo puesto por style="" inline en vez de por clase (editor de plantillas
+   WhatsApp, ventas de mostrador, liquidaciones, varios paneles de Admin/tickets...) — hay
+   ~20 sitios así, todos con el mismo fondo `var(--elevated)`/`var(--surface)` literal en el
+   atributo style. En vez de tocar cada uno dentro del JS que los genera (arriesgado en un
+   archivo de 8000+ líneas), los capturo por selector de atributo — cubre los actuales y
+   cualquiera nuevo que se añada con el mismo patrón. Necesita !important: un style inline
+   siempre gana en especificidad a cualquier selector de clase/atributo, por bien anidado
+   que esté. */
+.concrete [style*="background:var(--elevated)"],
+.concrete [style*="background:var(--surface)"]{
+  background:var(--glass-bg) !important;
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border-color:var(--glass-border) !important;
+}
+/* #overlay es el scrim detrás de TODOS los modales (Nueva Cita, editar cliente, etc.) —
+   con su rgba(4,4,10,.85) original, el modal glass de encima solo tenía un negro casi
+   plano que desenfocar (blur de un color uniforme no muestra textura ninguna). Lo
+   aclaramos para que se vea el calendario/hormigón de fondo, y el propio .modal gane un
+   frosted-glass de verdad en vez de una caja oscura sin más. Mismo motivo para
+   .sidebar-overlay (menú móvil). */
+.concrete .overlay{background:rgba(0,0,0,.35);backdrop-filter:blur(10px) saturate(160%);-webkit-backdrop-filter:blur(10px) saturate(160%)}
+.concrete .sidebar-overlay{background:rgba(0,0,0,.35)}
+/* #app y #login-screen pintan su propio fondo sólido por encima de <body> — sin esto
+   taparían la foto de hormigón por completo (login-screen es pantalla completa y va por
+   delante de todo con z-index:9999, así que es el que más se nota si se olvida). */
+.concrete .app{background:rgba(0,0,0,.15)}
+.concrete .login-screen{background:rgba(0,0,0,.15)}
+/* .main es el área central donde se pintan TODAS las páginas (calendario, clientes,
+   finanzas...) — mismo problema: fondo sólido propio que tapa la foto por completo. */
+.concrete .main{background:rgba(0,0,0,.15)}
 html,body{height:100%;height:calc(var(--vh,1dvh)*100);overflow:hidden;background:var(--base);color:var(--t1);font-family:'DM Sans',sans-serif;font-size:13px;line-height:1.5;transition:background .3s,color .3s}
 .app{display:flex;height:100%;height:calc(var(--vh,1dvh)*100);overflow:hidden;background:var(--base)}
 body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.015'/%3E%3C/svg%3E")}
@@ -497,6 +614,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .th-preview{width:100%;height:50px;border-radius:var(--r2);margin-bottom:8px;overflow:hidden;display:flex}
 .th-dark-p{background:linear-gradient(135deg,#07070f,#13131f);flex:1}
 .th-light-p{background:linear-gradient(135deg,#f8f8fc,#e8e8f0);flex:1}
+.th-concrete-p{background:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),url('/assets/bg-concrete.png') center/cover;flex:1}
 .th-nm{font-size:11px;font-weight:600;color:var(--t1)}
 .th-sub{font-size:10px;color:var(--t3);margin-top:2px}
 .th-check{width:16px;height:16px;border-radius:50%;border:2px solid var(--bd3);margin:8px auto 0;display:flex;align-items:center;justify-content:center;transition:all .2s}
@@ -1385,7 +1503,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
         <div class="arr" onclick="navigateCal(1)" style="width:32px;height:32px">›</div>
         <div class="today-tag" onclick="goToday()" style="font-size:10px;padding:5px 8px">Hoy</div>
       </div>
-      <div style="display:flex;background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r2);padding:2px;gap:1px">
+      <div class="adm-tabs" style="padding:2px;gap:1px">
         <button class="vt" onclick="setCalView('day',this)" style="font-size:10px;padding:4px 8px">Día</button>
         <button class="vt on" onclick="setCalView('week',this)" style="font-size:10px;padding:4px 8px">Sem</button>
         <button class="vt" onclick="setCalView('month',this)" style="font-size:10px;padding:4px 8px">Mes</button>
@@ -1426,7 +1544,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
     <div class="ph"><div><div class="pt" data-i="navFinance">Finanzas</div><div class="ps" data-i="finSub">Ingresos · Gastos · Beneficio</div></div></div>
     <div class="pb">
       <!-- TABS -->
-      <div style="display:flex;gap:2px;background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r2);padding:3px;width:fit-content;margin-bottom:18px">
+      <div class="adm-tabs">
         <button class="vt on" id="ftab-summary" onclick="setFinanceTab('summary',this)">Resumen</button>
         <button class="vt" id="ftab-pos" onclick="setFinanceTab('pos',this)">Mostrador</button>
         <button class="vt" id="ftab-settlements" onclick="setFinanceTab('settlements',this)">Liquidaciones</button>
@@ -1570,7 +1688,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
     </div>
     <div class="pb" id="docs-pb">
       <!-- TABS -->
-      <div style="display:flex;gap:2px;background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r2);padding:3px;width:fit-content;margin-bottom:18px">
+      <div class="adm-tabs">
         <button class="vt on" id="dtab-consents" onclick="setDocsTab('consents',this)">Consentimientos</button>
         <button class="vt" id="dtab-docs" onclick="setDocsTab('docs',this)">Historial</button>
         <button class="vt" id="dtab-templates" onclick="setDocsTab('templates',this)">Plantillas</button>
@@ -1842,8 +1960,9 @@ const I18N={
     searchPlaceholder:'Buscar citas, clientes...',
     noResults:'Sin resultados',
     apptLabel:'Citas',clientLabel:'Clientes',
-    darkMode:'Modo Oscuro',lightMode:'Modo Claro',
+    darkMode:'Modo Oscuro',lightMode:'Modo Claro',concreteMode:'Hormigón',
     darkModeDesc:'Interfaz oscura elegante',lightModeDesc:'Interfaz clara y limpia',
+    concreteModeDesc:'Fondo de hormigón con paneles de cristal',
     langLabel:'Idioma de la aplicación',langDesc:'Cambia el idioma de toda la interfaz',
     themeLabel:'Tema de la aplicación',themeDesc:'Elige entre modo oscuro y modo claro',
     notifLabel:'Notificaciones activas',notifDesc:'Recibe avisos de citas y recordatorios',
@@ -1897,8 +2016,9 @@ const I18N={
     searchPlaceholder:'Search appointments, clients...',
     noResults:'No results',
     apptLabel:'Appointments',clientLabel:'Clients',
-    darkMode:'Dark Mode',lightMode:'Light Mode',
+    darkMode:'Dark Mode',lightMode:'Light Mode',concreteMode:'Concrete',
     darkModeDesc:'Elegant dark interface',lightModeDesc:'Clean light interface',
+    concreteModeDesc:'Concrete background with glass panels',
     langLabel:'Application language',langDesc:'Change the language of the entire interface',
     themeLabel:'Application theme',themeDesc:'Choose between dark and light mode',
     notifLabel:'Active notifications',notifDesc:'Receive appointment reminders and alerts',
@@ -1946,7 +2066,9 @@ let mcalDate=new Date(TODAY.getFullYear(),TODAY.getMonth(),1);
 let rpTab='today';
 let theme=lsGet('tos_theme')||'dark';
 document.body.classList.toggle('light',theme==='light');
-document.body.style.background = theme==='light' ? '#f0f0f5' : '#04040a';
+document.body.classList.toggle('concrete',theme==='concrete');
+document.body.style.background = theme==='concrete' ? '' : (theme==='light' ? '#f0f0f5' : '#04040a');
+if(theme==='concrete') applyGlassOpacity(getGlassOpacity());
 let activeProjId=null;
 let activeSettingsPanel='appearance';
 
@@ -2663,8 +2785,11 @@ function navTo(page,el){
   const _curPg=document.querySelector('.page.on');
   if(_curPg&&_curPg.id==='page-tienda'&&page!=='tienda'){
     document.body.classList.toggle('light',theme==='light');
-    document.body.style.background=theme==='light'?'#f0f0f5':'#04040a';
+    document.body.classList.toggle('concrete',theme==='concrete');
+    document.body.style.background = theme==='concrete' ? '' : (theme==='light'?'#f0f0f5':'#04040a');
     document.getElementById('app').classList.toggle('light',theme==='light');
+    document.getElementById('app').classList.toggle('concrete',theme==='concrete');
+    if(theme==='concrete') applyGlassOpacity(getGlassOpacity());
     const _sbR=document.querySelector('.sidebar');
     if(_sbR&&!IS_MOBILE()){sidebarMini=window._tiendaPrevMini||false;_sbR.classList.toggle('sidebar-mini',sidebarMini);}
     const _tbR=document.querySelector('.topbar');
@@ -3571,8 +3696,30 @@ function renderSettings(){
             <div class="th-sub">${t('lightModeDesc')}</div>
             <div class="th-check">${theme==='light'?'':''}</div>
           </div>
+          <div class="th-opt${theme==='concrete'?' on':''}" onclick="setTheme('concrete')">
+            <div class="th-preview"><div class="th-concrete-p"></div></div>
+            <div class="th-nm">${t('concreteMode')}</div>
+            <div class="th-sub">${t('concreteModeDesc')}</div>
+            <div class="th-check">${theme==='concrete'?'':''}</div>
+          </div>
         </div>
       </div>
+      ${theme==='concrete'?`
+      <div class="set-section">
+        <div class="set-section-t">Intensidad del cristal</div>
+        <div class="set-section-s">Transparencia de los paneles de cristal (Liquid Glass) sobre el fondo de hormigón</div>
+        <div style="margin-top:10px;max-width:360px">
+          <input type="range" id="glass-opacity-rng" min="3" max="25" step="1"
+                 value="${Math.round(getGlassOpacity()*100)}" style="width:100%;accent-color:var(--v)"
+                 oninput="setGlassOpacity(this.value/100)"
+                 aria-label="Intensidad del cristal">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--t3);margin-top:4px">
+            <span>Más transparente</span>
+            <span id="glass-opacity-val">${Math.round(getGlassOpacity()*100)}%</span>
+            <span>Más opaco</span>
+          </div>
+        </div>
+      </div>`:''}
       <div class="set-section">
         <div class="set-section-t">Accent</div>
         <div class="set-section-s">Color de acento de la interfaz</div>
@@ -3807,10 +3954,40 @@ function setTheme(th){
   theme=th;
   lsSet('tos_theme',th);
   document.body.classList.toggle('light',th==='light');
-  document.body.style.background = th==='light' ? '#f0f0f5' : '#04040a';
+  document.body.classList.toggle('concrete',th==='concrete');
+  // El fondo de Hormigón es una imagen (CSS de body.concrete); un inline style aquí lo
+  // taparía siempre (inline gana a cualquier selector de clase). Para light/dark seguimos
+  // fijando el color a mano como ya hacía esto, y lo limpiamos para concrete.
+  document.body.style.background = th==='concrete' ? '' : (th==='light' ? '#f0f0f5' : '#04040a');
   const _appEl=document.getElementById('app');
-  if(_appEl) _appEl.classList.toggle('light',th==='light');
-  renderSettings();showToast(th==='dark'?t('darkMode'):t('lightMode'));
+  if(_appEl){
+    _appEl.classList.toggle('light',th==='light');
+    _appEl.classList.toggle('concrete',th==='concrete');
+  }
+  if(th==='concrete') applyGlassOpacity(getGlassOpacity());
+  renderSettings();
+  showToast(th==='dark'?t('darkMode'):th==='light'?t('lightMode'):t('concreteMode'));
+}
+// ── Intensidad del cristal (tema Hormigón) ──────────────
+// Un solo slider controla --glass-bg; --glass-border se deriva manteniendo la misma
+// proporción que tenía por defecto (.15/.08 ≈ 1.875x) para que el borde del cristal
+// siga viéndose coherente con el fondo en cualquier intensidad.
+function getGlassOpacity(){
+  var v=parseFloat(localStorage.getItem('tos_glass_opacity'));
+  return isNaN(v)?0.08:v;
+}
+function applyGlassOpacity(val){
+  var bg=Math.max(0.02,Math.min(0.3,val));
+  var border=Math.min(0.6,bg*1.875);
+  document.body.style.setProperty('--glass-bg','rgba(255,255,255,'+bg.toFixed(3)+')');
+  document.body.style.setProperty('--glass-border','rgba(255,255,255,'+border.toFixed(3)+')');
+}
+function setGlassOpacity(val){
+  val=Math.max(0.02,Math.min(0.3,parseFloat(val)));
+  try{localStorage.setItem('tos_glass_opacity',val);}catch(e){}
+  applyGlassOpacity(val);
+  var lbl=document.getElementById('glass-opacity-val');
+  if(lbl) lbl.textContent=Math.round(val*100)+'%';
 }
 var ACCENTS={
   '#7c5cfc':{v:'#7c5cfc',vl:'#a78bfa',vd:'rgba(124,92,252,.12)',vs:'rgba(124,92,252,.22)',vg:'rgba(124,92,252,.4)'},

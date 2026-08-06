@@ -40,6 +40,24 @@
     if (localStorage.getItem('tos_local_token')) location.replace('/app');
   } catch (e) {}
 })();
+// Aplica el tema guardado ANTES del primer paint (mismo localStorage 'tos_theme' que usa
+// app.html — como landing y app comparten origen, elegir tema en cualquiera de las dos
+// páginas persiste en la otra). Va en <html> (document.documentElement), no en <body>,
+// porque <body> todavía no existe cuando corre este script de <head>. Solo 'concrete'
+// tiene efecto visual en landing por ahora.
+(function () {
+  try {
+    if (localStorage.getItem('tos_theme') === 'concrete') {
+      document.documentElement.classList.add('concrete');
+      // Inline en vez de llamar a applyGlassOpacity (definida en el <script> de más abajo,
+      // que a esta altura del <head> todavía no se ha parseado/ejecutado).
+      var v = parseFloat(localStorage.getItem('tos_glass_opacity'));
+      var bg = isNaN(v) ? 0.08 : Math.max(0.02, Math.min(0.3, v));
+      document.documentElement.style.setProperty('--glass-bg', 'rgba(255,255,255,' + bg.toFixed(3) + ')');
+      document.documentElement.style.setProperty('--glass-border', 'rgba(255,255,255,' + Math.min(0.6, bg * 1.875).toFixed(3) + ')');
+    }
+  } catch (e) {}
+})();
 </script>
 
 <style>
@@ -56,6 +74,11 @@
   /* Botón sólido, algo más oscuro que --v, para asegurar ≥4.5:1 con texto blanco (~5.6:1) */
   --cta:#6b46f0;--cta-hover:#5b37e0;
   --r1:10px;--r2:14px;--r3:20px;
+  /* Tokens de "cristal" para tarjetas/paneles. Por defecto son no-op (mismo look de
+     siempre); el tema Hormigón (.concrete, más abajo) es quien les da valores reales.
+     Definidos una sola vez aquí y consumidos por .concrete .hero-shot/.fc-stage/etc. */
+  --glass-bg:transparent;--glass-blur:none;--glass-border:transparent;--glass-shadow:none;
+  --theme-text-shadow:none;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
@@ -65,6 +88,65 @@ body{
   font-size:16px;line-height:1.6;
   -webkit-font-smoothing:antialiased;
   overflow-x:hidden;
+}
+
+/* ── Tema "Hormigón" ──
+   Fondo de foto de hormigón + overlay oscuro fijo, tarjetas en glassmorphism ("Liquid
+   Glass") y texto blanco con text-shadow para leerse igual sobre zonas claras u oscuras
+   de la textura. Todo lo demás (layout, --v/--vl de acento, etc.) se queda igual: solo
+   se pisan --t1/--t2/--t3 y los tokens --glass-* / --theme-text-shadow definidos en :root,
+   así que cada componente que ya usa esas variables se adapta solo, sin tocarlo aparte. */
+html.concrete{
+  --t1:#ffffff;--t2:rgba(255,255,255,.82);--t3:rgba(255,255,255,.62);
+  --glass-bg:rgba(255,255,255,.08);
+  --glass-blur:blur(20px) saturate(160%);
+  --glass-border:rgba(255,255,255,.15);
+  --glass-shadow:0 12px 40px rgba(0,0,0,.35);
+  --theme-text-shadow:0 1px 3px rgba(0,0,0,.4);
+  text-shadow:var(--theme-text-shadow); /* hereda a todo el texto de la página */
+}
+/* El fondo en sí va en <body>, no en <html>: body{background:var(--base)} ya pinta un
+   color sólido, y si lo dejáramos también en <html> el body opaco lo taparía por encima
+   (el canvas de la página lo pinta <html> solo si <body> no tiene su propio background). */
+html.concrete body{
+  background-color:#111;
+  /* TODO(rigo): bg-concrete.png pesa 3.7MB (1536x1024) — bastante para una imagen de fondo.
+     Si tienes tiempo, conviene pasarlo a .webp (bajaría a unos cientos de KB sin pérdida
+     visible) y volver a añadir aquí el <source>/image-set() con fallback, como se hizo con
+     el resto de capturas de la landing. De momento solo hay PNG, así que va directo. */
+  background-image:
+    linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),
+    url('/assets/bg-concrete.png');
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+  background-attachment:fixed;
+}
+@media (max-width:760px){
+  /* background-attachment:fixed es costoso/con bugs de repintado en Safari iOS y Chrome
+     Android — en móvil se comporta como scroll normal, apenas se nota (la imagen ya está
+     muy atenuada por el overlay) y evita el jank. */
+  html.concrete body{background-attachment:scroll}
+}
+/* Tarjetas/paneles → glassmorphism. Selector agrupado, una sola vez, usando los tokens
+   --glass-* de arriba — para sumar un componente nuevo al tema Hormigón solo hace falta
+   añadir su clase a esta lista, no repetir las 4 propiedades en cada sitio. */
+.concrete .hero-shot,
+.concrete .fc-stage,
+.concrete .aud-card,
+.concrete .beta-card,
+.concrete header{
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border-color:var(--glass-border);
+  box-shadow:var(--glass-shadow);
+}
+/* Las franjas de sección a ancho completo (no son "tarjetas") dejan ver el hormigón de
+   fondo en vez de tapar con su color plano de siempre. header/cta-final/footer tenían el
+   mismo problema que .problema/.beta y se me habían pasado en la primera pasada. */
+.concrete .problema,
+.concrete .beta,
+.concrete .cta-final,
+.concrete footer{
+  background:rgba(0,0,0,.18);
 }
 h1,h2,h3{font-family:'Syne',sans-serif;letter-spacing:-.02em;line-height:1.12;color:var(--t1)}
 a{color:inherit}
@@ -109,6 +191,14 @@ header{
 }
 .brand-nm{font-family:'Syne',sans-serif;font-weight:700;font-size:16px;letter-spacing:-.02em;color:var(--t1)}
 .hd-actions{display:flex;align-items:center;gap:8px}
+.theme-switch{display:flex;gap:2px;background:var(--elevated);border:1px solid var(--bd-ui);border-radius:999px;padding:3px}
+.theme-btn{
+  width:28px;height:28px;border:none;border-radius:50%;background:transparent;cursor:pointer;
+  font-size:14px;display:flex;align-items:center;justify-content:center;line-height:1;
+  opacity:.55;transition:opacity .15s,background .15s;
+}
+.theme-btn:hover{opacity:.85}
+.theme-btn.on{opacity:1;background:var(--vd)}
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
   border-radius:999px;border:none;cursor:pointer;text-decoration:none;
@@ -310,6 +400,10 @@ footer{border-top:1px solid var(--bd2);padding:28px 0;background:var(--void)}
       <span class="brand-nm">Tattoo OS</span>
     </a>
     <div class="hd-actions">
+      <div class="theme-switch" role="group" aria-label="Tema de la página">
+        <button type="button" class="theme-btn" data-theme-btn="dark" aria-pressed="true" title="Oscuro">🌙</button>
+        <button type="button" class="theme-btn" data-theme-btn="concrete" aria-pressed="false" title="Hormigón">🧱</button>
+      </div>
       <a class="btn btn-ghost" href="/login"><span>Iniciar sesión</span></a>
       <a class="btn btn-primary" href="/register">Empieza gratis</a>
     </div>
@@ -678,6 +772,44 @@ footer{border-top:1px solid var(--bd2);padding:28px 0;background:var(--void)}
 
   fcMeasure();
   paint(0);
+})();
+</script>
+
+<script>
+// ── Selector de tema (Oscuro / Hormigón) ──
+// Mismo localStorage 'tos_theme' que usa app.html (comparten origen), aunque aquí el
+// "aplicador" es propio de landing (app.html tiene su setTheme() con su propia lógica de
+// render de Settings, no reutilizable tal cual desde esta página).
+(function () {
+  function getTheme() {
+    try { return localStorage.getItem('tos_theme') || 'dark'; } catch (e) { return 'dark'; }
+  }
+  function setTheme(th) {
+    try { localStorage.setItem('tos_theme', th); } catch (e) {}
+    document.documentElement.classList.toggle('concrete', th === 'concrete');
+    if (th === 'concrete') applyGlassOpacity(getGlassOpacity());
+    document.querySelectorAll('.theme-btn').forEach(function (b) {
+      var on = b.dataset.themeBtn === th;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+  }
+  // Intensidad del cristal: se ajusta desde Ajustes > Apariencia en app.html (comparten
+  // localStorage), aquí solo la leemos y aplicamos para que la landing quede consistente.
+  function getGlassOpacity() {
+    var v = parseFloat(localStorage.getItem('tos_glass_opacity'));
+    return isNaN(v) ? 0.08 : v;
+  }
+  function applyGlassOpacity(val) {
+    var bg = Math.max(0.02, Math.min(0.3, val));
+    var border = Math.min(0.6, bg * 1.875);
+    document.documentElement.style.setProperty('--glass-bg', 'rgba(255,255,255,' + bg.toFixed(3) + ')');
+    document.documentElement.style.setProperty('--glass-border', 'rgba(255,255,255,' + border.toFixed(3) + ')');
+  }
+  document.querySelectorAll('.theme-btn').forEach(function (b) {
+    b.addEventListener('click', function () { setTheme(b.dataset.themeBtn); });
+  });
+  setTheme(getTheme()); // sincroniza los botones con la clase ya aplicada en <head>
 })();
 </script>
 </body>
