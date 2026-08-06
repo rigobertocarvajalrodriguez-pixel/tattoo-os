@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#07070f">
 <title>Tattoo OS — Software de gestión para estudios de tatuaje</title>
-<meta name="description" content="Software de gestión para estudios de tatuaje: agenda citas, controla clientes, finanzas y documentos de consentimiento desde una sola app.">
+<meta name="description" content="Software de gestión para estudios de tatuaje: agenda citas, controla clientes, finanzas y documentos de consentimiento desde una sola app. Gratis durante la beta.">
 <link rel="canonical" href="https://tattoo-os-pdbp.onrender.com/">
 
 <!-- Open Graph -->
@@ -14,13 +14,14 @@
 <meta property="og:title" content="Tattoo OS — Software de gestión para estudios de tatuaje">
 <meta property="og:description" content="Agenda, clientes, finanzas y documentos de consentimiento en un solo lugar. Para artistas independientes y estudios con equipo.">
 <meta property="og:url" content="https://tattoo-os-pdbp.onrender.com/">
-<!-- TODO(rigo): sustituir por una imagen OG dedicada de 1200x630px (captura del dashboard o key art de marca). De momento usa el icono de la app como placeholder. -->
-<meta property="og:image" content="https://tattoo-os-pdbp.onrender.com/icon-512.png">
-<meta property="og:image:alt" content="Logotipo de Tattoo OS">
+<meta property="og:image" content="https://tattoo-os-pdbp.onrender.com/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Tattoo OS — Software de gestión para estudios de tatuaje">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Tattoo OS — Software de gestión para estudios de tatuaje">
 <meta name="twitter:description" content="Agenda, clientes, finanzas y documentos de consentimiento en un solo lugar. Para artistas independientes y estudios con equipo.">
-<meta name="twitter:image" content="https://tattoo-os-pdbp.onrender.com/icon-512.png">
+<meta name="twitter:image" content="https://tattoo-os-pdbp.onrender.com/assets/og-image.png">
 
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -177,24 +178,61 @@ section{padding:64px 0}
 .problema h2{margin-bottom:16px}
 .problema p{color:var(--t2);font-size:17px;line-height:1.75}
 
-/* Funcionalidades */
-.feat-grid{display:grid;gap:16px;grid-template-columns:1fr}
-@media (min-width:640px){.feat-grid{grid-template-columns:repeat(2,1fr)}}
-@media (min-width:960px){.feat-grid{grid-template-columns:repeat(3,1fr)}}
-.feat-card{
-  background:var(--surface);border:1px solid var(--bd2);border-radius:var(--r2);
-  padding:22px;transition:border-color .15s,transform .15s;
+/* Funcionalidades: carrusel "coverflow" con scrubbing continuo.
+   Estructura: .fc-panels (título/desc, cross-fade por opacity) → .fc-stage (capturas
+   apiladas en position:absolute; su transform/opacity/filter se pinta por JS en cada
+   frame según la posición fraccional `pos`, no por clases CSS) → .fc-scrub (barra).
+   Ver fcInit() en el <script> de más abajo — pos/paint()/animateTo() son la fuente de
+   verdad; el CSS de aquí solo pone los valores de reposo (imagen central) y estáticos. */
+.fc{display:flex;flex-direction:column;gap:26px}
+
+.fc-panels{position:relative;min-height:64px}
+.fc-panel{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;max-width:640px;margin:0 auto;text-align:center;opacity:0;pointer-events:none;transition:opacity .18s ease}
+.fc-panel.on{position:relative;opacity:1;pointer-events:auto}
+.fc-panel .fc-ic{font-size:26px;line-height:1;margin-bottom:8px}
+.fc-panel h3{font-size:clamp(18px,3vw,22px);font-weight:800;margin-bottom:6px}
+.fc-panel p{color:var(--t2);font-size:15px;line-height:1.6}
+
+/* --fc-blur-max: intensidad de blur de las imágenes laterales en su posición de reposo
+   (ad=1). Lo lee fcInit() una vez vía getComputedStyle — nunca se hardcodea en el JS,
+   así esta media query es la única fuente de verdad también para el cálculo continuo. */
+.fc-stage{
+  --fc-blur-max:7px;
+  position:relative;width:100%;aspect-ratio:1919/909;
+  border-radius:var(--r3);overflow:hidden;
+  background:var(--elevated);border:1px solid var(--bd3);
+  box-shadow:0 30px 70px -24px rgba(0,0,0,.55);
 }
-.feat-card:hover{border-color:var(--bd4);transform:translateY(-2px)}
-.feat-ic{
-  width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;
-  background:var(--vd);border:1px solid var(--bd3);font-size:20px;margin-bottom:14px;
+@media (max-width:640px){
+  .fc-stage{--fc-blur-max:3px}
 }
-.feat-card h3{font-size:16px;font-weight:700;margin-bottom:7px}
-.feat-card p{color:var(--t2);font-size:14px;line-height:1.6}
-/* TODO(rigo): capturas reales por módulo — se pueden añadir como <img> dentro de cada .feat-card,
-   debajo del <p>, con alt describiendo lo que muestra la pantalla (ej. "Vista semanal de la
-   agenda con tres artistas y dos citas confirmadas"). */
+.fc-shot{
+  position:absolute;inset:0;margin:0;opacity:0;pointer-events:none;
+  will-change:transform,opacity;
+  /* Solo transform/opacity se tocan por frame durante el arrastre (scheduleRender). Al
+     saltar por clic/teclado, animateTo ya interpola el propio valor con easing en JS, así
+     que esta transition solo entra en juego como red de seguridad ante cambios no
+     animados por JS (p.ej. sin JS activo no se ve nada distinto, ya que todo parte de
+     opacity:0 en reposo — ver fcInit, que pinta el estado inicial en cuanto carga). */
+}
+.fc-shot img{display:block;width:100%;height:100%;object-fit:cover}
+
+/* Scrubber. Un único control con role=slider (patrón ARIA APG) — los ticks son decorativos
+   (pointer-events:none), el cálculo de índice se hace sobre .fc-track completo, así clicar
+   o arrastrar en cualquier punto de la barra salta al módulo más cercano. */
+.fc-scrub{width:100%;max-width:640px;margin:0 auto;padding:16px 4px;-webkit-tap-highlight-color:transparent}
+.fc-scrub:focus-visible .fc-track{outline:3px solid var(--vl);outline-offset:7px;border-radius:999px}
+.fc-track{position:relative;height:4px;background:var(--bd3);border-radius:999px;cursor:pointer;touch-action:none}
+.fc-fill{
+  position:absolute;inset:0;background:linear-gradient(90deg,var(--v),var(--vl));border-radius:999px;
+  transform-origin:left center;transform:scaleX(0);will-change:transform;
+}
+.fc-tick{position:absolute;top:50%;width:2px;height:8px;background:var(--bd4);transform:translate(-50%,-50%);border-radius:2px;pointer-events:none}
+.fc-thumb{
+  position:absolute;top:-6px;left:0;width:16px;height:16px;border-radius:50%;
+  background:#fff;border:3px solid var(--v);box-shadow:0 2px 8px rgba(0,0,0,.4);
+  transform:translateX(0);will-change:transform;
+}
 
 /* Para quién es */
 .audience{display:grid;gap:16px;grid-template-columns:1fr}
@@ -315,37 +353,90 @@ footer{border-top:1px solid var(--bd2);padding:28px 0;background:var(--void)}
         <h2 id="feat-title">Todo lo que ya haces, en un solo sitio</h2>
         <p>Seis módulos pensados para el trabajo real de un estudio de tatuaje.</p>
       </div>
-      <div class="feat-grid">
-        <article class="feat-card">
-          <div class="feat-ic" aria-hidden="true">📅</div>
-          <h3>Citas sin dobles reservas</h3>
-          <p>Vista día, semana, mes y año. Gestiona varios artistas a la vez.</p>
-        </article>
-        <article class="feat-card">
-          <div class="feat-ic" aria-hidden="true">👥</div>
-          <h3>El historial completo de cada cliente</h3>
-          <p>Datos, historial de sesiones y documentos enlazados.</p>
-        </article>
-        <article class="feat-card">
-          <div class="feat-ic" aria-hidden="true">💰</div>
-          <h3>Sabe cuánto gana tu estudio, de verdad</h3>
-          <p>Ingresos, gastos, comisiones y liquidaciones automáticas.</p>
-        </article>
-        <article class="feat-card">
-          <div class="feat-ic" aria-hidden="true">📄</div>
-          <h3>Consentimientos firmados, guardados y listos</h3>
-          <p>Sube o genera documentos con historial por cliente.</p>
-        </article>
-        <article class="feat-card">
-          <div class="feat-ic" aria-hidden="true">💬</div>
-          <h3>Habla con tus clientes sin salir de la app</h3>
-          <p>Automatizaciones y envíos masivos por WhatsApp.</p>
-        </article>
-        <article class="feat-card">
-          <div class="feat-ic" aria-hidden="true">✦</div>
-          <h3>Un asistente que conoce tu estudio</h3>
-          <p>Nova responde preguntas sobre tu agenda, clientes o finanzas.</p>
-        </article>
+
+      <div class="fc" id="fc">
+        <!-- Título/descripción del módulo activo. Contenido de los 6 en el HTML (no solo en
+             JS) para que quede accesible/indexable aunque no se ejecute el script. -->
+        <div class="fc-panels" id="fc-panels">
+          <div class="fc-panel on" data-i="0">
+            <span class="fc-ic" aria-hidden="true">📅</span>
+            <h3>Citas sin dobles reservas</h3>
+            <p>Vista día, semana, mes y año. Gestiona varios artistas a la vez.</p>
+          </div>
+          <div class="fc-panel" data-i="1">
+            <span class="fc-ic" aria-hidden="true">👥</span>
+            <h3>El historial completo de cada cliente</h3>
+            <p>Datos, historial de sesiones y documentos enlazados.</p>
+          </div>
+          <div class="fc-panel" data-i="2">
+            <span class="fc-ic" aria-hidden="true">💰</span>
+            <h3>Sabe cuánto gana tu estudio, de verdad</h3>
+            <p>Ingresos, gastos, comisiones y liquidaciones automáticas.</p>
+          </div>
+          <div class="fc-panel" data-i="3">
+            <span class="fc-ic" aria-hidden="true">📄</span>
+            <h3>Consentimientos firmados, guardados y listos</h3>
+            <p>Sube o genera documentos con historial por cliente.</p>
+          </div>
+          <div class="fc-panel" data-i="4">
+            <span class="fc-ic" aria-hidden="true">💬</span>
+            <h3>Habla con tus clientes sin salir de la app</h3>
+            <p>Automatizaciones y envíos masivos por WhatsApp.</p>
+          </div>
+          <div class="fc-panel" data-i="5">
+            <span class="fc-ic" aria-hidden="true">✦</span>
+            <h3>Un asistente que conoce tu estudio</h3>
+            <p>Nova responde preguntas sobre tu agenda, clientes o finanzas.</p>
+          </div>
+        </div>
+
+        <!-- Captura grande del módulo activo. Las 6 imágenes comparten prácticamente el mismo
+             ratio horizontal (~1919/909), así que el stage usa ese ratio fijo + object-fit:cover
+             sin recortes perceptibles, igual que antes en .feat-shot. -->
+        <div class="fc-stage" id="fc-stage">
+          <picture class="fc-shot on" data-i="0">
+            <source srcset="/assets/hero-agenda.webp" type="image/webp">
+            <img src="/assets/hero-agenda.png" alt="Vista de calendario con citas del estudio de tatuaje" width="1917" height="907" loading="eager" decoding="async">
+          </picture>
+          <picture class="fc-shot" data-i="1">
+            <source srcset="/assets/feature-clientes.webp" type="image/webp">
+            <img src="/assets/feature-clientes.png" alt="Ficha de clientes con historial de sesiones e importes" width="1919" height="909" loading="lazy" decoding="async">
+          </picture>
+          <picture class="fc-shot" data-i="2">
+            <source srcset="/assets/feature-finanzas.webp" type="image/webp">
+            <img src="/assets/feature-finanzas.png" alt="Panel de finanzas con ingresos, gastos y comisiones por artista" width="1919" height="911" loading="lazy" decoding="async">
+          </picture>
+          <picture class="fc-shot" data-i="3">
+            <source srcset="/assets/feature-documentos.webp" type="image/webp">
+            <img src="/assets/feature-documentos.png" alt="Plantillas de documentos y consentimientos disponibles" width="1914" height="909" loading="lazy" decoding="async">
+          </picture>
+          <picture class="fc-shot" data-i="4">
+            <source srcset="/assets/feature-whatsapp.webp" type="image/webp">
+            <img src="/assets/feature-whatsapp.png" alt="Conversación de WhatsApp con un cliente del estudio" width="1915" height="909" loading="lazy" decoding="async">
+          </picture>
+          <picture class="fc-shot" data-i="5">
+            <source srcset="/assets/feature-nova.webp" type="image/webp">
+            <img src="/assets/feature-nova.png" alt="Asistente Nova respondiendo dudas del estudio" width="1919" height="907" loading="lazy" decoding="async">
+          </picture>
+        </div>
+
+        <!-- Scrubber: un único control (role=slider) — ver .fc-scrub en el <style> y el
+             <script> de más abajo (fcSetActive) para la lógica de arrastre/teclado. -->
+        <div class="fc-scrub" id="fc-scrub"
+             role="slider" tabindex="0"
+             aria-label="Seleccionar módulo de Tattoo OS para previsualizar"
+             aria-valuemin="1" aria-valuemax="6" aria-valuenow="1" aria-valuetext="Citas sin dobles reservas">
+          <div class="fc-track" id="fc-track">
+            <div class="fc-fill" id="fc-fill"></div>
+            <span class="fc-tick" style="left:0%"></span>
+            <span class="fc-tick" style="left:20%"></span>
+            <span class="fc-tick" style="left:40%"></span>
+            <span class="fc-tick" style="left:60%"></span>
+            <span class="fc-tick" style="left:80%"></span>
+            <span class="fc-tick" style="left:100%"></span>
+            <div class="fc-thumb" id="fc-thumb"></div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -419,5 +510,167 @@ footer{border-top:1px solid var(--bd2);padding:28px 0;background:var(--void)}
   </div>
 </footer>
 
+<script>
+// ── Carrusel de Funcionalidades: coverflow con scrubbing continuo ──
+// `pos` (float, 0..n-1) es la única fuente de verdad. paint(pos) es puro render (sin
+// animar); scheduleRender coalesce los pointermove de un arrastre en vivo a 1 pintado por
+// frame; animateTo hace un tween con easing hasta un índice entero — se usa tanto al
+// soltar tras arrastrar como en clic directo/teclado, para que las tres se sientan igual.
+// Pointer Events cubren mouse+touch+pen con un único set de listeners. Patrón ARIA APG
+// "slider": un único control con role=slider + flechas de teclado.
+(function () {
+  var fc = document.getElementById('fc');
+  if (!fc) return;
+
+  var panels = Array.prototype.slice.call(fc.querySelectorAll('.fc-panel'));
+  var shots  = Array.prototype.slice.call(fc.querySelectorAll('.fc-shot'));
+  var scrub  = document.getElementById('fc-scrub');
+  var track  = document.getElementById('fc-track');
+  var stage  = document.getElementById('fc-stage');
+  var fill   = document.getElementById('fc-fill');
+  var thumb  = document.getElementById('fc-thumb');
+  var n      = panels.length;
+
+  var labels = panels.map(function (p) {
+    var h3 = p.querySelector('h3');
+    return h3 ? h3.textContent : '';
+  });
+
+  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Métricas cacheadas (px), recalculadas en resize — nunca se leen en cada frame.
+  var trackWidth = 0, stageWidth = 0, blurMax = 7;
+  function fcMeasure() {
+    trackWidth = track.getBoundingClientRect().width;
+    stageWidth = stage.getBoundingClientRect().width;
+    blurMax = parseFloat(getComputedStyle(stage).getPropertyValue('--fc-blur-max')) || 7;
+  }
+
+  var pos = 0;           // posición fraccional actual, fuente de verdad
+  var activeIndex = -1;  // Math.round(pos) ya aplicado a panel/aria (fuerza 1er paint)
+
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+  // Pinta transform/opacity/filter de las 6 capturas según su distancia a `pos`. Ninguna
+  // propiedad de layout (left/width/height) — solo transform+opacity+filter, para 60fps.
+  function paint(p) {
+    pos = p;
+    var step = stageWidth * 0.6;
+
+    shots.forEach(function (s, i) {
+      var d  = i - p;
+      var ad = Math.abs(d);
+      if (ad > 1.8) {
+        s.style.opacity = '0';
+        s.style.pointerEvents = 'none';
+        return;
+      }
+      var t = Math.min(ad, 1);
+      var scale = 1 - 0.15 * t;
+      var blur  = blurMax * t;
+      var opacity = ad <= 1 ? (1 - 0.6 * t) : Math.max(0, 0.4 * (1 - (ad - 1) / 0.8));
+      var x = d * step;
+
+      s.style.transform = 'translateX(' + x.toFixed(1) + 'px) scale(' + scale.toFixed(3) + ')';
+      s.style.filter = blur > 0.05 ? 'blur(' + blur.toFixed(1) + 'px)' : 'none';
+      s.style.opacity = opacity.toFixed(3);
+      s.style.zIndex = String(Math.round((2 - ad) * 10));
+      s.style.pointerEvents = ad < 0.5 ? 'auto' : 'none';
+    });
+
+    fill.style.transform = 'scaleX(' + (p / (n - 1)) + ')';
+    thumb.style.transform = 'translateX(' + ((p / (n - 1)) * trackWidth).toFixed(1) + 'px)';
+
+    var idx = Math.round(p);
+    if (idx !== activeIndex) {
+      activeIndex = idx;
+      panels.forEach(function (pnl, i) { pnl.classList.toggle('on', i === idx); });
+      scrub.setAttribute('aria-valuenow', idx + 1);
+      scrub.setAttribute('aria-valuetext', labels[idx]);
+    }
+  }
+
+  // ── Arrastre en vivo: coalesce a 1 pintado por frame ──
+  var renderScheduled = false, pendingPos = null;
+  function scheduleRender(p) {
+    pendingPos = p;
+    if (renderScheduled) return;
+    renderScheduled = true;
+    requestAnimationFrame(function () {
+      renderScheduled = false;
+      if (pendingPos != null) { paint(pendingPos); pendingPos = null; }
+    });
+  }
+
+  // ── Tween con easing hasta un índice entero (snap tras arrastrar, clic directo, teclado) ──
+  var tweenId = null;
+  function cancelTween() {
+    if (tweenId != null) { cancelAnimationFrame(tweenId); tweenId = null; }
+  }
+  function animateTo(target, duration) {
+    cancelTween();
+    target = clamp(target, 0, n - 1);
+    if (reducedMotion) { paint(target); return; }
+    var from = pos, start = null;
+    function step(ts) {
+      if (start == null) start = ts;
+      var t = clamp((ts - start) / duration, 0, 1);
+      paint(from + (target - from) * easeOutCubic(t));
+      tweenId = t < 1 ? requestAnimationFrame(step) : null;
+    }
+    tweenId = requestAnimationFrame(step);
+  }
+
+  function fcPosFromClientX(clientX) {
+    var r = track.getBoundingClientRect();
+    var pct = clamp((clientX - r.left) / r.width, 0, 1);
+    return pct * (n - 1);
+  }
+
+  var dragging = false, moved = false, downX = 0;
+
+  track.addEventListener('pointerdown', function (e) {
+    cancelTween(); // el usuario retoma el control si había un snap en curso
+    dragging = true; moved = false; downX = e.clientX;
+    scrub.classList.add('dragging');
+    try { track.setPointerCapture(e.pointerId); } catch (err) {}
+    scrub.focus();
+  });
+  track.addEventListener('pointermove', function (e) {
+    if (!dragging) return;
+    if (!moved && Math.abs(e.clientX - downX) > 3) moved = true;
+    if (moved) scheduleRender(fcPosFromClientX(e.clientX));
+  });
+  function fcEndDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    scrub.classList.remove('dragging');
+    try { track.releasePointerCapture(e.pointerId); } catch (err) {}
+    // Con arrastre: snap al módulo entero más cercano a donde se soltó.
+    // Sin arrastre (clic suelto): anima directo al módulo bajo el cursor.
+    var target = moved ? Math.round(pos) : Math.round(fcPosFromClientX(e.clientX));
+    animateTo(target, 350);
+  }
+  track.addEventListener('pointerup', fcEndDrag);
+  track.addEventListener('pointercancel', fcEndDrag);
+
+  scrub.addEventListener('keydown', function (e) {
+    var target = activeIndex;
+    if (e.key === 'ArrowRight') target++;
+    else if (e.key === 'ArrowLeft') target--;
+    else if (e.key === 'Home') target = 0;
+    else if (e.key === 'End') target = n - 1;
+    else return;
+    e.preventDefault();
+    animateTo(target, 350);
+  });
+
+  window.addEventListener('resize', fcMeasure);
+
+  fcMeasure();
+  paint(0);
+})();
+</script>
 </body>
 </html>

@@ -15,14 +15,14 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="application-name" content="Tattoo OS">
 <meta name="msapplication-TileColor" content="#07070f">
-<meta name="description" content="Sistema operativo premium para estudios de tatuaje">
+<meta name="description" content="Panel de gestión de Tattoo OS: agenda, clientes, finanzas y consentimientos.">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" id="ati-link" href="/icon.svg">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="format-detection" content="telephone=no">
 <!-- iOS splash screens -->
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>Tattoo OS</title>
+<title>Tattoo OS — Panel de gestión</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
 <style>
@@ -589,10 +589,17 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 /* TOAST */
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--raised);border:1px solid var(--bd3);border-radius:var(--r2);padding:9px 16px;font-size:12px;color:var(--t1);z-index:300;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;box-shadow:0 8px 36px rgba(0,0,0,.5)}
 /* ── COOKIES ── */
-#cookie-banner{position:fixed;bottom:0;left:0;right:0;z-index:9990;background:var(--elevated);border-top:1px solid var(--bd3);padding:16px 20px;box-shadow:0 -8px 32px rgba(0,0,0,.4);animation:slideUp .4s cubic-bezier(.34,1.2,.64,1);font-family:'DM Sans',sans-serif}
+/* z-index por encima de #login-screen (9999): el consentimiento de cookies debe verse y
+   poder aceptarse/rechazarse aunque el visitante aún no haya iniciado sesión (RGPD/ePrivacy
+   no distingue entre usuario logueado o no). */
+#cookie-banner{position:fixed;bottom:0;left:0;right:0;z-index:10010;background:var(--elevated);border-top:1px solid var(--bd3);padding:16px 20px;box-shadow:0 -8px 32px rgba(0,0,0,.4);animation:slideUp .4s cubic-bezier(.34,1.2,.64,1);font-family:'DM Sans',sans-serif}
 #cookie-banner.hide{animation:slideDown .3s ease forwards}
 @keyframes slideDown{to{transform:translateY(100%);opacity:0}}
-#cookie-modal{position:fixed;inset:0;z-index:9991;background:rgba(4,4,10,.85);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;padding:16px}
+#cookie-modal{position:fixed;inset:0;z-index:10011;background:rgba(4,4,10,.85);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;padding:16px}
+/* Mismo peso visual en "Aceptar todo" y "Rechazar no esenciales" — ninguno debe inducir al usuario (RGPD/ePrivacy) */
+.cookie-cta{flex:1;min-width:150px;padding:11px 18px;border-radius:var(--r2);font-size:12px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;text-align:center;border:1px solid var(--bd3);background:var(--glass-h);color:var(--t1);transition:all .15s;white-space:nowrap}
+.cookie-cta:hover{border-color:var(--bd4);background:var(--raised)}
+.cookie-link{background:none;border:none;padding:0;font-size:11px;color:var(--vl);text-decoration:underline;cursor:pointer;font-family:'DM Sans',sans-serif}
 .ck-toggle{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--bd)}
 .ck-toggle:last-child{border-bottom:none}
 .ck-name{font-size:12px;font-weight:600;color:var(--t1);margin-bottom:2px}
@@ -2647,6 +2654,9 @@ function dateStr(d){return d.toISOString().split('T')[0]}
 // NAVIGATION
 // ==========================================
 function navTo(page,el){
+  // Señal de enganche para el prompt de instalación de PWA (ver maybeShowPWABanner)
+  _pwaNavCount++;
+  maybeShowPWABanner();
   // Comprobar acceso según plan (whatsapp y tienda)
   if((page==='whatsapp'||page==='tienda')&&!canAccess(page)){showUpgradeModal(page);return;}
   // Si salimos de tienda, restaurar estado previo
@@ -6936,11 +6946,37 @@ function injectManifest() {
 }
 
 // -- PWA Install --
+// El prompt de instalación ya NO se muestra al instante al cargar la página: se espera a que
+// el usuario haya interactuado de verdad con la app (30-60s de uso, o 2 navegaciones entre
+// secciones vía navTo), lo que ocurra primero. Antes se disparaba en cuanto el navegador
+// emitía beforeinstallprompt / a los 3s fijos en iOS, sin ninguna señal de enganche real.
 let deferredPrompt = null;
+let _pwaEngageStart = Date.now();
+let _pwaNavCount = 0;
+let _pwaEngagePoll = null;
+const PWA_ENGAGE_MS = 45000;
+const PWA_ENGAGE_NAVS = 2;
+
+function pwaEngagementMet() {
+  return (Date.now() - _pwaEngageStart >= PWA_ENGAGE_MS) || (_pwaNavCount >= PWA_ENGAGE_NAVS);
+}
+
+function maybeShowPWABanner() {
+  if (!IS_MOBILE() || lsGet('pwa_dismissed')) return;
+  const banner = document.getElementById('pwa-banner');
+  if (!banner || banner.classList.contains('show')) return;
+  if (!pwaEngagementMet()) return;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  if (deferredPrompt || isIOS) {
+    showPWABanner();
+    if (_pwaEngagePoll) { clearInterval(_pwaEngagePoll); _pwaEngagePoll = null; }
+  }
+}
+
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   deferredPrompt = e;
-  if (IS_MOBILE()) showPWABanner();
+  maybeShowPWABanner();
 });
 window.addEventListener('appinstalled', () => { dismissPWABanner(); showToast(' App instalada correctamente'); });
 
@@ -7219,16 +7255,12 @@ function initMobile() {
   injectManifest();
   if (IS_MOBILE()) {
     updateMobileTopbar('cal');
-    // Show PWA banner after 3s if not dismissed and not already installed
+    // Mostrar el banner de PWA solo tras engancharse con la app (ver pwaEngagementMet):
+    // se revisa cada 5s como red de seguridad para quien se queda quieto en una sección,
+    // además del chequeo inmediato en cada navegación (navTo).
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
     if (!isStandalone && !lsGet('pwa_dismissed')) {
-      setTimeout(() => {
-        if (IS_MOBILE() && !deferredPrompt) {
-          // iOS or no install prompt: show instructions
-          const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-          if (isIOS) showPWABanner();
-        }
-      }, 3000);
+      _pwaEngagePoll = setInterval(maybeShowPWABanner, 5000);
     }
   }
 }
@@ -8159,17 +8191,20 @@ playTosSplash();
 </script>
 
 
-<!-- ── COOKIE BANNER ── -->
+<!-- ── COOKIE BANNER ──
+     Estructura: 1) texto breve, 2) dos botones grandes con el mismo peso visual
+     ("Aceptar todo" / "Rechazar no esenciales" — ninguno destaca sobre el otro, por
+     cumplimiento RGPD/ePrivacy), 3) enlace secundario "Configurar" que abre el detalle
+     por categorías (modal de siempre, sin cambios ahí). -->
 <div id="cookie-banner" style="display:none">
-  <div style="max-width:900px;margin:0 auto;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-    <div style="flex:1;min-width:200px">
-      <div style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:4px">🍪 Usamos cookies</div>
-      <div style="font-size:11px;color:var(--t3);line-height:1.5">Utilizamos cookies esenciales para el funcionamiento de la app y cookies de preferencias. Puedes <span style="color:var(--vl);cursor:pointer;text-decoration:underline" onclick="openCookieModal()">personalizar tu elección</span>.</div>
+  <div style="max-width:520px;margin:0 auto">
+    <div style="font-size:11px;color:var(--t3);line-height:1.5;margin-bottom:12px">🍪 Usamos cookies esenciales para la app y cookies opcionales de preferencias y analítica.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="cookieChoice('all')" class="cookie-cta">Aceptar todo</button>
+      <button onclick="cookieChoice('necessary')" class="cookie-cta">Rechazar no esenciales</button>
     </div>
-    <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap">
-      <button onclick="cookieChoice('necessary')" style="padding:8px 14px;background:var(--glass-h);border:1px solid var(--bd3);border-radius:var(--r2);color:var(--t2);font-size:11px;font-family:'DM Sans',sans-serif;cursor:pointer;white-space:nowrap">Solo necesarias</button>
-      <button onclick="openCookieModal()" style="padding:8px 14px;background:var(--glass-h);border:1px solid var(--bd3);border-radius:var(--r2);color:var(--t2);font-size:11px;font-family:'DM Sans',sans-serif;cursor:pointer;white-space:nowrap">Configurar</button>
-      <button onclick="cookieChoice('all')" style="padding:8px 18px;background:linear-gradient(135deg,var(--v),var(--vl));border:none;border-radius:var(--r2);color:#fff;font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;white-space:nowrap;box-shadow:0 3px 12px var(--vg)">Aceptar todo</button>
+    <div style="margin-top:10px;text-align:center">
+      <button onclick="openCookieModal()" class="cookie-link">Configurar</button>
     </div>
   </div>
 </div>
