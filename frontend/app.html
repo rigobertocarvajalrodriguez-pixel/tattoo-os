@@ -7385,9 +7385,15 @@ function haptic(type = 'light') {
 }
 
 // -- KEYBOARD HANDLING (iOS virtual keyboard) --
+// --vh se consume en el CSS como calc(var(--vh,1dvh)*100) (ver setVH() más abajo, que es
+// quien fija la convención) - tiene que ser el 1% de la altura, no la altura completa.
+// Antes esta función escribía la altura completa sin más, así que cuando su listener de
+// visualViewport.resize (que también dispara al rotar la pantalla) llegaba después del
+// resize/orientationchange de setVH(), --vh quedaba ~100x más grande de lo debido y el
+// alto de toda la página se rompía hasta la siguiente rotación.
 function handleMobileKeyboard() {
   if (!IS_MOBILE()) return;
-  const vh = (window.visualViewport ? window.visualViewport.height : null) || window.innerHeight;
+  const vh = ((window.visualViewport ? window.visualViewport.height : null) || window.innerHeight) * 0.01;
   document.documentElement.style.setProperty('--vh', vh + 'px');
 }
 (window.visualViewport && window.visualViewport.addEventListener('resize', handleMobileKeyboard));
