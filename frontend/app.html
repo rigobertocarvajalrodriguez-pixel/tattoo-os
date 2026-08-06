@@ -167,6 +167,15 @@ body.concrete{
 .concrete .main{background:rgba(0,0,0,.15)}
 html,body{height:100%;height:calc(var(--vh,1dvh)*100);overflow:hidden;background:var(--base);color:var(--t1);font-family:'DM Sans',sans-serif;font-size:13px;line-height:1.5;transition:background .3s,color .3s}
 .app{display:flex;height:100%;height:calc(var(--vh,1dvh)*100);overflow:hidden;background:var(--base)}
+/* En navegadores que soportan dvh nativo (iOS Safari 15.4+, Chrome Android 108+ — la
+   inmensa mayoría hoy) se usa eso directamente en vez de depender del --vh calculado por
+   JS: el propio navegador ajusta 100dvh en tiempo real según la barra de direcciones se
+   muestre/oculte, sin el retraso/condición de carrera de setVH() (ver más abajo). Mismo
+   selector, misma especificidad, va después → gana por orden de cascada donde aplique. */
+@supports (height:100dvh){
+  html,body{height:100dvh}
+  .app{height:100dvh}
+}
 body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.015'/%3E%3C/svg%3E")}
 .light body::after{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.003'/%3E%3C/svg%3E")}
 
@@ -8536,6 +8545,14 @@ playTosSplash();
     document.documentElement.style.setProperty('--vh', vh + 'px');
   }
   setVH();
+  // Reintentos tras la carga inicial: en móvil, la barra de direcciones/chrome del
+  // navegador puede seguir animándose/asentándose un momento después de que este script
+  // ya corrió, así que un único setVH() síncrono a veces capta una altura todavía
+  // provisional (deja una franja sin cubrir, tipo "barra negra", hasta el próximo resize).
+  setTimeout(setVH, 100);
+  setTimeout(setVH, 500);
+  // (visualViewport.resize ya lo cubre handleMobileKeyboard() más arriba, con la misma
+  // fórmula desde el fix anterior — no hace falta un segundo listener aquí también.)
   window.addEventListener('resize', setVH);
   window.addEventListener('orientationchange', function(){ setTimeout(setVH, 300); });
 
