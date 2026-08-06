@@ -46,7 +46,11 @@
 :root{
   --void:#04040a;--base:#07070f;--surface:#0d0d18;--elevated:#13131f;--raised:#191929;
   --bd:rgba(255,255,255,.05);--bd2:rgba(255,255,255,.08);--bd3:rgba(255,255,255,.13);--bd4:rgba(255,255,255,.22);
-  --t1:#ededf5;--t2:#9090a8;--t3:#6a6a82;
+  /* --bd-ui: para bordes/marcas de UI que SÍ deben cumplir 3:1 (WCAG 1.4.11) porque son la
+     única señal visual de un control interactivo (borde de .btn-ghost, barra del scrubber).
+     --bd3/--bd4 se quedan igual para divisores puramente decorativos (cards, marco del hero). */
+  --bd-ui:rgba(255,255,255,.35);
+  --t1:#ededf5;--t2:#9090a8;--t3:#78788d;
   --v:#7c5cfc;--vl:#a78bfa;--vg:rgba(124,92,252,.4);--vd:rgba(124,92,252,.12);
   --gr:#10b981;
   /* Botón sólido, algo más oscuro que --v, para asegurar ≥4.5:1 con texto blanco (~5.6:1) */
@@ -94,7 +98,11 @@ header{
 .brand{display:flex;align-items:center;gap:9px;text-decoration:none}
 .brand-ic{
   width:32px;height:32px;border-radius:9px;flex-shrink:0;
-  background:linear-gradient(135deg,var(--v),var(--vl));
+  /* Extremo del degradado oscurecido a #9a7ded (en vez de var(--vl) #a78bfa) solo aquí: con
+     el texto blanco de 14px encima, var(--vl) daba 2.72:1 (por debajo del 3:1 mínimo para
+     texto grande/bold). No se toca --vl global, que se usa en muchos otros sitios donde SÍ
+     cumple contraste. */
+  background:linear-gradient(135deg,var(--v),#9a7ded);
   display:flex;align-items:center;justify-content:center;
   font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:#fff;
   box-shadow:0 0 16px var(--vg);
@@ -109,8 +117,8 @@ header{
   white-space:nowrap;
 }
 .btn:active{transform:translateY(1px)}
-.btn-ghost{color:var(--t1);background:transparent;border:1px solid var(--bd3);padding:9px 16px}
-.btn-ghost:hover{border-color:var(--bd4);background:var(--elevated)}
+.btn-ghost{color:var(--t1);background:transparent;border:1px solid var(--bd-ui);padding:9px 16px}
+.btn-ghost:hover{border-color:var(--bd-ui);background:var(--elevated)}
 .btn-primary{
   color:#fff;background:var(--cta);padding:10px 20px;
   box-shadow:0 6px 22px rgba(107,70,240,.35);
@@ -222,12 +230,12 @@ section{padding:64px 0}
    o arrastrar en cualquier punto de la barra salta al módulo más cercano. */
 .fc-scrub{width:100%;max-width:640px;margin:0 auto;padding:16px 4px;-webkit-tap-highlight-color:transparent}
 .fc-scrub:focus-visible .fc-track{outline:3px solid var(--vl);outline-offset:7px;border-radius:999px}
-.fc-track{position:relative;height:4px;background:var(--bd3);border-radius:999px;cursor:pointer;touch-action:none}
+.fc-track{position:relative;height:4px;background:var(--bd-ui);border-radius:999px;cursor:pointer;touch-action:none}
 .fc-fill{
   position:absolute;inset:0;background:linear-gradient(90deg,var(--v),var(--vl));border-radius:999px;
   transform-origin:left center;transform:scaleX(0);will-change:transform;
 }
-.fc-tick{position:absolute;top:50%;width:2px;height:8px;background:var(--bd4);transform:translate(-50%,-50%);border-radius:2px;pointer-events:none}
+.fc-tick{position:absolute;top:50%;width:2px;height:8px;background:rgba(255,255,255,.5);transform:translate(-50%,-50%);border-radius:2px;pointer-events:none}
 .fc-thumb{
   position:absolute;top:-6px;left:0;width:16px;height:16px;border-radius:50%;
   background:#fff;border:3px solid var(--v);box-shadow:0 2px 8px rgba(0,0,0,.4);
