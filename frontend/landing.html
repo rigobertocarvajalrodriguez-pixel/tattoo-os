@@ -189,7 +189,7 @@ header{
   font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:#fff;
   box-shadow:0 0 16px var(--vg);
 }
-.brand-nm{font-family:'Syne',sans-serif;font-weight:700;font-size:16px;letter-spacing:-.02em;color:var(--t1)}
+.brand-nm{font-family:'Syne',sans-serif;font-weight:700;font-size:16px;letter-spacing:-.02em;color:var(--t1);white-space:nowrap}
 .hd-actions{display:flex;align-items:center;gap:8px}
 .theme-switch{display:flex;gap:2px;background:var(--elevated);border:1px solid var(--bd-ui);border-radius:999px;padding:3px}
 .theme-btn{
@@ -216,8 +216,17 @@ header{
 .btn-primary:hover{background:var(--cta-hover);box-shadow:0 8px 28px rgba(107,70,240,.45)}
 .btn-lg{padding:15px 28px;font-size:15.5px;border-radius:var(--r2)}
 .hd-actions .btn-ghost{padding:8px 14px;font-size:13.5px}
-@media (max-width:420px){
-  .hd-actions .btn-ghost span{display:none}
+/* En vez de ocultar el texto de "Iniciar sesión" y dejar el botón vacío (como antes), en
+   pantallas pequeñas se prioriza no romper layout: se esconde el nombre de marca (queda
+   el icono "T.") y el botón de login se aligera a texto plano — sigue siendo un enlace
+   real a /login, no desaparece la función. */
+@media (max-width:480px){
+  .hd-row{gap:8px}
+  .brand-nm{display:none}
+  .theme-switch{padding:2px;gap:1px}
+  .theme-btn{width:24px;height:24px;font-size:12px}
+  .hd-actions .btn-ghost{background:transparent;border-color:transparent;padding:8px 6px;font-size:12.5px}
+  .hd-actions .btn-primary{padding:9px 14px;font-size:13px}
 }
 
 /* ── Hero ── */
