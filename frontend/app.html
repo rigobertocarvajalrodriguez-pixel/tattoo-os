@@ -180,7 +180,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .light body::after{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.003'/%3E%3C/svg%3E")}
 
 /* ── SIDEBAR ── */
-.sidebar{width:var(--sw);flex-shrink:0;background:var(--base);border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden;position:relative;z-index:200;transition:background .3s,border-color .3s,width .3s;padding-bottom:env(safe-area-inset-bottom,0px)}.sidebar.sidebar-mini{width:52px}.sidebar.sidebar-mini .logo,.sidebar.sidebar-mini .mcal,.sidebar.sidebar-mini .ua{display:none}.sidebar.sidebar-mini::before{display:none}#sb-close-btn{color:var(--v)}.sidebar.sidebar-mini #sb-close-btn{background:var(--elevated)!important;border:1px solid var(--bd2)!important;border-radius:50%!important;right:auto!important;left:50%!important;transform:translateX(-50%)!important;top:16px!important;width:36px!important;height:36px!important;padding:0!important;display:flex!important;align-items:center!important;justify-content:center!important;color:var(--v)!important}.sidebar.sidebar-mini .nav{display:flex!important;flex-direction:column;align-items:center;padding:68px 0 4px;overflow-y:auto;overflow-x:hidden}.sidebar.sidebar-mini .nav::-webkit-scrollbar{width:0}.sidebar.sidebar-mini .ng{margin-bottom:2px!important;width:100%}.sidebar.sidebar-mini .ng-lbl{display:none!important}.sidebar.sidebar-mini .ni{display:flex!important;justify-content:center!important;align-items:center!important;padding:9px!important;gap:0!important;width:36px!important;height:36px!important;margin:1px auto!important;border-radius:10px!important}.sidebar.sidebar-mini .ni span:not(.ni-badge){display:none!important}.sidebar.sidebar-mini .ni svg{width:18px!important;height:18px!important;flex-shrink:0!important}.sidebar.sidebar-mini .ni-badge{display:none!important}.sidebar.sidebar-mini .new-btn{margin:8px auto 12px!important;width:36px!important;height:36px!important;padding:0!important;border-radius:50%!important;justify-content:center!important;flex-shrink:0!important;box-shadow:0 4px 14px rgba(124,92,252,.4)!important}.sidebar.sidebar-mini .new-btn span{display:none!important}.sidebar.mobile-open{transform:translateX(0)}
+.sidebar{width:var(--sw);flex-shrink:0;background:var(--base);border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden;position:relative;z-index:200;transition:background .3s,border-color .3s,width .3s;padding-bottom:var(--safe-bot)}.sidebar.sidebar-mini{width:52px}.sidebar.sidebar-mini .logo,.sidebar.sidebar-mini .mcal,.sidebar.sidebar-mini .ua{display:none}.sidebar.sidebar-mini::before{display:none}#sb-close-btn{color:var(--v)}.sidebar.sidebar-mini #sb-close-btn{background:var(--elevated)!important;border:1px solid var(--bd2)!important;border-radius:50%!important;right:auto!important;left:50%!important;transform:translateX(-50%)!important;top:16px!important;width:36px!important;height:36px!important;padding:0!important;display:flex!important;align-items:center!important;justify-content:center!important;color:var(--v)!important}.sidebar.sidebar-mini .nav{display:flex!important;flex-direction:column;align-items:center;padding:68px 0 4px;overflow-y:auto;overflow-x:hidden}.sidebar.sidebar-mini .nav::-webkit-scrollbar{width:0}.sidebar.sidebar-mini .ng{margin-bottom:2px!important;width:100%}.sidebar.sidebar-mini .ng-lbl{display:none!important}.sidebar.sidebar-mini .ni{display:flex!important;justify-content:center!important;align-items:center!important;padding:9px!important;gap:0!important;width:36px!important;height:36px!important;margin:1px auto!important;border-radius:10px!important}.sidebar.sidebar-mini .ni span:not(.ni-badge){display:none!important}.sidebar.sidebar-mini .ni svg{width:18px!important;height:18px!important;flex-shrink:0!important}.sidebar.sidebar-mini .ni-badge{display:none!important}.sidebar.sidebar-mini .new-btn{margin:8px auto 12px!important;width:36px!important;height:36px!important;padding:0!important;border-radius:50%!important;justify-content:center!important;flex-shrink:0!important;box-shadow:0 4px 14px rgba(124,92,252,.4)!important}.sidebar.sidebar-mini .new-btn span{display:none!important}.sidebar.mobile-open{transform:translateX(0)}
 .sidebar::before{content:'';position:absolute;top:-80px;left:-60px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,rgba(124,92,252,.1),transparent 70%);pointer-events:none}
 .logo{padding:16px 14px 18px;display:flex;align-items:center;gap:10px;flex-shrink:0}
 .logo-ic{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--v),var(--vl));display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:#fff;box-shadow:0 0 14px var(--vg);flex-shrink:0}
@@ -728,12 +728,12 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .drcl:hover{border-color:var(--bd3);color:var(--t1)}
 
 /* TOAST */
-.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--raised);border:1px solid var(--bd3);border-radius:var(--r2);padding:9px 16px;font-size:12px;color:var(--t1);z-index:300;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;box-shadow:0 8px 36px rgba(0,0,0,.5)}
+.toast{position:fixed;bottom:calc(20px + var(--safe-bot));left:50%;transform:translateX(-50%) translateY(10px);background:var(--raised);border:1px solid var(--bd3);border-radius:var(--r2);padding:9px 16px;font-size:12px;color:var(--t1);z-index:300;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;box-shadow:0 8px 36px rgba(0,0,0,.5)}
 /* ── COOKIES ── */
 /* z-index por encima de #login-screen (9999): el consentimiento de cookies debe verse y
    poder aceptarse/rechazarse aunque el visitante aún no haya iniciado sesión (RGPD/ePrivacy
    no distingue entre usuario logueado o no). */
-#cookie-banner{position:fixed;bottom:0;left:0;right:0;z-index:10010;background:var(--elevated);border-top:1px solid var(--bd3);padding:16px 20px;box-shadow:0 -8px 32px rgba(0,0,0,.4);animation:slideUp .4s cubic-bezier(.34,1.2,.64,1);font-family:'DM Sans',sans-serif}
+#cookie-banner{position:fixed;bottom:0;left:0;right:0;z-index:10010;background:var(--elevated);border-top:1px solid var(--bd3);padding:16px 20px calc(16px + var(--safe-bot));box-shadow:0 -8px 32px rgba(0,0,0,.4);animation:slideUp .4s cubic-bezier(.34,1.2,.64,1);font-family:'DM Sans',sans-serif}
 #cookie-banner.hide{animation:slideDown .3s ease forwards}
 @keyframes slideDown{to{transform:translateY(100%);opacity:0}}
 #cookie-modal{position:fixed;inset:0;z-index:10011;background:rgba(4,4,10,.85);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;padding:16px}
@@ -908,12 +908,15 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
    MOBILE & PWA — RESPONSIVE PREMIUM
 ══════════════════════════════════════════ */
 
-/* Safe areas for notch/home-bar */
+/* Safe areas for notch/home-bar.
+   --ios-sim-* las inyecta el simulador "Mobile Test" (frontend/_mobile-test.html) sobre el
+   <html> del iframe, porque un Chrome de escritorio nunca reporta un notch real y env()
+   resuelve siempre a 0 ahí. En un iPhone físico esa variable no existe y se usa env() tal cual. */
 :root{
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bot: env(safe-area-inset-bottom, 0px);
-  --safe-l: env(safe-area-inset-left, 0px);
-  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-top: var(--ios-sim-top, env(safe-area-inset-top, 0px));
+  --safe-bot: var(--ios-sim-bottom, env(safe-area-inset-bottom, 0px));
+  --safe-l: var(--ios-sim-left, env(safe-area-inset-left, 0px));
+  --safe-r: var(--ios-sim-right, env(safe-area-inset-right, 0px));
   --bnav-h: 64px; /* bottom nav height on mobile */
 }
 
@@ -951,8 +954,9 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 
 /* ── MOBILE TOP BAR ── */
 /* Solo se muestra (display:flex) dentro de @media(max-width:640px) mas abajo, donde el
-   padding/height reales se recalculan con env(safe-area-inset-top) directo - el padding de
-   aqui no llega a pintarse nunca, se deja sin el offset de safe-area para no confundir. */
+   padding/height reales se recalculan con var(--safe-top) (ver :root mas arriba, envuelve
+   env(safe-area-inset-top)) - el padding de aqui no llega a pintarse nunca, se deja sin el
+   offset de safe-area para no confundir. */
 .mobile-topbar{
   display:none;
   position:sticky;top:0;z-index:15;
@@ -1060,8 +1064,8 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 
   /* ── MOBILE TOPBAR ── */
   .mobile-topbar{
-    height:calc(56px + env(safe-area-inset-top,0px))!important;
-    padding:env(safe-area-inset-top,0px) 16px 0!important;
+    height:calc(56px + var(--safe-top))!important;
+    padding:var(--safe-top) 16px 0!important;
     gap:12px!important;
     position:sticky!important;
     top:0!important;
@@ -1221,8 +1225,8 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
   .pwa-banner{display:none!important}
   /* Rellena el área de la barra de estado con el color del topbar */
   .mobile-topbar::before{
-    content:'';position:absolute;top:calc(-1 * env(safe-area-inset-top,0px));
-    left:0;right:0;height:env(safe-area-inset-top,0px);
+    content:'';position:absolute;top:calc(-1 * var(--safe-top));
+    left:0;right:0;height:var(--safe-top);
     background:inherit;z-index:1;
   }
 }
@@ -1967,14 +1971,14 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 // -- GLOBAL ERROR TRAP (iOS debug) --
 window.onerror = function(msg, src, line, col, err) {
   var div = document.createElement('div');
-  div.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#f43f5e;color:#fff;padding:14px 12px;font-size:11px;font-family:monospace;z-index:99999;white-space:pre-wrap;word-break:break-all';
+  div.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#f43f5e;color:#fff;padding:calc(14px + var(--safe-top)) 12px 14px;font-size:11px;font-family:monospace;z-index:99999;white-space:pre-wrap;word-break:break-all';
   div.textContent = 'JS ERROR: ' + msg + ' | Line: ' + line + ' Col: ' + col;
   document.body.appendChild(div);
   return false;
 };
 window.addEventListener('unhandledrejection', function(e) {
   var div = document.createElement('div');
-  div.style.cssText = 'position:fixed;top:60px;left:0;right:0;background:#f59e0b;color:#000;padding:12px;font-size:11px;font-family:monospace;z-index:99999;white-space:pre-wrap;word-break:break-all';
+  div.style.cssText = 'position:fixed;top:calc(60px + var(--safe-top));left:0;right:0;background:#f59e0b;color:#000;padding:12px;font-size:11px;font-family:monospace;z-index:99999;white-space:pre-wrap;word-break:break-all';
   div.textContent = 'PROMISE ERROR: ' + (e.reason ? String(e.reason) : 'Unknown');
   document.body.appendChild(div);
 });
@@ -7577,7 +7581,7 @@ function initMobile() {
   } catch(e) {
     console.error('Tattoo OS init error at step [' + _step + ']:', e);
     var errDiv = document.createElement('div');
-    errDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#7c5cfc;color:#fff;padding:16px 14px;font-size:12px;z-index:99999;font-family:monospace;white-space:pre-wrap;word-break:break-all';
+    errDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#7c5cfc;color:#fff;padding:calc(16px + var(--safe-top)) 14px 16px;font-size:12px;z-index:99999;font-family:monospace;white-space:pre-wrap;word-break:break-all';
     errDiv.textContent = 'INIT ERROR at step: ' + _step + ' | ' + (e ? (e.message || String(e)) : 'unknown');
     document.body.appendChild(errDiv);
   }
@@ -8513,7 +8517,7 @@ playTosSplash();
       if (document.getElementById('remote-view-banner')) return;
       var banner = document.createElement('div');
       banner.id = 'remote-view-banner';
-      banner.style.cssText = 'position:fixed;top:calc(60px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:9999;background:var(--elevated);border:1px solid rgba(124,92,252,.4);border-radius:var(--r3);padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,.5);display:flex;align-items:center;gap:12px;max-width:340px;font-family:DM Sans,sans-serif';
+      banner.style.cssText = 'position:fixed;top:calc(60px + var(--safe-top));left:50%;transform:translateX(-50%);z-index:9999;background:var(--elevated);border:1px solid rgba(124,92,252,.4);border-radius:var(--r3);padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,.5);display:flex;align-items:center;gap:12px;max-width:340px;font-family:DM Sans,sans-serif';
       banner.innerHTML = '<div style="font-size:22px">🛡️</div><div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--t1)">Admin quiere ver tu pantalla</div><div style="font-size:11px;color:var(--t3);margin-top:2px">Para ayudarte con tu problema</div></div><button onclick="acceptRemoteView()" style="background:var(--v);border:none;border-radius:8px;padding:7px 12px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Aceptar</button><button onclick="rejectRemoteView()" style="background:var(--elevated);border:1px solid var(--bd3);border-radius:8px;padding:7px 10px;color:var(--t2);font-size:11px;cursor:pointer;margin-left:4px">No</button>';
       document.body.appendChild(banner);
     });
@@ -8670,7 +8674,7 @@ playTosSplash();
   if (isIOS && !isStandalone && !dismissed) {
     var banner = document.createElement('div');
     banner.style.cssText = [
-      'position:fixed','bottom:20px','left:12px','right:12px',
+      'position:fixed','bottom:calc(20px + var(--safe-bot))','left:12px','right:12px',
       'background:#1a1a2e','border:1px solid rgba(124,92,252,.4)',
       'border-radius:16px','padding:14px 16px',
       'display:flex','align-items:center','gap:12px',
