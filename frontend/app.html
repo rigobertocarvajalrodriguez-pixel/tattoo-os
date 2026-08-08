@@ -17,7 +17,8 @@
 <meta name="msapplication-TileColor" content="#07070f">
 <meta name="description" content="Panel de gestión de Tattoo OS: agenda, clientes, finanzas y consentimientos.">
 <link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" id="ati-link" href="/icon.svg">
+<link rel="icon" href="/assets/favicon.ico">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="format-detection" content="telephone=no">
 <!-- iOS splash screens -->
@@ -8636,51 +8637,10 @@ playTosSplash();
   window.addEventListener('resize', setVH);
   window.addEventListener('orientationchange', function(){ setTimeout(setVH, 300); });
 
-  // 2. Generar icono PNG con Canvas y usarlo como apple-touch-icon
-  function makeIcon(size) {
-    var c = document.createElement('canvas');
-    c.width = c.height = size;
-    var ctx = c.getContext('2d');
-    var r = size * 0.22;
-    ctx.beginPath();
-    ctx.moveTo(r,0); ctx.lineTo(size-r,0); ctx.arcTo(size,0,size,r,r);
-    ctx.lineTo(size,size-r); ctx.arcTo(size,size,size-r,size,r);
-    ctx.lineTo(r,size); ctx.arcTo(0,size,0,size-r,r);
-    ctx.lineTo(0,r); ctx.arcTo(0,0,r,0,r); ctx.closePath();
-    ctx.fillStyle='#07070f'; ctx.fill();
-    var g = ctx.createLinearGradient(0,0,size,size);
-    g.addColorStop(0,'#7c5cfc'); g.addColorStop(1,'#a78bfa');
-    ctx.fillStyle=g;
-    ctx.font='900 '+Math.round(size*.52)+'px Arial Black,Arial';
-    ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('T.',size/2,size/2+size*.04);
-    return c.toDataURL('image/png');
-  }
-
-  // Apple touch icon (180px)
-  var atiLink = document.getElementById('ati-link');
-  if (atiLink) atiLink.href = makeIcon(180);
-
-  // Generar iconos 192 y 512 para el manifest
-  function patchManifest() {
-    var ic192 = makeIcon(192), ic512 = makeIcon(512);
-    var manifest = {
-      name:'Tattoo OS', short_name:'Tattoo OS',
-      description:'Sistema operativo para estudios de tatuaje',
-      start_url:'/', scope:'/', display:'standalone',
-      orientation:'portrait-primary',
-      background_color:'#07070f', theme_color:'#07070f', lang:'es',
-      icons:[
-        {src:ic192, sizes:'192x192', type:'image/png', purpose:'any maskable'},
-        {src:ic512, sizes:'512x512', type:'image/png', purpose:'any maskable'}
-      ]
-    };
-    var blob = new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});
-    var url  = URL.createObjectURL(blob);
-    var link = document.querySelector('link[rel="manifest"]');
-    if (link) link.href = url;
-  }
-  patchManifest();
+  // 2. Iconos: antes se generaban en runtime con Canvas (placeholder "T." morado) porque no
+  // había archivos reales todavía. Ya existen assets/favicon.ico, assets/apple-touch-icon.png
+  // y assets/icon-192.png/icon-512.png (referenciados en el <head> y en manifest.json), así
+  // que el generador dinámico sobra - se quita para no pisar esos archivos en cada carga.
 
   // 3. Banner iOS "Añadir a pantalla de inicio"
   var isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
