@@ -571,7 +571,8 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 /* ── PLAN SELECTION SCREEN (post-login, Estilo B dark) ── */
 .ps-screen{position:fixed;inset:0;z-index:9500;overflow-y:auto;overflow-x:hidden;
   background:radial-gradient(900px 520px at 50% -10%,#2a1a5e 0%,#150f2b 45%,#0c0917 100%);
-  font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;display:flex;align-items:flex-start;justify-content:center;padding:20px}
+  font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;display:flex;align-items:flex-start;justify-content:center;
+  padding:calc(20px + var(--safe-top)) calc(20px + var(--safe-r)) calc(20px + var(--safe-bot)) calc(20px + var(--safe-l))}
 .ps-screen.ps-hidden{display:none!important}
 .ps-inner{width:100%;max-width:1060px;display:flex;flex-direction:column;padding:44px 0 36px;position:relative;min-height:calc(100vh - 40px)}
 .ps-lang-toggle{position:absolute;top:0;right:0;display:inline-flex;padding:3px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10);cursor:pointer;user-select:none}
@@ -997,7 +998,10 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
   .modal{
     width:100%!important;border-radius:var(--r4) var(--r4) 0 0!important;
     padding-bottom:calc(20px + var(--safe-bot))!important;
-    max-height:92vh!important;animation:slideUpModal .28s cubic-bezier(.34,1.2,.64,1)!important;
+    /* antes max-height:92vh - con formularios largos (p.ej. "Nueva Cita") el sheet llegaba a
+       tocar/meterse debajo del Dynamic Island. Se limita a la altura real menos el notch. */
+    max-height:calc(var(--vh,1dvh)*100 - var(--safe-top) - 12px)!important;
+    animation:slideUpModal .28s cubic-bezier(.34,1.2,.64,1)!important;
   }
   @keyframes slideUpModal{from{transform:translateY(100%)}to{transform:none}}
 }
@@ -1130,7 +1134,11 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
     width:100%!important;
     border-radius:20px 20px 0 0!important;
     top:auto!important;
-    height:92vh!important;
+    /* antes height:92vh puro - con --vh sin corregir (toolbar de Safari, ver setVH() mas
+       abajo) esto puede acabar siendo mas alto que el 92% real visible y meter el borde
+       superior del drawer bajo el Dynamic Island. Igual que en .modal, se limita a la
+       altura real menos el notch. */
+    height:calc(var(--vh,1dvh)*100 - var(--safe-top) - 12px)!important;
     padding-bottom:calc(16px + var(--safe-bot))!important;
   }
   .drawer.open{transform:translateY(0)!important}
@@ -1162,8 +1170,13 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
   /* ── LOGIN ── */
   .login-card{width:calc(100vw - 24px)!important;padding:28px 20px!important;border-radius:20px!important}
 
-  /* ── MODALS ── */
-  .modal{width:100%!important;border-radius:20px 20px 0 0!important;padding-bottom:calc(20px + var(--safe-bot))!important;max-height:94vh!important}
+  /* ── MODALS ──
+     Esta regla vive en @media(max-width:640px) y por orden de cascada gana sobre la de
+     @media(max-width:600px) de mas arriba (misma especificidad, ambas !important, esta va
+     despues) - por eso el max-height con --safe-top tenia que fijarse aqui tambien, si no
+     el bottom-sheet seguia usando 94vh puro y su boton de cerrar quedaba bajo el Dynamic
+     Island en formularios largos (p.ej. "Nueva Cita"). */
+  .modal{width:100%!important;border-radius:20px 20px 0 0!important;padding-bottom:calc(20px + var(--safe-bot))!important;max-height:calc(var(--vh,1dvh)*100 - var(--safe-top) - 12px)!important}
   .overlay{align-items:flex-end!important}
 
   /* ── TABLES ── */
