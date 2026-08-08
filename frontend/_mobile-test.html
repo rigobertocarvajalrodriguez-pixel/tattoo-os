@@ -81,10 +81,32 @@
     width:134px;height:5px;border-radius:3px;
     background:#fff;opacity:.9;box-shadow:0 1px 3px rgba(0,0,0,.4);
   }
+
+  /* ══ ZONAS DE PELIGRO (debug, toggleable) ══
+     Tinte rojo sobre los mismos 59px/34px reservados, para detectar a simple vista
+     cualquier elemento de la web que se asome ahí. Encima de todo (z-index 40) y sin
+     pointer-events, así no interfiere al probar clics. */
+  .danger-zone{
+    position:absolute;left:0;right:0;z-index:40;pointer-events:none;
+    background:repeating-linear-gradient(135deg,
+      rgba(255,30,30,.32) 0px, rgba(255,30,30,.32) 8px,
+      rgba(255,30,30,.18) 8px, rgba(255,30,30,.18) 16px);
+    display:none;
+  }
+  body.show-danger .danger-zone{display:block}
+  .danger-zone-top{top:0;height:var(--sim-top);border-bottom:1.5px dashed rgba(255,60,60,.9)}
+  .danger-zone-bottom{bottom:0;height:var(--sim-bottom);border-top:1.5px dashed rgba(255,60,60,.9)}
+
+  .danger-toggle{
+    display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+    color:#8e8e93;font-size:12px;user-select:none;
+  }
+  .danger-toggle input{accent-color:#ff3b30}
 </style>
 </head>
 <body>
   <div class="meta">📱 <b>Mobile Test</b> — iPhone 16 (<span id="meta-wh"></span>) · safe-area-inset real: top <b>59px</b> / bottom <b>34px</b> · cargando <b id="meta-path"></b></div>
+  <label class="danger-toggle"><input type="checkbox" id="danger-toggle-cb"> Marcar zonas de peligro (notch / home indicator)</label>
   <div class="device">
     <div class="screen">
       <iframe id="fr" title="Mobile Test viewport"></iframe>
@@ -101,6 +123,8 @@
       </div>
       <div class="dynamic-island"></div>
       <div class="home-indicator-zone"><div class="home-indicator"></div></div>
+      <div class="danger-zone danger-zone-top"></div>
+      <div class="danger-zone danger-zone-bottom"></div>
     </div>
   </div>
 
@@ -119,6 +143,17 @@
   document.documentElement.style.setProperty('--sim-h', h + 'px');
   document.getElementById('meta-wh').textContent = w + '×' + h + 'pt';
   document.getElementById('meta-path').textContent = path;
+
+  // Toggle de zonas de peligro (tinte rojo sobre el notch/home indicator). Se recuerda
+  // entre recargas via localStorage; por defecto activado para que salte a la vista.
+  var dangerCb = document.getElementById('danger-toggle-cb');
+  var dangerStored = localStorage.getItem('mobiletest_danger_zones');
+  dangerCb.checked = dangerStored === null ? true : dangerStored === '1';
+  document.body.classList.toggle('show-danger', dangerCb.checked);
+  dangerCb.addEventListener('change', function(){
+    document.body.classList.toggle('show-danger', dangerCb.checked);
+    localStorage.setItem('mobiletest_danger_zones', dangerCb.checked ? '1' : '0');
+  });
 
   var fr = document.getElementById('fr');
 

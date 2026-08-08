@@ -180,7 +180,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .light body::after{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.003'/%3E%3C/svg%3E")}
 
 /* ── SIDEBAR ── */
-.sidebar{width:var(--sw);flex-shrink:0;background:var(--base);border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden;position:relative;z-index:200;transition:background .3s,border-color .3s,width .3s;padding-bottom:var(--safe-bot)}.sidebar.sidebar-mini{width:52px}.sidebar.sidebar-mini .logo,.sidebar.sidebar-mini .mcal,.sidebar.sidebar-mini .ua{display:none}.sidebar.sidebar-mini::before{display:none}#sb-close-btn{color:var(--v)}.sidebar.sidebar-mini #sb-close-btn{background:var(--elevated)!important;border:1px solid var(--bd2)!important;border-radius:50%!important;right:auto!important;left:50%!important;transform:translateX(-50%)!important;top:16px!important;width:36px!important;height:36px!important;padding:0!important;display:flex!important;align-items:center!important;justify-content:center!important;color:var(--v)!important}.sidebar.sidebar-mini .nav{display:flex!important;flex-direction:column;align-items:center;padding:68px 0 4px;overflow-y:auto;overflow-x:hidden}.sidebar.sidebar-mini .nav::-webkit-scrollbar{width:0}.sidebar.sidebar-mini .ng{margin-bottom:2px!important;width:100%}.sidebar.sidebar-mini .ng-lbl{display:none!important}.sidebar.sidebar-mini .ni{display:flex!important;justify-content:center!important;align-items:center!important;padding:9px!important;gap:0!important;width:36px!important;height:36px!important;margin:1px auto!important;border-radius:10px!important}.sidebar.sidebar-mini .ni span:not(.ni-badge){display:none!important}.sidebar.sidebar-mini .ni svg{width:18px!important;height:18px!important;flex-shrink:0!important}.sidebar.sidebar-mini .ni-badge{display:none!important}.sidebar.sidebar-mini .new-btn{margin:8px auto 12px!important;width:36px!important;height:36px!important;padding:0!important;border-radius:50%!important;justify-content:center!important;flex-shrink:0!important;box-shadow:0 4px 14px rgba(124,92,252,.4)!important}.sidebar.sidebar-mini .new-btn span{display:none!important}.sidebar.mobile-open{transform:translateX(0)}
+.sidebar{width:var(--sw);flex-shrink:0;background:var(--base);border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden;position:relative;z-index:200;transition:background .3s,border-color .3s,width .3s;padding-bottom:8px}.sidebar.sidebar-mini{width:52px}.sidebar.sidebar-mini .logo,.sidebar.sidebar-mini .mcal,.sidebar.sidebar-mini .ua{display:none}.sidebar.sidebar-mini::before{display:none}#sb-close-btn{color:var(--v)}.sidebar.sidebar-mini #sb-close-btn{background:var(--elevated)!important;border:1px solid var(--bd2)!important;border-radius:50%!important;right:auto!important;left:50%!important;transform:translateX(-50%)!important;top:16px!important;width:36px!important;height:36px!important;padding:0!important;display:flex!important;align-items:center!important;justify-content:center!important;color:var(--v)!important}.sidebar.sidebar-mini .nav{display:flex!important;flex-direction:column;align-items:center;padding:68px 0 4px;overflow-y:auto;overflow-x:hidden}.sidebar.sidebar-mini .nav::-webkit-scrollbar{width:0}.sidebar.sidebar-mini .ng{margin-bottom:2px!important;width:100%}.sidebar.sidebar-mini .ng-lbl{display:none!important}.sidebar.sidebar-mini .ni{display:flex!important;justify-content:center!important;align-items:center!important;padding:9px!important;gap:0!important;width:36px!important;height:36px!important;margin:1px auto!important;border-radius:10px!important}.sidebar.sidebar-mini .ni span:not(.ni-badge){display:none!important}.sidebar.sidebar-mini .ni svg{width:18px!important;height:18px!important;flex-shrink:0!important}.sidebar.sidebar-mini .ni-badge{display:none!important}.sidebar.sidebar-mini .new-btn{margin:8px auto 12px!important;width:36px!important;height:36px!important;padding:0!important;border-radius:50%!important;justify-content:center!important;flex-shrink:0!important;box-shadow:0 4px 14px rgba(124,92,252,.4)!important}.sidebar.sidebar-mini .new-btn span{display:none!important}.sidebar.mobile-open{transform:translateX(0)}
 .sidebar::before{content:'';position:absolute;top:-80px;left:-60px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,rgba(124,92,252,.1),transparent 70%);pointer-events:none}
 .logo{padding:16px 14px 18px;display:flex;align-items:center;gap:10px;flex-shrink:0}
 .logo-ic{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--v),var(--vl));display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:#fff;box-shadow:0 0 14px var(--vg);flex-shrink:0}
@@ -572,7 +572,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .ps-screen{position:fixed;inset:0;z-index:9500;overflow-y:auto;overflow-x:hidden;
   background:radial-gradient(900px 520px at 50% -10%,#2a1a5e 0%,#150f2b 45%,#0c0917 100%);
   font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;display:flex;align-items:flex-start;justify-content:center;
-  padding:calc(20px + var(--safe-top)) calc(20px + var(--safe-r)) calc(20px + var(--safe-bot)) calc(20px + var(--safe-l))}
+  padding:calc(20px + var(--safe-top)) calc(20px + var(--safe-r)) 20px calc(20px + var(--safe-l))}
 .ps-screen.ps-hidden{display:none!important}
 .ps-inner{width:100%;max-width:1060px;display:flex;flex-direction:column;padding:44px 0 36px;position:relative;min-height:calc(100vh - 40px)}
 .ps-lang-toggle{position:absolute;top:0;right:0;display:inline-flex;padding:3px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10);cursor:pointer;user-select:none}
@@ -723,18 +723,18 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 @media(max-width:600px){
   /* En movil el drawer ocupa el 100vw (min(380px,100vw)) -> su top:0 cae bajo el notch/Dynamic
      Island y la home indicator si no se respeta el safe-area del dispositivo. */
-  .drawer{padding-top:calc(22px + var(--safe-top));padding-bottom:calc(22px + var(--safe-bot))}
+  .drawer{padding-top:calc(22px + var(--safe-top));padding-bottom:calc(22px + 8px)}
   .drcl{top:calc(14px + var(--safe-top))}
 }
 .drcl:hover{border-color:var(--bd3);color:var(--t1)}
 
 /* TOAST */
-.toast{position:fixed;bottom:calc(20px + var(--safe-bot));left:50%;transform:translateX(-50%) translateY(10px);background:var(--raised);border:1px solid var(--bd3);border-radius:var(--r2);padding:9px 16px;font-size:12px;color:var(--t1);z-index:300;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;box-shadow:0 8px 36px rgba(0,0,0,.5)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--raised);border:1px solid var(--bd3);border-radius:var(--r2);padding:9px 16px;font-size:12px;color:var(--t1);z-index:300;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;box-shadow:0 8px 36px rgba(0,0,0,.5)}
 /* ── COOKIES ── */
 /* z-index por encima de #login-screen (9999): el consentimiento de cookies debe verse y
    poder aceptarse/rechazarse aunque el visitante aún no haya iniciado sesión (RGPD/ePrivacy
    no distingue entre usuario logueado o no). */
-#cookie-banner{position:fixed;bottom:0;left:0;right:0;z-index:10010;background:var(--elevated);border-top:1px solid var(--bd3);padding:16px 20px calc(16px + var(--safe-bot));box-shadow:0 -8px 32px rgba(0,0,0,.4);animation:slideUp .4s cubic-bezier(.34,1.2,.64,1);font-family:'DM Sans',sans-serif}
+#cookie-banner{position:fixed;bottom:0;left:0;right:0;z-index:10010;background:var(--elevated);border-top:1px solid var(--bd3);padding:16px 20px calc(16px + 10px);box-shadow:0 -8px 32px rgba(0,0,0,.4);animation:slideUp .4s cubic-bezier(.34,1.2,.64,1);font-family:'DM Sans',sans-serif}
 #cookie-banner.hide{animation:slideDown .3s ease forwards}
 @keyframes slideDown{to{transform:translateY(100%);opacity:0}}
 #cookie-modal{position:fixed;inset:0;z-index:10011;background:rgba(4,4,10,.85);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;padding:16px}
@@ -828,7 +828,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 }
 
 /* ── LOGIN SCREEN ── */
-.login-screen{position:fixed;inset:0;background:var(--void);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:var(--safe-top,12px) 12px var(--safe-bot,0px)}
+.login-screen{position:fixed;inset:0;background:var(--void);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:var(--safe-top,12px) 12px 0px}
 .login-screen.hidden{display:none!important;pointer-events:none!important}
 .login-card{background:var(--elevated);border:1px solid var(--bd3);border-radius:var(--r4);padding:36px 32px;width:min(380px,calc(100vw - 24px));box-shadow:0 40px 100px rgba(0,0,0,.6),0 0 80px rgba(124,92,252,.08);animation:mopen .3s cubic-bezier(.34,1.2,.64,1)}
 .login-logo{display:flex;align-items:center;gap:12px;margin-bottom:28px;justify-content:center}
@@ -924,13 +924,13 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 /* ── BOTTOM NAV (mobile only) ── */
 .bottom-nav{
   display:none;position:fixed;bottom:0;left:0;right:0;
-  height:calc(var(--bnav-h) + var(--safe-bot));
+  height:calc(var(--bnav-h) + 8px);
   background:rgba(7,7,15,.92);
   backdrop-filter:blur(24px) saturate(180%);
   -webkit-backdrop-filter:blur(24px) saturate(180%);
   border-top:1px solid var(--bd2);
   z-index:100;
-  padding-bottom:var(--safe-bot);
+  padding-bottom:8px;
   padding-left:var(--safe-l);
   padding-right:var(--safe-r);
 }
@@ -977,7 +977,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 
 /* ── PWA INSTALL BANNER ── */
 .pwa-banner{
-  position:fixed;bottom:calc(var(--bnav-h) + var(--safe-bot) + 12px);left:12px;right:12px;
+  position:fixed;bottom:calc(var(--bnav-h) + 12px);left:12px;right:12px;
   background:var(--elevated);border:1px solid rgba(124,92,252,.35);border-radius:var(--r3);
   padding:12px 14px;display:flex;align-items:center;gap:12px;
   z-index:200;box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 0 1px rgba(124,92,252,.1);
@@ -997,7 +997,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
   .overlay{align-items:flex-end!important}
   .modal{
     width:100%!important;border-radius:var(--r4) var(--r4) 0 0!important;
-    padding-bottom:calc(20px + var(--safe-bot))!important;
+    padding-bottom:calc(20px + 8px)!important;
     /* antes max-height:92vh - con formularios largos (p.ej. "Nueva Cita") el sheet llegaba a
        tocar/meterse debajo del Dynamic Island. Se limita a la altura real menos el notch. */
     max-height:calc(var(--vh,1dvh)*100 - var(--safe-top) - 12px)!important;
@@ -1033,7 +1033,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
   /* ── LAYOUT ── */
   .app{flex-direction:column}
   .main{width:100%;height:100vh;height:100dvh;padding-bottom:0}
-  .page.on{padding-bottom:calc(var(--safe-bot) + 8px)}
+  .page.on{padding-bottom:8px}
 
   /* ── SIDEBAR: hidden by default on mobile ── */
   .sidebar{
@@ -1086,7 +1086,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 
   /* ── BOTTOM NAV ── */
   .bottom-nav{
-    height:calc(var(--bnav-h) + var(--safe-bot))!important;
+    height:calc(var(--bnav-h) + 8px)!important;
     border-top:1px solid var(--bd)!important;
   }
   .bnav-inner{padding:0 4px!important;height:var(--bnav-h)!important}
@@ -1139,7 +1139,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
        superior del drawer bajo el Dynamic Island. Igual que en .modal, se limita a la
        altura real menos el notch. */
     height:calc(var(--vh,1dvh)*100 - var(--safe-top) - 12px)!important;
-    padding-bottom:calc(16px + var(--safe-bot))!important;
+    padding-bottom:calc(16px + 8px)!important;
   }
   .drawer.open{transform:translateY(0)!important}
   .drawer:not(.open){transform:translateY(100%)!important}
@@ -1176,7 +1176,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
      despues) - por eso el max-height con --safe-top tenia que fijarse aqui tambien, si no
      el bottom-sheet seguia usando 94vh puro y su boton de cerrar quedaba bajo el Dynamic
      Island en formularios largos (p.ej. "Nueva Cita"). */
-  .modal{width:100%!important;border-radius:20px 20px 0 0!important;padding-bottom:calc(20px + var(--safe-bot))!important;max-height:calc(var(--vh,1dvh)*100 - var(--safe-top) - 12px)!important}
+  .modal{width:100%!important;border-radius:20px 20px 0 0!important;padding-bottom:calc(20px + 8px)!important;max-height:calc(var(--vh,1dvh)*100 - var(--safe-top) - 12px)!important}
   .overlay{align-items:flex-end!important}
 
   /* ── TABLES ── */
@@ -1193,9 +1193,9 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 
 /* ── LANDSCAPE MOBILE ── */
 @media(max-width:812px) and (orientation:landscape){
-  .bottom-nav{height:calc(50px + var(--safe-bot))!important}
+  .bottom-nav{height:calc(50px + 8px)!important}
   :root{--bnav-h:50px}
-  .page.on{padding-bottom:calc(50px + var(--safe-bot))}
+  .page.on{padding-bottom:50px}
 }
 
 /* ── TABLET LANDSCAPE ── */
@@ -1244,9 +1244,12 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
   }
 }
 /* Nota: .bottom-nav existe en el CSS pero nunca se activa (esta app usa hamburger+sidebar,
-   no barra de pestañas inferior) - la franja de la home indicator la cubre el propio fondo
-   de cada pantalla (login-screen, .page, .modal, .drawer), que ya reservan --safe-bot como
-   padding y pintan su background hasta el borde real de la pantalla. */
+   no barra de pestañas inferior). El home indicator flota TRANSLUCIDO encima del contenido
+   (no bloquea nada, Apple lo permite) - por eso el contenido de cada pantalla (login-screen,
+   .page, .modal, .drawer) ya NO reserva --safe-bot como padding: llega hasta el borde real
+   de la pantalla. Solo los controles realmente pegados al borde (botones de modal/drawer,
+   cookie-banner) llevan un margen de cortesía fijo de 8-10px para que no queden pegadísimos,
+   nunca el valor completo de --safe-bot (~34px). */
 
 #tos-splash{position:fixed;inset:0;background:#000;z-index:99999;overflow:hidden;display:flex;align-items:center;justify-content:center}
 #tos-splash.out{animation:tosOut 1s ease forwards}
@@ -1260,7 +1263,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 @media(max-width:640px){
   /* La burbuja de 72px tapaba citas del calendario y campos de los modales (ej. "Precio")
      en pantallas chicas. Mas pequeña y apoyada justo encima del bottom-nav. */
-  #aiw{right:14px;bottom:calc(var(--bnav-h) + var(--safe-bot) + 12px)}
+  #aiw{right:14px;bottom:calc(var(--bnav-h) + 12px)}
   #aiw-bubble{width:48px;height:48px}
   #aiw-panel{width:min(340px,calc(100vw - 24px));bottom:calc(48px + 8px)}
   /* Con un modal/drawer abierto, la burbuja igual queda por encima (z-index) de sus
@@ -8687,7 +8690,7 @@ playTosSplash();
   if (isIOS && !isStandalone && !dismissed) {
     var banner = document.createElement('div');
     banner.style.cssText = [
-      'position:fixed','bottom:calc(20px + var(--safe-bot))','left:12px','right:12px',
+      'position:fixed','bottom:calc(20px + 10px)','left:12px','right:12px',
       'background:#1a1a2e','border:1px solid rgba(124,92,252,.4)',
       'border-radius:16px','padding:14px 16px',
       'display:flex','align-items:center','gap:12px',
