@@ -1,4 +1,7 @@
-const CACHE = 'tattoo-os-v10';
+const CACHE = 'tattoo-os-v11'; // bump: iconos nuevos (favicon/apple-touch-icon/PWA) quedaban
+                                // servidos desde el cache-first de "Assets" de abajo aunque
+                                // el archivo en el servidor ya hubiera cambiado - subir la
+                                // version fuerza a activate() a borrar la cache vieja.
 const OFFLINE_URL = './app.html';
 
 self.addEventListener('install', function(e) {
