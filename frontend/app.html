@@ -3900,7 +3900,9 @@ function renderSettings(){
               <div class="set-row-s">${esc(p.role)}</div>
             </div>
             <input class="fi" type="number" min="0" max="100" step="1" style="width:90px;text-align:center;flex:none" id="artist-comm-${p.id}" value="${typeof p.commissionPct==='number'?p.commissionPct:50}">
+            ${!p.isAdminProfile&&profiles.length>1?`<button onclick="deleteProfile(${p.id})" title="Eliminar artista" style="margin-left:8px;background:transparent;border:none;color:var(--t3);cursor:pointer;font-size:15px;padding:4px 6px;border-radius:4px;flex:none">🗑️</button>`:''}
           </div>`).join('')}
+        <div class="set-section-s" style="margin-top:4px">Los planes limitan cuántos perfiles caben en tu cuenta (Independiente: 1 · Estudio: 3 · Estudio Pro: sin límite). Eliminar un artista borra también sus citas, clientes, gastos y documentos.</div>
         <div class="fg" style="margin-top:16px"><label class="fl">Comisión de pasarela (Stripe) % — ajuste del estudio</label><input class="fi" type="number" min="0" max="100" step="0.1" id="stripe-fee-pct" value="${parseFloat(lsGet('tos_stripe_fee_pct'))||1.5}"></div>
         <button class="bprim" style="width:auto;padding:9px 20px;margin-top:4px" onclick="saveArtistCommissions()">${t('saveChanges')}</button>
       </div>`;
@@ -4373,10 +4375,22 @@ function performProfileSwitch(id){
   }
   showToast('Perfil: '+profiles.find(p=>p.id===id).name);
 }
-function deleteProfile(id){
+async function deleteProfile(id){
   if(profiles.length<=1){showToast('No puedes eliminar el único perfil');return}
+  const target=profiles.find(p=>p.id===id);
+  if(!target) return;
+  if(target.isAdminProfile){showToast('No puedes eliminar el perfil del dueño del estudio');return}
+  // Borrado real y en cascada (citas/clientes/gastos/proyectos/documentos de este artista
+  // desaparecen con él) - por eso pedimos confirmación explícita antes de llamar al servidor.
+  if(!confirm('¿Eliminar a '+target.name+'? Se borrarán también todas sus citas, clientes, gastos y documentos. Esta acción no se puede deshacer.')) return;
+  try{
+    const res=await fetch(API_BASE+'/api/profile/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+_authToken}});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok){ showToast(data.error||'No se pudo eliminar el perfil'); return; }
+  }catch(e){ showToast('Error de conexión al eliminar el perfil'); return; }
   profiles=profiles.filter(p=>p.id!==id);
   if(activeProfileId===id) activeProfileId=profiles[0].id;
+  saveUserProfiles();
   renderUserArea();renderProfilePicker();showToast(t('deleteProfile'));
 }
 

@@ -1160,6 +1160,36 @@ app.get('/api/my-profiles/passwords', authMiddleware, function(req, res) {
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
+// Elimina un perfil de artista de la propia cuenta (self-service del dueño). Borra en cascada
+// sus citas/clientes/gastos/proyectos/documentos/consentimientos/WhatsApp (misma cascada que ya
+// define el esquema para profile_id). Deliberadamente NO se puede eliminar así: el perfil owner
+// (rompería qué perfil es "el Administrador" de la cuenta), ni un perfil con liquidaciones de
+// comisión o citas donde figura como artist_id (esas referencias no tienen cascada - por diseño,
+// para no borrar en silencio registros de dinero ya facturado/pagado).
+app.delete('/api/profile/:id', authMiddleware, function(req, res) {
+  var profileId = parseInt(req.params.id, 10);
+  if (req.user.accessRole === 'artist') return res.status(403).json({ error: 'Solo el dueño del estudio puede eliminar perfiles' });
+
+  db.query('SELECT id, user_id, is_admin_profile, access_role FROM profiles WHERE id=$1', [profileId])
+    .then(function(r) {
+      if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
+      var profile = r.rows[0];
+      if (profile.user_id !== req.userId) return res.status(403).json({ error: 'No autorizado' });
+      if (profile.is_admin_profile || profile.access_role === 'owner') {
+        return res.status(400).json({ error: 'No puedes eliminar el perfil del dueño del estudio' });
+      }
+      return db.query('DELETE FROM profiles WHERE id=$1', [profileId]).then(function() {
+        res.json({ ok: true });
+      });
+    })
+    .catch(function(e) {
+      if (e.code === '23503') {
+        return res.status(409).json({ error: 'No se puede eliminar: este perfil tiene citas asignadas o liquidaciones de comisión registradas. Reasígnalas o elimínalas primero.' });
+      }
+      res.status(500).json({ error: e.message });
+    });
+});
+
 app.post('/api/my-profiles/:id/reset-password', authMiddleware, function(req, res) {
   var profileId = parseInt(req.params.id, 10);
   var newPassword = req.body.newPassword || '';
