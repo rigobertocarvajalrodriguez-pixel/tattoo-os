@@ -2158,29 +2158,54 @@ let activeProjId=null;
 let activeSettingsPanel='appearance';
 
 // ── PLANES ──
+// Fase 1 de roles/planes: WhatsApp queda fuera de esta diferenciación a propósito (no se
+// gatea por plan todavía) - por eso no aparece en "locked" ni en la comprobación de canAccess.
+// Los emails automáticos (confirmación + cuidados post-tatuaje) están en los 3 planes sin
+// restricción, así que tampoco hace falta gatearlos aparte.
 const PLANS={
-  starter:{id:'starter',name:'Starter',price:'Gratis',period:'',desc:'Para artistas que empiezan',color:'#9090a8',
-    feats:['Calendario','Clientes','Finanzas','Gastos','Proyectos','Documentos'],
-    locked:['WhatsApp','Tienda'],
-    modules:['cal','clients','finance','expenses','projects','docs']},
-  growth:{id:'growth',name:'Growth',price:'€29',period:'/mes',desc:'Para estudios en crecimiento',color:'#7c5cfc',
-    feats:['Todo Starter','WhatsApp','Tienda'],
+  independiente:{id:'independiente',name:'Independiente',price:'Gratis',period:'',desc:'Para artistas que trabajan solos',color:'#9090a8',
+    feats:['Agenda','Clientes','Finanzas','Gastos','Proyectos','Documentos','Emails automáticos'],
+    locked:['Tienda'],
+    modules:['cal','clients','finance','expenses','projects','docs'],profileLimit:1},
+  estudio:{id:'estudio',name:'Estudio',price:'€29',period:'/mes',desc:'Para estudios con varios tatuadores',color:'#7c5cfc',
+    feats:['Todo Independiente','Hasta 3 perfiles (dueño + 2 tatuadores)'],
+    locked:['Tienda'],
+    modules:['cal','clients','finance','expenses','projects','docs'],profileLimit:3},
+  estudio_pro:{id:'estudio_pro',name:'Estudio Pro',price:'€59',period:'/mes',desc:'Para estudios profesionales',color:'#f59e0b',
+    feats:['Todo Estudio','Tienda','Perfiles ilimitados'],
     locked:[],
-    modules:['cal','clients','finance','expenses','projects','docs','whatsapp','tienda']},
-  studio_pro:{id:'studio_pro',name:'Studio Pro',price:'€59',period:'/mes',desc:'Para estudios profesionales',color:'#f59e0b',
-    feats:['Todo Growth','Soporte prioritario','Sin límites'],
-    locked:[],
-    modules:['cal','clients','finance','expenses','projects','docs','whatsapp','tienda'],badge:'Popular'}
+    modules:['cal','clients','finance','expenses','projects','docs','tienda'],profileLimit:Infinity,badge:'Popular'}
 };
-let userPlan=localStorage.getItem('user_plan')||'starter';
-function canAccess(mod){return PLANS[userPlan]&&PLANS[userPlan].modules.includes(mod);}
-function setPlan(id){
-  userPlan=id;localStorage.setItem('user_plan',id);
-  updateNavLocks();renderSettings();
-  showToast('Plan '+PLANS[id].name+' activado');
+// Valor real se carga desde el backend en loadUserPlan() (login) - este es solo el arranque
+// hasta que llegue la respuesta, nunca la fuente de verdad (antes vivía en localStorage).
+let userPlan='independiente';
+function canAccess(mod){
+  if(mod==='whatsapp') return true; // deliberadamente sin gatear en esta fase
+  return PLANS[userPlan]&&PLANS[userPlan].modules.includes(mod);
+}
+async function loadUserPlan(){
+  try{
+    const res=await fetch(API_BASE+'/api/auth/me',{headers:{'Authorization':'Bearer '+_authToken}});
+    if(res.ok){
+      const data=await res.json();
+      if(data.user&&data.user.plan&&PLANS[data.user.plan]) userPlan=data.user.plan;
+    }
+  }catch(e){}
+  updateNavLocks();
+}
+async function setPlan(id){
+  if(!PLANS[id]) return;
+  try{
+    const res=await fetch(API_BASE+'/api/user/plan',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},body:JSON.stringify({plan:id})});
+    const data=await res.json();
+    if(!res.ok){ showToast(data.error||'No se pudo cambiar de plan'); return; }
+    userPlan=id;
+    updateNavLocks();renderSettings();
+    showToast('Plan '+PLANS[id].name+' activado');
+  }catch(e){ showToast('Error de conexión al cambiar de plan'); }
 }
 function updateNavLocks(){
-  ['whatsapp','tienda'].forEach(mod=>{
+  ['tienda'].forEach(mod=>{
     const ni=document.querySelector('.ni[data-page="'+mod+'"]');
     if(!ni)return;
     let lk=ni.querySelector('.ni-lock');
@@ -2398,8 +2423,11 @@ function _psTogglePeriod(){
   buildPlanScreen();
 }
 function _psContinue(){
-  const planMap={starter:'starter',growth:'growth',studio:'studio_pro'};
-  const chosen=planMap[_psState.selected]||'growth';
+  // Los ids de esta pantalla (starter/growth/studio) son solo de la maqueta visual/copy,
+  // que no hemos tocado en esta fase; se mapean a los ids reales de PLANS que sí existen
+  // en el backend (independiente/estudio/estudio_pro).
+  const planMap={starter:'independiente',growth:'estudio',studio:'estudio_pro'};
+  const chosen=planMap[_psState.selected]||'estudio';
   setPlan(chosen);
   localStorage.setItem('plan_chosen','1');
   hidePlanScreen();
@@ -4261,7 +4289,39 @@ async function submitProfileAuth(id){
     if(target) target.isAdminProfile=!!data.isAdminProfile;
     closeModal();
     performProfileSwitch(id);
+    // Fase 1 - roles reales: si el perfil desbloqueado es un artista, pedimos al servidor sus
+    // datos autorizados (filtrados por access_role) y sobrescribimos lo que hubiera en memoria/
+    // localStorage - así una caché vieja de este navegador nunca muestra datos desactualizados
+    // ni de otro perfil. Si la petición falla, se queda con lo que ya había (mismo comportamiento
+    // de hoy), sin bloquear el cambio de perfil.
+    if(!data.isAdminProfile) refreshProfileFromServer(id);
   }catch(e){errEl.textContent='Error de conexión';errEl.style.display='block'}
+}
+async function refreshProfileFromServer(id){
+  try{
+    const res=await fetch(API_BASE+'/api/profile/'+id+'/data',{headers:{'Authorization':'Bearer '+_authToken}});
+    if(!res.ok) return;
+    const data=await res.json();
+    if(activeProfileId!==id) return; // el usuario ya cambió de perfil mientras llegaba la respuesta
+    const mine=profiles.find(p=>p.id===id);
+    if(!mine) return;
+    Object.assign(mine,{
+      appts:data.appointments||[], clients:data.clients||[], expenses:data.expenses||[],
+      projects:data.projects||[], docFiles:data.docFiles||[], consents:data.consents||[],
+      docTemplates:data.docTemplates||[], waMessages:data.waMessages||{}
+    });
+    refreshProfileData();
+    const activePage=document.querySelector('.page.on');
+    if(activePage){
+      const pid=activePage.id.replace('page-','');
+      if(pid==='clients')renderClients();
+      if(pid==='finance')renderFinance();
+      if(pid==='expenses')renderExpenses();
+      if(pid==='projects')renderProjects();
+      if(pid==='docs')renderDocs();
+    }
+    buildCalView();buildMiniCal();buildRP();
+  }catch(e){}
 }
 function performProfileSwitch(id){
   // Antes de cambiar, guardamos cualquier edición pendiente del perfil saliente
@@ -6024,6 +6084,7 @@ function loginSuccess(user) {
 
   showToast('Bienvenido, ' + user.name);
   showAdminNav();
+  loadUserPlan();
   if (!localStorage.getItem('plan_chosen')) { showPlanScreen(); }
   if (window._initRemoteView) window._initRemoteView(user.id);
   // Cargar tickets del usuario (para ver respuestas del admin)

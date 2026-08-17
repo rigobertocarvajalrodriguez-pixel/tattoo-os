@@ -21,6 +21,10 @@ const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'rigobertocarvajalrodriguez@gmail.com';
 const ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
 
+// Fase 1 de roles/planes: cuántos perfiles (dueño + artistas) caben en cada plan.
+// estudio_pro es "ilimitado" -> Infinity nunca se alcanza en la comprobación de abajo.
+var PLAN_PROFILE_LIMITS = { independiente: 1, estudio: 3, estudio_pro: Infinity };
+
 // ══════════════════════════════════════════
 // POSTGRESQL CONNECTION
 // ══════════════════════════════════════════
@@ -182,6 +186,44 @@ db.query(`
     db.query('CREATE INDEX IF NOT EXISTS idx_settlements_user ON commission_settlements(user_id)')
   ]);
 }).catch(function(e) { console.error('[DB] Error creando commission_settlements:', e.message); });
+
+// Roles y planes reales (Fase 1): hasta ahora ambos eran cosméticos (el plan vivía en
+// localStorage del navegador, sin enforcement en el servidor). access_role es un nombre nuevo
+// a propósito - profiles.role ya existe y es el puesto en texto libre ("Tatuador Principal"),
+// no debe confundirse con el rol de permisos.
+Promise.all([
+  db.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'independiente'"),
+  db.query("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS access_role TEXT NOT NULL DEFAULT 'artist'"),
+]).then(function() {
+  return Promise.all([
+    db.query("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_plan_check"),
+    db.query("ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_access_role_check"),
+  ]);
+}).then(function() {
+  return Promise.all([
+    db.query("ALTER TABLE users ADD CONSTRAINT users_plan_check CHECK (plan IN ('independiente','estudio','estudio_pro'))"),
+    db.query("ALTER TABLE profiles ADD CONSTRAINT profiles_access_role_check CHECK (access_role IN ('owner','artist'))"),
+  ]);
+}).then(function() {
+  // Backfill 1: el perfil ya marcado is_admin_profile pasa a access_role='owner'.
+  return db.query("UPDATE profiles SET access_role='owner' WHERE is_admin_profile=TRUE AND access_role<>'owner'");
+}).then(function() {
+  // Backfill 2: plan por cuenta según cuántos perfiles tiene ya, para no romper cuentas reales
+  // que ya tuvieran más de 1-3 perfiles bajo el antiguo selector cosmético (0-1→independiente,
+  // 2-3→estudio, 4+→estudio_pro). Solo toca cuentas que sigan en el valor por defecto, así que
+  // no pisa un plan ya asignado a mano/por pago en el futuro.
+  return db.query(
+    "UPDATE users u SET plan = sub.suggested_plan " +
+    "FROM (SELECT p.user_id, " +
+    "  CASE WHEN COUNT(p.id) <= 1 THEN 'independiente' " +
+    "       WHEN COUNT(p.id) <= 3 THEN 'estudio' " +
+    "       ELSE 'estudio_pro' END AS suggested_plan " +
+    "  FROM profiles p GROUP BY p.user_id) sub " +
+    "WHERE u.id = sub.user_id AND u.plan = 'independiente'"
+  );
+}).then(function() {
+  console.log('[DB] Migración de roles/planes (Fase 1) aplicada');
+}).catch(function(e) { console.error('[DB] Error en migración de roles/planes:', e.message); });
 
 const app = express();
 app.set('trust proxy', 1);
@@ -349,7 +391,35 @@ app.get('/api/auth/me', function(req, res) {
   if (!token) return res.status(401).json({ error: 'No token' });
   var session = authSessions[token];
   if (!session) return res.status(401).json({ error: 'Token inválido' });
-  res.json({ user: { id: session.userId, email: session.email, name: session.name } });
+  // Plan real (Fase 1): se lee de BD en cada llamada, nunca del token en memoria, para que un
+  // cambio de plan se refleje sin tener que volver a hacer login.
+  db.query('SELECT plan FROM users WHERE id=$1', [session.userId])
+    .then(function(r) {
+      var plan = (r.rows[0] && r.rows[0].plan) || 'independiente';
+      res.json({ user: { id: session.userId, email: session.email, name: session.name, plan: plan } });
+    })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Cambio de plan (Fase 1: sin cobro real todavía, igual que el selector cosmético anterior,
+// pero ahora el valor queda en BD y de verdad limita cuántos perfiles caben - ver /api/profile/sync).
+app.post('/api/user/plan', authMiddleware, function(req, res) {
+  var plan = req.body.plan;
+  if (['independiente', 'estudio', 'estudio_pro'].indexOf(plan) === -1) {
+    return res.status(400).json({ error: 'Plan inválido' });
+  }
+  db.query('SELECT COUNT(*) FROM profiles WHERE user_id=$1', [req.userId])
+    .then(function(r) {
+      var current = parseInt(r.rows[0].count, 10);
+      var limit = PLAN_PROFILE_LIMITS[plan];
+      if (current > limit) {
+        return res.status(403).json({ error: 'Tu cuenta ya tiene ' + current + ' perfiles; el plan "' + plan + '" permite máximo ' + limit + '. Elimina perfiles antes de bajar de plan.' });
+      }
+      return db.query('UPDATE users SET plan=$1 WHERE id=$2', [plan, req.userId]).then(function() {
+        res.json({ ok: true, plan: plan });
+      });
+    })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
 app.post('/api/auth/logout', function(req, res) {
@@ -816,12 +886,37 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
   var posSalesData = req.body.posSales || [];
   if (!profilesData || !profilesData.length) return res.json({ ok: true });
 
+  // Fase 1 - roles reales: un perfil "artist" solo puede sincronizar sus propios datos. El
+  // frontend ya se autolimita (saveUserProfiles solo manda su propio perfil cuando el activo
+  // no es owner), pero eso es convención de cliente, no seguridad real - el servidor filtra
+  // aquí de nuevo por si el payload trajera algo más.
+  if (req.user.accessRole === 'artist' && req.user.profileId != null) {
+    profilesData = profilesData.filter(function(p) { return p.id === req.user.profileId; });
+    if (!profilesData.length) return res.json({ ok: true });
+  }
+
   // El perfil Administrador es el primero que existió para esta cuenta (id más bajo ya
   // guardado en la BD); si es la primerísima sincronización, es el id más bajo de este envío.
-  db.query('SELECT id FROM profiles WHERE user_id=$1 ORDER BY id ASC LIMIT 1', [userId]).then(function(existingFirst) {
-    var adminId = existingFirst.rows.length
-      ? existingFirst.rows[0].id
+  db.query('SELECT plan FROM users WHERE id=$1', [userId]).then(function(userRow) {
+    var plan = (userRow.rows[0] && userRow.rows[0].plan) || 'independiente';
+    return db.query('SELECT id FROM profiles WHERE user_id=$1 ORDER BY id ASC', [userId]).then(function(existing) {
+    var existingIds = existing.rows.map(function(r) { return r.id; });
+    var adminId = existingIds.length
+      ? existingIds[0]
       : Math.min.apply(null, profilesData.map(function(p) { return p.id; }));
+
+    // Fase 1 - límite de perfiles por plan: solo bloquea profile_id NUEVOS (altas), nunca
+    // actualizaciones de perfiles que ya existían - así nadie se queda sin poder guardar su
+    // agenda de un día para otro por haber bajado de plan.
+    var newIds = profilesData.map(function(p) { return p.id; }).filter(function(id) { return existingIds.indexOf(id) === -1; });
+    if (newIds.length) {
+      var limit = PLAN_PROFILE_LIMITS[plan] != null ? PLAN_PROFILE_LIMITS[plan] : PLAN_PROFILE_LIMITS.independiente;
+      if (existingIds.length + newIds.length > limit) {
+        var limitErr = new Error('Límite de perfiles alcanzado para el plan "' + plan + '" (máximo ' + limit + '). Actualiza de plan para añadir más artistas.');
+        limitErr.code = 'PLAN_LIMIT';
+        throw limitErr;
+      }
+    }
 
     var ops = profilesData.map(function(p) {
       return db.query(
@@ -908,9 +1003,13 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
     });
 
     return Promise.all(ops.concat(posSaleOps));
+    });
   })
     .then(function() { res.json({ ok: true }); })
-    .catch(function(e) { res.status(500).json({ error: e.message }); });
+    .catch(function(e) {
+      if (e.code === 'PLAN_LIMIT') return res.status(403).json({ error: e.message, code: 'PLAN_LIMIT' });
+      res.status(500).json({ error: e.message });
+    });
 });
 
 // ══════════════════════════════════════════
@@ -937,7 +1036,7 @@ app.post('/api/profile/:id/auth', authMiddleware, function(req, res) {
   var password = req.body.password || '';
   if (!password) return res.status(400).json({ error: 'Falta la contraseña' });
 
-  db.query('SELECT id, user_id, password_hash, is_admin_profile FROM profiles WHERE id=$1', [profileId])
+  db.query('SELECT id, user_id, password_hash, is_admin_profile, access_role FROM profiles WHERE id=$1', [profileId])
     .then(function(r) {
       if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
       var profile = r.rows[0];
@@ -946,7 +1045,12 @@ app.post('/api/profile/:id/auth', authMiddleware, function(req, res) {
       function unlock() {
         if (!req.user.unlockedProfiles) req.user.unlockedProfiles = {};
         req.user.unlockedProfiles[profileId] = true;
-        res.json({ ok: true, isAdminProfile: !!profile.is_admin_profile });
+        // Fase 1 - roles reales: la sesión del token de login pasa a llevar también qué perfil
+        // está activo y con qué rol de permisos, para que el resto de rutas (sync, etc.) sepan
+        // si deben limitar lo que este request puede ver/escribir a un solo profile_id.
+        req.user.profileId = profileId;
+        req.user.accessRole = profile.access_role;
+        res.json({ ok: true, isAdminProfile: !!profile.is_admin_profile, accessRole: profile.access_role });
       }
 
       if (!profile.password_hash) {
@@ -964,13 +1068,40 @@ app.post('/api/profile/:id/auth', authMiddleware, function(req, res) {
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
-// Datos de un perfil ya desbloqueado: Administrador ve todo (igual que hoy);
-// un artista solo ve sus propias citas/clientes/gastos — filtrado aquí, en el servidor,
-// para que los datos de otro artista nunca lleguen al navegador.
+// Mapea las filas de Postgres (nombres de columna en snake_case) al formato que ya usa el
+// frontend (camelCase) para appts/expenses/consents/docTemplates/waMessages, así el navegador
+// no necesita dos formatos distintos según venga de localStorage o del servidor.
+function mapApptRow(a) {
+  return { id: a.id, name: a.name, date: a.date, start: Number(a.start), dur: Number(a.dur), color: a.color,
+    status: a.status, price: Number(a.price), deposit: Number(a.deposit), workType: a.work_type, notes: a.notes,
+    artistId: a.artist_id, depositMethod: a.deposit_method, balanceMethod: a.balance_method,
+    balancePaid: !!a.balance_paid, balancePaidDate: a.balance_paid_at };
+}
+function mapExpenseRow(e) {
+  return { id: e.id, amount: Number(e.amount), cat: e.category, name: e.description, date: e.date, kind: e.kind };
+}
+function mapConsentRow(c) {
+  return { id: c.id, clientName: c.client_name, dni: c.dni, dob: c.dob, phone: c.phone, email: c.email,
+    address: c.address, tattooType: c.tattoo_type, zone: c.zone, size: c.size_desc, sessionDate: c.session_date,
+    artist: c.artist, price: c.price, deposit: c.deposit, medical: c.medical, checks: c.checks, createdAt: c.created_at_label };
+}
+function mapDocTemplateRow(d) { return { id: d.template_id, name: d.name, content: d.content }; }
+function groupWaMessages(rows) {
+  var out = {};
+  rows.forEach(function(m) {
+    if (!out[m.client_id]) out[m.client_id] = [];
+    out[m.client_id].push({ id: m.id, text: m.text, dir: m.dir, ts: m.ts, auto: !!m.auto, autoId: m.auto_id, read: !!m.read });
+  });
+  return out;
+}
+
+// Datos de un perfil ya desbloqueado: owner ve todo el estudio (igual que hoy); un artista solo
+// ve sus propias citas/clientes/gastos/proyectos/documentos/consentimientos/WhatsApp — filtrado
+// aquí, en el servidor, para que los datos de otro perfil nunca lleguen al navegador.
 app.get('/api/profile/:id/data', authMiddleware, function(req, res) {
   var profileId = parseInt(req.params.id, 10);
 
-  db.query('SELECT id, user_id, is_admin_profile FROM profiles WHERE id=$1', [profileId])
+  db.query('SELECT id, user_id, is_admin_profile, access_role FROM profiles WHERE id=$1', [profileId])
     .then(function(r) {
       if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
       var profile = r.rows[0];
@@ -982,25 +1113,34 @@ app.get('/api/profile/:id/data', authMiddleware, function(req, res) {
         var roster = allProfiles.rows.map(function(p) {
           return { id: p.id, name: p.name, role: p.role, color: p.color, isAdminProfile: !!p.is_admin_profile };
         });
+        var isOwner = profile.access_role === 'owner';
+        var scopeIds = isOwner ? allProfiles.rows.map(function(p) { return p.id; }) : [profileId];
+        var apptFilter = isOwner ? 'profile_id=ANY($1)' : 'profile_id=$1';
+        var apptParam = isOwner ? scopeIds : profileId;
 
-        if (profile.is_admin_profile) {
-          var profileIds = allProfiles.rows.map(function(p) { return p.id; });
-          return Promise.all([
-            db.query('SELECT * FROM appointments WHERE profile_id=ANY($1) ORDER BY date,start', [profileIds]),
-            db.query('SELECT * FROM clients WHERE profile_id=ANY($1)', [profileIds]),
-            db.query('SELECT * FROM expenses WHERE profile_id=ANY($1)', [profileIds]),
-          ]).then(function(results) {
-            res.json({ roster: roster, scope: 'admin', appointments: results[0].rows, clients: results[1].rows, expenses: results[2].rows });
+        return Promise.all([
+          db.query('SELECT * FROM appointments WHERE ' + apptFilter + ' ORDER BY date,start', [apptParam]),
+          db.query('SELECT * FROM clients WHERE ' + apptFilter, [apptParam]),
+          db.query('SELECT * FROM expenses WHERE ' + apptFilter, [apptParam]),
+          db.query('SELECT * FROM projects WHERE ' + apptFilter, [apptParam]),
+          db.query('SELECT * FROM doc_files WHERE ' + apptFilter, [apptParam]),
+          db.query('SELECT * FROM consents WHERE ' + apptFilter, [apptParam]),
+          db.query('SELECT * FROM doc_templates WHERE ' + apptFilter, [apptParam]),
+          db.query('SELECT * FROM wa_messages WHERE ' + apptFilter, [apptParam]),
+        ]).then(function(results) {
+          res.json({
+            roster: roster,
+            scope: isOwner ? 'admin' : 'own',
+            appointments: results[0].rows.map(mapApptRow),
+            clients: results[1].rows,
+            expenses: results[2].rows.map(mapExpenseRow),
+            projects: results[3].rows,
+            docFiles: results[4].rows,
+            consents: results[5].rows.map(mapConsentRow),
+            docTemplates: results[6].rows.map(mapDocTemplateRow),
+            waMessages: groupWaMessages(results[7].rows),
           });
-        } else {
-          return Promise.all([
-            db.query('SELECT * FROM appointments WHERE profile_id=$1 ORDER BY date,start', [profileId]),
-            db.query('SELECT * FROM clients WHERE profile_id=$1', [profileId]),
-            db.query('SELECT * FROM expenses WHERE profile_id=$1', [profileId]),
-          ]).then(function(results) {
-            res.json({ roster: roster, scope: 'own', appointments: results[0].rows, clients: results[1].rows, expenses: results[2].rows });
-          });
-        }
+        });
       });
     })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
