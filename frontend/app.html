@@ -2882,6 +2882,22 @@ function parseDate(s){const[y,m,d]=s.split('-').map(Number);return new Date(y,m-
 function sameDay(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate()}
 // Escapa texto de usuario/terceros antes de interpolarlo en innerHTML
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+// Icono de papelera único y reutilizable para todos los botones de eliminar/borrar de la app -
+// en vez de duplicar el SVG en cada sitio. stroke="currentColor" a propósito: nunca lleva color
+// fijo, hereda el color de texto del botón donde vive (así respeta su estado hover normal).
+// size: 16/20/24/32 según el sitio; className: clases extra opcionales para el <svg>.
+function iconTrash(opts){
+  var o=opts||{};
+  var size=o.size||24;
+  var cls=o.className?(' class="'+esc(o.className)+'"'):'';
+  return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"'+cls+'>'
+    + '<path d="M3 6h18" />'
+    + '<path d="M5 6l1 14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-14" />'
+    + '<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />'
+    + '<path d="M10 10.5v6.5" />'
+    + '<path d="M14 10.5v6.5" />'
+    + '</svg>';
+}
 function getMonday(d){const dd=new Date(d);const day=dd.getDay();dd.setDate(dd.getDate()-(day===0?6:day-1));return dd}
 function dateStr(d){return d.toISOString().split('T')[0]}
 
@@ -3330,7 +3346,7 @@ function renderClients(filter=''){
   document.getElementById('cl-count-lbl').textContent=filtered.length+' '+t('clientLabel').toLowerCase();
   document.getElementById('csgrid').innerHTML=filtered.map(cl=>`
     <div class="cc" onclick="openClientProfile(${cl.id})">
-      <button class="cc-del" onclick="event.stopPropagation();deleteClient(${cl.id})"></button>
+      <button class="cc-del" onclick="event.stopPropagation();deleteClient(${cl.id})" aria-label="Eliminar">${iconTrash({size:16})}</button>
       <div class="cc-av" style="background:${AVCOLS[cl.color]}">${esc(cl.name.split(' ').map(n=>n[0]).join('').slice(0,2))}</div>
       <div class="cc-nm">${esc(cl.name)}</div>
       <div class="cc-ig">${esc(cl.ig)}</div>
@@ -3507,7 +3523,7 @@ function posSaleRowHTML(s){
       <div class="examt">+€${s.amount}</div>
       <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
         <button class="addbtn" style="background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none;padding:4px 10px;font-size:10px" onclick="editPosSaleRow(${s.id})">Editar</button>
-        <button class="exdel" onclick="deletePosSale(${s.id})"></button>
+        <button class="exdel" onclick="deletePosSale(${s.id})" aria-label="Eliminar">${iconTrash({size:16})}</button>
       </div>
     </div>`;
 }
@@ -3594,7 +3610,7 @@ function settlementRowHTML(r){
       <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
         ${r.status!=='paid'?`<button class="addbtn" style="background:var(--gr);padding:4px 10px;font-size:10px;box-shadow:none" onclick="markSettlementPaid('${r.id}')">Marcar pagada</button>`:''}
         <button class="addbtn" style="background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none;padding:4px 10px;font-size:10px" onclick="editSettlementRow('${r.id}')">Editar</button>
-        <button class="exdel" onclick="deleteSettlementRow('${r.id}')"></button>
+        <button class="exdel" onclick="deleteSettlementRow('${r.id}')" aria-label="Eliminar">${iconTrash({size:16})}</button>
       </div>
     </div>`;
 }
@@ -3692,7 +3708,7 @@ function renderExpenses(){
       <div class="exinf"><div class="exnm">${esc(e.name)}</div><div class="excat">${t(e.cat)||esc(e.cat)}</div></div>
       <div class="exdate">${e.date}</div>
       <div class="examt">-€${e.amount}</div>
-      <button class="exdel" onclick="deleteExpense(${e.id})"></button>
+      <button class="exdel" onclick="deleteExpense(${e.id})" aria-label="Eliminar">${iconTrash({size:16})}</button>
     </div>`).join('');
 }
 function deleteExpense(id){removeExpense(id);renderExpenses();showToast(t('expDeleted'))}
@@ -3704,7 +3720,7 @@ function renderProjects(){
   document.getElementById('proj-count-lbl').textContent=projects.length+' proyectos';
   document.getElementById('proj-grid').innerHTML=projects.map(p=>`
     <div class="pj" onclick="openProjectDetail(${p.id})">
-      <button class="pj-del" onclick="event.stopPropagation();deleteProject(${p.id})"></button>
+      <button class="pj-del" onclick="event.stopPropagation();deleteProject(${p.id})" aria-label="Eliminar">${iconTrash({size:16})}</button>
       <div class="pj-thumb">
         ${p.images&&p.images[0]?`<img class="pj-img" src="${p.images[0]}" alt="">`:`<div class="pj-no-img"><svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg><span style="font-size:10px">${t('addImage')}</span></div>`}
       </div>
@@ -3900,7 +3916,7 @@ function renderSettings(){
               <div class="set-row-s">${esc(p.role)}</div>
             </div>
             <input class="fi" type="number" min="0" max="100" step="1" style="width:90px;text-align:center;flex:none" id="artist-comm-${p.id}" value="${typeof p.commissionPct==='number'?p.commissionPct:50}">
-            ${!p.isAdminProfile&&profiles.length>1?`<button onclick="deleteProfile(${p.id})" title="Eliminar artista" style="margin-left:8px;background:transparent;border:none;color:var(--t3);cursor:pointer;font-size:15px;padding:4px 6px;border-radius:4px;flex:none">🗑️</button>`:''}
+            ${!p.isAdminProfile&&profiles.length>1?`<button onclick="deleteProfile(${p.id})" title="Eliminar artista" aria-label="Eliminar artista" style="margin-left:8px;background:transparent;border:none;color:var(--t3);cursor:pointer;padding:4px 6px;border-radius:4px;flex:none">${iconTrash({size:16})}</button>`:''}
           </div>`).join('')}
         <div class="set-section-s" style="margin-top:4px">Los planes limitan cuántos perfiles caben en tu cuenta (Independiente: 1 · Estudio: 3 · Estudio Pro: sin límite). Eliminar un artista borra también sus citas, clientes, gastos y documentos.</div>
         <div class="fg" style="margin-top:16px"><label class="fl">Comisión de pasarela (Stripe) % — ajuste del estudio</label><input class="fi" type="number" min="0" max="100" step="0.1" id="stripe-fee-pct" value="${parseFloat(lsGet('tos_stripe_fee_pct'))||1.5}"></div>
@@ -4253,7 +4269,7 @@ function renderProfilePicker(){
     return `<div class="pp-item${p.id===activeProfileId?' active':''}" onclick="switchProfile(${p.id})">
       <div class="pp-av" style="${avStyle}">${avContent}</div>
       <div><div class="pp-nm">${esc(p.name)}</div><div class="pp-rl">${esc(p.role)}</div></div>
-      ${profiles.length>1?`<button onclick="event.stopPropagation();deleteProfile(${p.id})" style="margin-left:auto;background:transparent;border:none;color:var(--t3);cursor:pointer;font-size:10px;padding:2px 4px;border-radius:4px" title="${t('deleteProfile')}"></button>`:''}
+      ${profiles.length>1?`<button onclick="event.stopPropagation();deleteProfile(${p.id})" style="margin-left:auto;background:transparent;border:none;color:var(--t3);cursor:pointer;padding:2px 4px;border-radius:4px" title="${t('deleteProfile')}" aria-label="${t('deleteProfile')}">${iconTrash({size:16})}</button>`:''}
     </div>`;
   }).join('');
 }
@@ -4992,7 +5008,7 @@ function renderConsentCards() {
         <button class="addbtn" style="flex:1;font-size:10px;padding:6px" onclick="printConsent(${c.id})">
            Imprimir
         </button>
-        <button onclick="deleteConsent(${c.id})" style="width:30px;height:30px;background:transparent;border:1px solid rgba(244,63,94,.3);border-radius:var(--r1);color:var(--ro);cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center"></button>
+        <button onclick="deleteConsent(${c.id})" style="width:30px;height:30px;background:transparent;border:1px solid rgba(244,63,94,.3);border-radius:var(--r1);color:var(--ro);cursor:pointer;display:flex;align-items:center;justify-content:center" aria-label="Eliminar">${iconTrash({size:16})}</button>
       </div>
     </div>`).join('');
 }
@@ -5030,7 +5046,7 @@ function renderDocHistory(filter = '') {
       </div>
       <div class="doc-item-actions">
         ${d.url ? `<button class="doc-act-btn" onclick="downloadDoc(${d.id})" title="Descargar"></button>` : ''}
-        <button class="doc-act-btn del" onclick="deleteDoc(${d.id})" title="Eliminar"></button>
+        <button class="doc-act-btn del" onclick="deleteDoc(${d.id})" title="Eliminar" aria-label="Eliminar">${iconTrash({size:16})}</button>
       </div>
     </div>`).join('');
 }
@@ -5459,7 +5475,7 @@ function addDocTabToDrawer(clientId) {
         <div class="doc-item-info"><div class="doc-item-name">${esc(d.name)}</div><div class="doc-item-meta">${d.date} · ${esc(d.size)}</div></div>
         <div class="doc-item-actions">
           ${d.url?`<button class="doc-act-btn" onclick="downloadDoc(${d.id})"></button>`:''}
-          <button class="doc-act-btn del" onclick="deleteDoc(${d.id});addDocTabToDrawer(${clientId})"></button>
+          <button class="doc-act-btn del" onclick="deleteDoc(${d.id});addDocTabToDrawer(${clientId})" aria-label="Eliminar">${iconTrash({size:16})}</button>
         </div>
       </div>`).join('')}
     ${!clientDocs.length && !clientConsents.length ? `<div style="font-size:11px;color:var(--t3);text-align:center;padding:12px">Sin documentos</div>`:''}
@@ -6623,7 +6639,7 @@ function renderWaSettings(container) {
         <div class="auto-card" style="margin-bottom:8px">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
             <input class="fi" value="${esc(tpl.name)}" id="tpl-nm-${i}" style="width:140px;padding:5px 8px;font-size:11px">
-            <button class="doc-act-btn del" onclick="deleteTemplate(${i})"></button>
+            <button class="doc-act-btn del" onclick="deleteTemplate(${i})" aria-label="Eliminar">${iconTrash({size:16})}</button>
           </div>
           <textarea class="auto-card-tpl" id="tpl-txt-${i}" rows="3">${esc(tpl.text)}</textarea>
           <div style="display:flex;justify-content:flex-end;margin-top:6px">
