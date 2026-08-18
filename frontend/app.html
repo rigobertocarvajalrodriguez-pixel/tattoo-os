@@ -2852,11 +2852,16 @@ function computeMonthlyData(){
     const d=parseDate(a.date);
     if(d.getFullYear()===year) out[d.getMonth()].income+=a.price||0;
   });
-  (typeof posSales!=='undefined'?posSales:[]).forEach(function(s){
-    if(!s.date) return;
-    const d=parseDate(s.date);
-    if(d.getFullYear()===year) out[d.getMonth()].income+=s.amount||0;
-  });
+  // Fase 3 - finanzas por rol: las ventas de mostrador son del estudio entero, no de un
+  // artista (pos_sales no lleva profile_id, ver schema) - solo se suman en la vista del owner,
+  // si no un artista vería en su propio gráfico ingresos que no son suyos.
+  if(activeIsAdmin()){
+    (typeof posSales!=='undefined'?posSales:[]).forEach(function(s){
+      if(!s.date) return;
+      const d=parseDate(s.date);
+      if(d.getFullYear()===year) out[d.getMonth()].income+=s.amount||0;
+    });
+  }
   (expenses||[]).forEach(function(e){
     if(!e.date) return;
     const d=parseDate(e.date);
@@ -3390,15 +3395,34 @@ function openClientProfile(id){
 function renderFinance(){
   monthlyData=computeMonthlyData();
   document.getElementById('fin-chart-title').textContent=t('income')+' vs '+t('expenses')+' — '+TODAY.getFullYear();
-  const ti=appts.reduce((s,a)=>s+a.price,0),te=expenses.reduce((s,e)=>s+e.amount,0);
+  const isOwner=activeIsAdmin();
   const yi=monthlyData.reduce((s,m)=>s+m.income,0);
-  document.getElementById('fin-grid').innerHTML=`
-    <div class="fc fv"><div class="flbl">${t('income')} mensual</div><div class="fval">€${ti.toLocaleString()}</div><div class="fdelta fp"> +12%</div></div>
-    <div class="fc fr"><div class="flbl">${t('expenses')} mensual</div><div class="fval">€${te.toLocaleString()}</div><div class="fdelta fn">+3%</div></div>
-    <div class="fc fcy"><div class="flbl">Beneficio neto</div><div class="fval">€${(ti-te).toLocaleString()}</div><div class="fdelta fp"> +18%</div></div>
-    <div class="fc fg"><div class="flbl">Señales</div><div class="fval">€${appts.reduce((s,a)=>s+a.deposit,0)}</div></div>
-    <div class="fc fa"><div class="flbl">Ingresos anuales</div><div class="fval">€${yi.toLocaleString()}</div><div class="fdelta fp"> proyección</div></div>
-    <div class="fc fg"><div class="flbl">Completadas</div><div class="fval">${appts.filter(a=>a.status==='completed').length+47}</div></div>`;
+  if(isOwner){
+    const ti=appts.reduce((s,a)=>s+a.price,0),te=expenses.reduce((s,e)=>s+e.amount,0);
+    document.getElementById('fin-grid').innerHTML=`
+      <div class="fc fv"><div class="flbl">${t('income')} mensual</div><div class="fval">€${ti.toLocaleString()}</div><div class="fdelta fp"> +12%</div></div>
+      <div class="fc fr"><div class="flbl">${t('expenses')} mensual</div><div class="fval">€${te.toLocaleString()}</div><div class="fdelta fn">+3%</div></div>
+      <div class="fc fcy"><div class="flbl">Beneficio neto</div><div class="fval">€${(ti-te).toLocaleString()}</div><div class="fdelta fp"> +18%</div></div>
+      <div class="fc fg"><div class="flbl">Señales</div><div class="fval">€${appts.reduce((s,a)=>s+a.deposit,0)}</div></div>
+      <div class="fc fa"><div class="flbl">Ingresos anuales</div><div class="fval">€${yi.toLocaleString()}</div><div class="fdelta fp"> proyección</div></div>
+      <div class="fc fg"><div class="flbl">Completadas</div><div class="fval">${appts.filter(a=>a.status==='completed').length+47}</div></div>`;
+  } else {
+    // Fase 3 - finanzas por rol: nada de "beneficio neto" de estudio ni facturación bruta
+    // disfrazada de ingreso propio - a un artista le importa cuánto ha facturado y cuánto le
+    // corresponde a él de comisión, no la cuenta de resultados del estudio.
+    const p=ap();
+    const pct=typeof p.commissionPct==='number'?p.commissionPct:50;
+    const completedThisMonth=appts.filter(a=>a.status==='completed'&&a.date&&(()=>{const d=parseDate(a.date);return d.getFullYear()===TODAY.getFullYear()&&d.getMonth()===TODAY.getMonth()})());
+    const facturadoMes=completedThisMonth.reduce((s,a)=>s+a.price,0);
+    const comisionMes=facturadoMes*pct/100;
+    const comisionAnual=yi*pct/100;
+    document.getElementById('fin-grid').innerHTML=`
+      <div class="fc fv"><div class="flbl">Tatuajes este mes</div><div class="fval">${completedThisMonth.length}</div></div>
+      <div class="fc fr"><div class="flbl">Facturado este mes</div><div class="fval">€${facturadoMes.toLocaleString()}</div></div>
+      <div class="fc fcy"><div class="flbl">Mi comisión (${pct}%)</div><div class="fval">€${comisionMes.toFixed(2)}</div></div>
+      <div class="fc fg"><div class="flbl">Señales cobradas</div><div class="fval">€${completedThisMonth.reduce((s,a)=>s+(a.deposit||0),0)}</div></div>
+      <div class="fc fa"><div class="flbl">Comisión anual estimada</div><div class="fval">€${comisionAnual.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>`;
+  }
   const maxI=Math.max(...monthlyData.map(m=>m.income),1);
   document.getElementById('bigbars').innerHTML=monthlyData.map((m,i)=>`
     <div class="bbw">
