@@ -1656,7 +1656,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
           <div class="fg" style="margin:0"><label class="fl">Desde</label><input class="fi" type="date" id="settle-from"></div>
           <div class="fg" style="margin:0"><label class="fl">Hasta</label><input class="fi" type="date" id="settle-to"></div>
           <button class="bsec" style="width:auto;padding:9px 20px" onclick="previewSettlement()">Vista previa</button>
-          <button class="bprim" style="width:auto;padding:9px 20px" onclick="generateSettlement()">Generar liquidación</button>
+          <button class="bprim" id="settle-generate-btn" style="width:auto;padding:9px 20px" onclick="generateSettlement()">Generar liquidación</button>
         </div>
         <div id="settle-result"></div>
         <div class="set-section-t" style="margin-top:24px">Liquidaciones de este artista</div>
@@ -3427,7 +3427,9 @@ function renderArtistsFinance(){
   const year=TODAY.getFullYear(), month=TODAY.getMonth();
   const listEl=document.getElementById('fin-artists-list');
   if(!listEl) return;
-  const rows=profiles.map(p=>{
+  // Fase 2 - finanzas por rol: un artista no ve la lista de compañeros con sus comisiones,
+  // solo su propia fila (appts ya viene escopeado a lo suyo por rebuildMergedStore()).
+  const rows=(activeIsAdmin()?profiles:[ap()]).map(p=>{
     const ingresos=appts.filter(a=>a.status==='completed'&&a.artistId===p.id&&a.date&&(()=>{const d=parseDate(a.date);return d.getFullYear()===year&&d.getMonth()===month})()).reduce((s,a)=>s+a.price,0);
     const pct=typeof p.commissionPct==='number'?p.commissionPct:50;
     return {id:p.id, name:p.name, ingresos, pct, comision:ingresos*pct/100};
@@ -3577,8 +3579,14 @@ function deletePosSale(id){posSales=posSales.filter(s=>s.id!==id);saveUserProfil
 // LIQUIDACIONES (vista previa local — Fase D)
 // ==========================================
 function renderSettlementsTab(){
+  const isOwner=activeIsAdmin();
   const sel=document.getElementById('settle-artist');
-  sel.innerHTML=profiles.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  // Fase 2 - finanzas por rol: un artista no puede elegir de la lista a otro compañero, la
+  // liquidación siempre es la suya (el desplegable queda fijo/deshabilitado con su propio perfil).
+  sel.innerHTML=(isOwner?profiles:[ap()]).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  sel.disabled=!isOwner;
+  const genBtn=document.getElementById('settle-generate-btn');
+  if(genBtn) genBtn.style.display=isOwner?'':'none';
   const fromEl=document.getElementById('settle-from'), toEl=document.getElementById('settle-to');
   if(!fromEl.value){
     const d=new Date(); d.setDate(1);
@@ -3601,17 +3609,20 @@ async function generateSettlement(){
 }
 let currentSettlements=[];
 function settlementRowHTML(r){
+  // Fase 2: un artista ve sus propias liquidaciones de solo lectura - marcar pagada, editar y
+  // eliminar son acciones del dueño del estudio (el servidor ya las rechaza si se intentan igual).
+  const isOwner=activeIsAdmin();
   return `
     <div class="exi" id="settle-row-${r.id}">
       <div class="exdot" style="background:${r.status==='paid'?'var(--gr)':'var(--am)'}"></div>
       <div class="exinf"><div class="exnm">${r.period_start} → ${r.period_end}</div><div class="excat">${r.status==='paid'?'Pagada':'Pendiente'}${r.method?' · '+(PAYMENT_METHOD_LABELS[r.method]||r.method):''}</div></div>
       <div class="exdate">${(r.appt_ids||[]).length} tatuajes</div>
       <div class="examt">€${Number(r.total_comision).toFixed(2)}</div>
-      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+      ${isOwner?`<div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
         ${r.status!=='paid'?`<button class="addbtn" style="background:var(--gr);padding:4px 10px;font-size:10px;box-shadow:none" onclick="markSettlementPaid('${r.id}')">Marcar pagada</button>`:''}
         <button class="addbtn" style="background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none;padding:4px 10px;font-size:10px" onclick="editSettlementRow('${r.id}')">Editar</button>
         <button class="exdel" onclick="deleteSettlementRow('${r.id}')" aria-label="Eliminar">${iconTrash({size:16})}</button>
-      </div>
+      </div>`:''}
     </div>`;
 }
 function settlementEditHTML(r){

@@ -1229,13 +1229,20 @@ function financePeriodRange(period, dateStr) {
   return { from: iso(d.getFullYear(), d.getMonth(), 1), to: iso(d.getFullYear(), d.getMonth(), lastDay) };
 }
 
-// Reporte de ingresos/gastos/comisiones para un periodo — solo requiere sesión iniciada
-// (esta cuenta no distingue dueño/empleado todavía, igual que el resto de la app)
+// Reporte de ingresos/gastos/comisiones para un periodo. Fase 2 - finanzas por rol: un
+// "artist" solo debe ver su propia facturación/comisión, nunca el total del estudio ni el
+// desglose de sus compañeros. Esta ruta no la llama hoy el frontend (que calcula el resumen del
+// dueño en cliente, a partir de datos ya escopeados por rebuildMergedStore()), pero sigue siendo
+// un endpoint autenticado real - cualquier sesión podría llamarla directamente, así que se
+// aplica aquí el mismo filtro server-side en vez de confiar en que la UI no la use.
 app.get('/api/finance/reports', authMiddleware, function(req, res) {
   var userId = req.userId;
   var range = financePeriodRange(req.query.period, req.query.date);
   var stripeFeePct = parseFloat(req.query.stripeFeePct);
   if (isNaN(stripeFeePct)) stripeFeePct = 1.5;
+  var isArtist = req.user.accessRole === 'artist' && req.user.profileId != null;
+  var artistFilter = isArtist ? ' AND a.artist_id=$4' : '';
+  var apptParams = isArtist ? [userId, range.from, range.to, req.user.profileId] : [userId, range.from, range.to];
 
   Promise.all([
     db.query(
@@ -1243,18 +1250,18 @@ app.get('/api/finance/reports', authMiddleware, function(req, res) {
       "COALESCE(SUM(CASE WHEN a.deposit_method='stripe' THEN a.deposit ELSE 0 END),0) AS stripe_deposit, " +
       "COALESCE(SUM(CASE WHEN a.balance_method='stripe' THEN a.price-a.deposit ELSE 0 END),0) AS stripe_balance " +
       "FROM appointments a LEFT JOIN profiles p ON p.id=a.artist_id " +
-      "WHERE a.user_id=$1 AND a.status='completed' AND a.date>=$2 AND a.date<=$3 " +
+      "WHERE a.user_id=$1 AND a.status='completed' AND a.date>=$2 AND a.date<=$3" + artistFilter + " " +
       "GROUP BY a.artist_id, p.name, p.commission_pct",
-      [userId, range.from, range.to]
+      apptParams
     ),
-    db.query('SELECT COALESCE(SUM(amount),0) AS total FROM pos_sales WHERE user_id=$1 AND date>=$2 AND date<=$3', [userId, range.from, range.to]),
-    db.query(
+    isArtist ? Promise.resolve({ rows: [{ total: 0 }] }) : db.query('SELECT COALESCE(SUM(amount),0) AS total FROM pos_sales WHERE user_id=$1 AND date>=$2 AND date<=$3', [userId, range.from, range.to]),
+    isArtist ? Promise.resolve({ rows: [] }) : db.query(
       "SELECT kind, COALESCE(SUM(amount),0) AS total FROM expenses WHERE user_id=$1 AND date>=$2 AND date<=$3 GROUP BY kind",
       [userId, range.from, range.to]
     ),
     db.query(
-      "SELECT COALESCE(SUM(total_comision),0) AS paid FROM commission_settlements WHERE user_id=$1 AND status='paid' AND period_start>=$2 AND period_end<=$3",
-      [userId, range.from, range.to]
+      "SELECT COALESCE(SUM(total_comision),0) AS paid FROM commission_settlements WHERE user_id=$1" + (isArtist ? ' AND artist_id=$4' : '') + " AND status='paid' AND period_start>=$2 AND period_end<=$3",
+      isArtist ? [userId, range.from, range.to, req.user.profileId] : [userId, range.from, range.to]
     ),
   ]).then(function(results) {
     var perArtist = results[0].rows.map(function(r) {
@@ -1267,17 +1274,30 @@ app.get('/api/finance/reports', authMiddleware, function(req, res) {
         stripeAmount: Number(r.stripe_deposit) + Number(r.stripe_balance)
       };
     });
+    var totalCommissionAccrued = perArtist.reduce(function(s, a) { return s + a.totalComision; }, 0);
+    var commissionPaid = Number(results[3].rows[0].paid);
+
+    if (isArtist) {
+      // Vista de artista: solo su propia comisión, sin totales del estudio (ingresos globales,
+      // gastos, beneficio neto ni desglose de otros artistas).
+      return res.json({
+        range: range,
+        scope: 'own',
+        mine: perArtist[0] || { artistId: req.user.profileId, name: '', tattoos: 0, totalFacturado: 0, commissionPct: 0, totalComision: 0, stripeAmount: 0 },
+        commissions: { totalAccrued: totalCommissionAccrued, totalPaid: commissionPaid, totalPending: totalCommissionAccrued - commissionPaid }
+      });
+    }
+
     var tattooIncome = perArtist.reduce(function(s, a) { return s + a.totalFacturado; }, 0);
     var posIncome = Number(results[1].rows[0].total);
     var expensesByKind = { fijo: 0, variable: 0 };
     results[2].rows.forEach(function(r) { expensesByKind[r.kind || 'variable'] = Number(r.total); });
     var totalExpenses = expensesByKind.fijo + expensesByKind.variable;
-    var totalCommissionAccrued = perArtist.reduce(function(s, a) { return s + a.totalComision; }, 0);
-    var commissionPaid = Number(results[3].rows[0].paid);
     var stripeFees = perArtist.reduce(function(s, a) { return s + a.stripeAmount * stripeFeePct / 100; }, 0);
     var netProfit = (tattooIncome + posIncome) - (commissionPaid + totalExpenses + stripeFees);
     res.json({
       range: range,
+      scope: 'admin',
       income: { tattoos: tattooIncome, pos: posIncome, total: tattooIncome + posIncome },
       expenses: { fijo: expensesByKind.fijo, variable: expensesByKind.variable, total: totalExpenses },
       commissions: { perArtist: perArtist, totalAccrued: totalCommissionAccrued, totalPaid: commissionPaid, totalPending: totalCommissionAccrued - commissionPaid },
@@ -1287,19 +1307,30 @@ app.get('/api/finance/reports', authMiddleware, function(req, res) {
   }).catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
-// Listar liquidaciones existentes
+// Listar liquidaciones existentes. Fase 2 - un "artist" solo puede ver las suyas: si su rol
+// activo es artist, se ignora cualquier artistId que venga en la query y se fuerza al propio,
+// para que no pueda leer las liquidaciones de un compañero cambiando el parámetro.
 app.get('/api/finance/settlements', authMiddleware, function(req, res) {
+  var isArtist = req.user.accessRole === 'artist' && req.user.profileId != null;
   var conditions = ['user_id=$1'];
   var params = [req.userId];
-  if (req.query.artistId) { params.push(req.query.artistId); conditions.push('artist_id=$' + params.length); }
+  if (isArtist) {
+    params.push(req.user.profileId); conditions.push('artist_id=$' + params.length);
+  } else if (req.query.artistId) {
+    params.push(req.query.artistId); conditions.push('artist_id=$' + params.length);
+  }
   if (req.query.status) { params.push(req.query.status); conditions.push('status=$' + params.length); }
   db.query('SELECT * FROM commission_settlements WHERE ' + conditions.join(' AND ') + ' ORDER BY created_at DESC', params)
     .then(function(r) { res.json(r.rows); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
-// Generar una liquidación real: calculada server-side desde appointments (fuente autoritativa)
+// Generar una liquidación real: calculada server-side desde appointments (fuente autoritativa).
+// Fase 2: generar/editar/borrar liquidaciones queda reservado al dueño del estudio - es el
+// registro oficial de cuánto se le paga a cada artista, no algo que un empleado deba poder
+// crear o alterar sobre sí mismo.
 app.post('/api/finance/settlements', authMiddleware, function(req, res) {
+  if (req.user.accessRole === 'artist') return res.status(403).json({ error: 'Solo el dueño del estudio puede generar liquidaciones' });
   var userId = req.userId;
   var artistId = parseInt(req.body.artistId, 10);
   var periodStart = req.body.periodStart, periodEnd = req.body.periodEnd;
@@ -1327,8 +1358,9 @@ app.post('/api/finance/settlements', authMiddleware, function(req, res) {
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
-// Editar una liquidación (marcar pagada/pendiente, o corregir montos/periodo a mano)
+// Editar una liquidación (marcar pagada/pendiente, o corregir montos/periodo a mano) - owner only, misma razón que generarla.
 app.patch('/api/finance/settlements/:id', authMiddleware, function(req, res) {
+  if (req.user.accessRole === 'artist') return res.status(403).json({ error: 'Solo el dueño del estudio puede editar liquidaciones' });
   var b = req.body;
   db.query('SELECT * FROM commission_settlements WHERE id=$1 AND user_id=$2', [req.params.id, req.userId])
     .then(function(existing) {
@@ -1347,8 +1379,9 @@ app.patch('/api/finance/settlements/:id', authMiddleware, function(req, res) {
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
-// Eliminar una liquidación
+// Eliminar una liquidación - owner only, misma razón que generarla/editarla.
 app.delete('/api/finance/settlements/:id', authMiddleware, function(req, res) {
+  if (req.user.accessRole === 'artist') return res.status(403).json({ error: 'Solo el dueño del estudio puede eliminar liquidaciones' });
   db.query('DELETE FROM commission_settlements WHERE id=$1 AND user_id=$2', [req.params.id, req.userId])
     .then(function() { res.json({ success: true }); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
