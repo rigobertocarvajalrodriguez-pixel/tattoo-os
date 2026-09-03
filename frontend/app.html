@@ -197,7 +197,10 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .ng{margin-bottom:16px}
 .ng-lbl{font-size:9px;text-transform:uppercase;letter-spacing:1.2px;color:var(--t4);padding:0 8px;margin-bottom:4px}
 .ni{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:var(--r2);cursor:pointer;color:var(--t2);font-size:12.5px;transition:all .15s;position:relative;user-select:none;margin-bottom:1px}
-.ni:hover{background:var(--glass-h);color:var(--t1)}
+/* El fondo de hover ya no vive en .ni (background:var(--glass-h)) - lo sustituye la marca
+   fantasma deslizante .nav-ghost de abajo, para no duplicar el mismo tinte dos veces (el del
+   ítem + el de la marca) mientras el cursor viaja de un ítem a otro. */
+.ni:hover{color:var(--t1)}
 .ni:focus-visible{outline:2px solid var(--v);outline-offset:2px}
 /* Indicador deslizante (preset "Sobrio"): un único elemento por capa que viaja hasta el
    ítem activo en vez de que cada .ni muestre/oculte su propio fondo/línea de golpe. Viven
@@ -205,10 +208,13 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
    sin cálculo extra. Nunca se anima con `top` - siempre transform:translateY(), para que
    corra en el compositor. left/width se miden por ítem (no se asume ancho completo) porque
    en .sidebar-mini los ítems son cuadrados centrados de 36px, no filas. */
-.nav-pill,.nav-line{position:absolute;top:0;left:0;height:0;pointer-events:none;transform:translateY(0);transition:transform .38s cubic-bezier(.32,.72,0,1),height .38s cubic-bezier(.32,.72,0,1);z-index:0}
+.nav-pill,.nav-line,.nav-ghost{position:absolute;top:0;left:0;height:0;pointer-events:none;transform:translateY(0);transition:transform .38s cubic-bezier(.32,.72,0,1),height .38s cubic-bezier(.32,.72,0,1);z-index:0}
 .nav-pill{border-radius:var(--r2);background:var(--vd)}
 .nav-line{width:2px;border-radius:var(--r1);background:var(--v);box-shadow:0 0 6px var(--v)}
 .sidebar-mini .nav-line{display:none}
+/* Marca fantasma en hover (solo escritorio, ver initNavIndicator): sigue al ítem bajo el
+   cursor con su propio ritmo, más corto que el del indicador activo. */
+.nav-ghost{border-radius:var(--r2);background:var(--glass-h);opacity:0;transition:transform .22s cubic-bezier(.3,.7,0,1),opacity .16s linear,height .22s cubic-bezier(.3,.7,0,1)}
 @media(prefers-reduced-motion:reduce){.nav-pill,.nav-line{transition:transform .12s linear,height .12s linear}}
 /* .ni ya es position:relative (arriba); con z-index encima de las capas del indicador
    (z-index:0) su contenido (flex children: icono, texto, badge) queda siempre visible. */
@@ -1463,6 +1469,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
     
   </div>
   <nav class="nav">
+    <div class="nav-ghost" id="nav-ghost" aria-hidden="true"></div>
     <div class="nav-pill" id="nav-pill" aria-hidden="true"></div>
     <div class="nav-line" id="nav-line" aria-hidden="true"></div>
     <div class="ng">
@@ -2958,6 +2965,11 @@ function dateStr(d){return d.toISOString().split('T')[0]}
 // .sidebar-mini los ítems son cuadrados centrados de 36px, no filas de ancho completo) - .nav
 // es position:relative y ningún .ng intermedio lo es, así que sigue siendo el offsetParent
 // real de los .ni (ver comentario en el CSS de .nav).
+// Estiramiento en el recorrido (opcional, ver README): al cambiar de ítem el indicador se
+// alarga en el sentido del movimiento y vuelve a su alto. _navPrevTop guarda el top anterior
+// para calcular la distancia recorrida; skipTransition (recolocaciones por resize/modo, no
+// navegación real) y reduced-motion nunca lo activan.
+var _navPrevTop=null,_navSquashTimer=null;
 function positionNavIndicator(skipTransition){
   var track=document.querySelector('.nav');
   var pill=document.getElementById('nav-pill');
@@ -2973,17 +2985,51 @@ function positionNavIndicator(skipTransition){
     pill.style.height='0px';line.style.height='0px';
   } else {
     var top=active.offsetTop,h=active.offsetHeight,left=active.offsetLeft,w=active.offsetWidth;
-    pill.style.transform='translateY('+top+'px)';
+    var reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var squash=1,lineSquash=1,origin='top';
+    if(!reduced&&!skipTransition&&_navPrevTop!=null&&_navPrevTop!==top){
+      var dist=Math.abs(top-_navPrevTop);
+      squash=Math.min(1.5,1+dist/420);
+      lineSquash=1+(squash-1)*1.6;
+      origin=top>_navPrevTop?'top':'bottom';
+    }
+    _navPrevTop=top;
+    pill.style.transformOrigin=origin;line.style.transformOrigin=origin;
+    pill.style.transform='translateY('+top+'px) scaleY('+squash+')';
     pill.style.height=h+'px';
     pill.style.left=left+'px';
     pill.style.width=w+'px';
-    line.style.transform='translateY('+(top+8)+'px)';
+    line.style.transform='translateY('+(top+8)+'px) scaleY('+lineSquash+')';
     line.style.height=Math.max(0,h-16)+'px';
+    clearTimeout(_navSquashTimer);
+    if(squash!==1){
+      _navSquashTimer=setTimeout(function(){
+        pill.style.transform='translateY('+top+'px) scaleY(1)';
+        line.style.transform='translateY('+(top+8)+'px) scaleY(1)';
+      },Math.max(120,380*0.55));
+    }
   }
   if(skipTransition){
     void pill.offsetHeight;
     pill.style.transition='';line.style.transition='';
   }
+}
+// Marca fantasma en hover (solo escritorio, ver .nav-ghost en el CSS): un rectángulo que
+// sigue al ítem bajo el cursor y se oculta en el activo (ya tiene su propia píldora) o al
+// salir de la pista.
+function showNavGhost(item){
+  var track=document.querySelector('.nav');
+  var ghost=document.getElementById('nav-ghost');
+  if(!track||!ghost||item.offsetParent!==track) return;
+  ghost.style.transform='translateY('+item.offsetTop+'px)';
+  ghost.style.height=item.offsetHeight+'px';
+  ghost.style.left=item.offsetLeft+'px';
+  ghost.style.width=item.offsetWidth+'px';
+  ghost.style.opacity='1';
+}
+function hideNavGhost(){
+  var ghost=document.getElementById('nav-ghost');
+  if(ghost) ghost.style.opacity='0';
 }
 // Recalcula ante cualquier cambio de tamaño de la pista (colapsar/expandir sidebar, resize de
 // ventana, cambio de idioma que alargue una etiqueta...). Solo observa la pista (igual que el
@@ -3017,6 +3063,14 @@ function initNavIndicator(){
     items[next].focus();
     items[next].click();
   });
+  // Marca fantasma: solo escritorio (en móvil no hay hover real, y el drawer es táctil).
+  track.addEventListener('mouseover',function(e){
+    if(IS_MOBILE()) return;
+    var item=e.target.closest&&e.target.closest('.ni');
+    if(!item||item.classList.contains('on')){ hideNavGhost(); return; }
+    showNavGhost(item);
+  });
+  track.addEventListener('mouseleave',function(){ hideNavGhost(); });
 }
 
 function navTo(page,el){
