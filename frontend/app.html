@@ -2551,12 +2551,15 @@ function initDemoData(){
 // -- CONVENIENCE VARS (refreshed on profile switch) --
 let appts,clients,expenses,projects,consents,docFiles,waMessages,waSettings,docTemplates;
 let apptOwner=new Map(), clientOwner=new Map(), expenseOwner=new Map();
-// Citas/clientes/gastos son compartidos por todo el estudio (todos los perfiles = artistas del mismo estudio).
-// Siguen almacenados físicamente dentro de profiles[i].appts/.clients/.expenses (sin migración de datos);
-// esta fusión solo cambia qué ve el resto del código a través de las variables globales.
+let projectOwner=new Map(), consentOwner=new Map(), docFileOwner=new Map();
+// Citas/clientes/gastos/proyectos/documentos/consentimientos son compartidos por todo el
+// estudio (todos los perfiles = artistas del mismo estudio). Siguen almacenados físicamente
+// dentro de profiles[i].appts/.clients/.expenses/.projects/.consents/.docFiles (sin migración
+// de datos); esta fusión solo cambia qué ve el resto del código a través de las variables globales.
 function rebuildMergedStore(){
-  appts=[];clients=[];expenses=[];
+  appts=[];clients=[];expenses=[];projects=[];consents=[];docFiles=[];
   apptOwner=new Map();clientOwner=new Map();expenseOwner=new Map();
+  projectOwner=new Map();consentOwner=new Map();docFileOwner=new Map();
   // El Administrador ve la fusión de todos los artistas (igual que antes); un artista
   // solo ve sus propios datos - este es el punto donde se aplica el aislamiento por perfil.
   var scope=activeIsAdmin()?profiles:[ap()];
@@ -2564,6 +2567,9 @@ function rebuildMergedStore(){
     (p.appts||[]).forEach(function(a){ if(a.artistId===undefined||a.artistId===null) a.artistId=p.id; appts.push(a); apptOwner.set(a.id,p); });
     (p.clients||[]).forEach(function(c){ clients.push(c); clientOwner.set(c.id,p); });
     (p.expenses||[]).forEach(function(e){ expenses.push(e); expenseOwner.set(e.id,p); });
+    (p.projects||[]).forEach(function(pr){ projects.push(pr); projectOwner.set(pr.id,p); });
+    (p.consents||[]).forEach(function(cs){ consents.push(cs); consentOwner.set(cs.id,p); });
+    (p.docFiles||[]).forEach(function(df){ docFiles.push(df); docFileOwner.set(df.id,p); });
   });
 }
 function addAppt(a){ ap().appts.push(a); appts.push(a); apptOwner.set(a.id, ap()); }
@@ -2593,12 +2599,31 @@ function removeExpense(id){
   expenses=expenses.filter(function(x){return x.id!==id});
   expenseOwner.delete(id);
 }
+function addProject(pr){ ap().projects.push(pr); projects.push(pr); projectOwner.set(pr.id, ap()); }
+function removeProject(id){
+  const owner=projectOwner.get(id);
+  if(owner) owner.projects=owner.projects.filter(function(x){return x.id!==id});
+  projects=projects.filter(function(x){return x.id!==id});
+  projectOwner.delete(id);
+}
+function addConsent(cs){ ap().consents.push(cs); consents.push(cs); consentOwner.set(cs.id, ap()); }
+function removeConsent(id){
+  const owner=consentOwner.get(id);
+  if(owner) owner.consents=owner.consents.filter(function(x){return x.id!==id});
+  consents=consents.filter(function(x){return x.id!==id});
+  consentOwner.delete(id);
+}
+function addDocFile(df){ ap().docFiles.push(df); docFiles.push(df); docFileOwner.set(df.id, ap()); }
+function removeDocFile(id){
+  const owner=docFileOwner.get(id);
+  if(owner) owner.docFiles=owner.docFiles.filter(function(x){return x.id!==id});
+  docFiles=docFiles.filter(function(x){return x.id!==id});
+  docFileOwner.delete(id);
+}
 function refreshProfileData(){
-  const p=ap();
   rebuildMergedStore();
-  projects=p.projects; consents=p.consents; docFiles=p.docFiles;
-  waMessages=p.waMessages; waSettings=p.waSettings||defaultWaSettings();
-  docTemplates=p.docTemplates||defaultDocTemplates();
+  waMessages=ap().waMessages; waSettings=ap().waSettings||defaultWaSettings();
+  docTemplates=ap().docTemplates||defaultDocTemplates();
   monthlyData=computeMonthlyData();
 }
 
@@ -3766,7 +3791,7 @@ function renderProjects(){
       </div>
     </div>`).join('');
 }
-function deleteProject(id){if(confirm(t('projDeleted')+'?')){projects=projects.filter(p=>p.id!==id);renderProjects();showToast(t('projDeleted'))}}
+function deleteProject(id){if(confirm(t('projDeleted')+'?')){removeProject(id);renderProjects();showToast(t('projDeleted'))}}
 function openProjectDetail(id){
   const p=projects.find(x=>x.id===id);if(!p)return;
   activeProjId=id;
@@ -4798,7 +4823,7 @@ function saveExpense(){
 }
 function saveProject(){
   const nm=document.getElementById('m-pname').value.trim();if(!nm){showToast(t('fillFields'));return}
-  projects.push({id:projSeq++,name:nm,client:document.getElementById('m-pclient').value,tags:document.getElementById('m-ptags').value.split(',').map(s=>s.trim()).filter(Boolean),notes:document.getElementById('m-pnotes').value,images:[]});
+  addProject({id:projSeq++,name:nm,client:document.getElementById('m-pclient').value,tags:document.getElementById('m-ptags').value.split(',').map(s=>s.trim()).filter(Boolean),notes:document.getElementById('m-pnotes').value,images:[]});
   closeModal();renderProjects();showToast(t('projCreated'));
 }
 function saveProfile(){
@@ -5018,7 +5043,7 @@ function renderDocs() {
 function renderConsentCards() {
   const grid = document.getElementById('consents-grid');
   if (!grid) return;
-  const cons = consents; // from active profile
+  const cons = consents; // Administrador: fusión de todo el estudio; artist: solo lo suyo (ver rebuildMergedStore)
   if (!cons.length) {
     grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:48px;color:var(--t3)">
       <div style="font-size:28px;margin-bottom:12px"></div>
@@ -5049,8 +5074,7 @@ function renderConsentCards() {
 }
 
 function deleteConsent(id) {
-  ap().consents = ap().consents.filter(c => c.id !== id);
-  consents = ap().consents;
+  removeConsent(id);
   renderConsentCards();
   showToast('Consentimiento eliminado');
 }
@@ -5091,8 +5115,7 @@ function filterDocs(v = '') {
 }
 
 function deleteDoc(id) {
-  ap().docFiles = ap().docFiles.filter(d => d.id !== id);
-  docFiles = ap().docFiles;
+  removeDocFile(id);
   renderDocHistory();
   showToast('Documento eliminado');
 }
@@ -5227,7 +5250,7 @@ function openDocsUpload() {
       reader.onload = e => {
         const typeMap = {pdf:'pdf',doc:'doc',docx:'doc',jpg:'img',jpeg:'img',png:'img',webp:'img'};
         const ext = file.name.split('.').pop().toLowerCase();
-        ap().docFiles.push({
+        addDocFile({
           id: Date.now() + Math.random(),
           name: file.name,
           client: '',
@@ -5236,7 +5259,6 @@ function openDocsUpload() {
           type: typeMap[ext] || 'other',
           url: e.target.result,
         });
-        docFiles = ap().docFiles;
         if (docsTab === 'docs') renderDocHistory();
         showToast('Documento subido: ' + file.name);
       };
@@ -5342,8 +5364,7 @@ function generateConsent() {
     medical, checks, createdAt: new Date().toISOString().split('T')[0]
   };
 
-  ap().consents.push(consent);
-  consents = ap().consents;
+  addConsent(consent);
   closeModal();
   showToast('Consentimiento generado para ' + clientName);
   navTo('docs', document.querySelector('[data-page="docs"]'));
@@ -5531,7 +5552,7 @@ function openClientDocUpload(clientName, clientId) {
       reader.onload = e => {
         const ext = file.name.split('.').pop().toLowerCase();
         const typeMap = {pdf:'pdf',doc:'doc',docx:'doc',jpg:'img',jpeg:'img',png:'img',webp:'img'};
-        ap().docFiles.push({
+        addDocFile({
           id: Date.now() + Math.random(),
           name: file.name,
           client: clientName,
@@ -5540,7 +5561,6 @@ function openClientDocUpload(clientName, clientId) {
           type: typeMap[ext]||'other',
           url: e.target.result,
         });
-        docFiles = ap().docFiles;
         addDocTabToDrawer(clientId);
         showToast('Documento subido');
       };
