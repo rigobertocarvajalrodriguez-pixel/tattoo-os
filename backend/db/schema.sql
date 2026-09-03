@@ -1,13 +1,30 @@
 -- Tattoo OS Database Schema
 
 CREATE TABLE IF NOT EXISTS users (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email          TEXT UNIQUE NOT NULL,
+  name           TEXT NOT NULL,
+  password       TEXT NOT NULL,
+  is_admin       BOOLEAN DEFAULT FALSE,
+  -- plan: ver migración "Fase 1" en server.js. active/last_login_at: ver migración
+  -- "panel superadmin" en server.js (activar/desactivar cuentas y última actividad).
+  plan           TEXT NOT NULL DEFAULT 'independiente',
+  active         BOOLEAN NOT NULL DEFAULT TRUE,
+  last_login_at  TIMESTAMPTZ,
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Modo soporte del panel superadmin: log de auditoría de cada vez que is_admin entra a ver la
+-- cuenta de un usuario (impersonar de solo lectura). Ver POST /api/admin/impersonate/:userId.
+CREATE TABLE IF NOT EXISTS admin_access_log (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email       TEXT UNIQUE NOT NULL,
-  name        TEXT NOT NULL,
-  password    TEXT NOT NULL,
-  is_admin    BOOLEAN DEFAULT FALSE,
+  admin_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  admin_email TEXT NOT NULL,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_email  TEXT NOT NULL,
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_admin_access_log_user ON admin_access_log(user_id);
 
 CREATE TABLE IF NOT EXISTS profiles (
   id                SERIAL PRIMARY KEY,

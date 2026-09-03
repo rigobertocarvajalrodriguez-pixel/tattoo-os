@@ -6214,6 +6214,9 @@ function loadUserProfiles(user) {
 
 function saveUserProfiles() {
   if (!currentUser) return;
+  // Modo soporte: nunca persistir en el localStorage del admin ni intentar guardar en el
+  // servidor (que lo rechazaría igualmente - ver READ_ONLY_SAFE_METHODS en server.js).
+  if (_supportSession) return;
   const key = 'tos_profiles_' + currentUser.id;
   const admin = activeIsAdmin();
   let profilesToSync;
@@ -6761,7 +6764,11 @@ function addTemplate() {
 // ══════════════════════════════════════════
 const ADMIN_EMAIL = 'rigobertocarvajalrodriguez@gmail.com';
 var adminTab = 'tickets';
-var adminData = { users: [], tickets: [] };
+var adminData = { users: [], tickets: [], accessLog: [] };
+// Modo soporte activo: { originalToken, originalUser, targetEmail }. Mientras no sea null,
+// currentUser/_authToken pertenecen a la cuenta impersonada, no al admin - ver
+// enterSupportMode/exitSupportMode más abajo.
+var _supportSession = null;
 
 function isAdmin() { return currentUser && currentUser.email === ADMIN_EMAIL; }
 
@@ -6780,13 +6787,15 @@ async function adminRefresh() {
   if (!pb) return;
   pb.innerHTML = '<div style="text-align:center;padding:40px;color:var(--t3)">Cargando…</div>';
   try {
-    var [uRes, tRes] = await Promise.all([
-      fetch(API_BASE+'/api/admin/users',   { headers: adminHeaders() }).then(r=>r.json()),
-      fetch(API_BASE+'/api/admin/tickets', { headers: adminHeaders() }).then(r=>r.json())
+    var [uRes, tRes, lRes] = await Promise.all([
+      fetch(API_BASE+'/api/admin/users',      { headers: adminHeaders() }).then(r=>r.json()),
+      fetch(API_BASE+'/api/admin/tickets',    { headers: adminHeaders() }).then(r=>r.json()),
+      fetch(API_BASE+'/api/admin/access-log', { headers: adminHeaders() }).then(r=>r.json())
     ]);
-    adminData.users   = Array.isArray(uRes) ? uRes : [];
-    adminData.tickets = Array.isArray(tRes) ? tRes : [];
-  } catch(e) { adminData.users=[]; adminData.tickets=[]; }
+    adminData.users     = Array.isArray(uRes) ? uRes : [];
+    adminData.tickets   = Array.isArray(tRes) ? tRes : [];
+    adminData.accessLog = Array.isArray(lRes) ? lRes : [];
+  } catch(e) { adminData.users=[]; adminData.tickets=[]; adminData.accessLog=[]; }
   renderAdminPage();
 }
 
@@ -6807,6 +6816,7 @@ function renderAdminPage() {
       <button class="adm-tab${adminTab==='tickets'?' on':''}" onclick="setAdminTab('tickets',this)">Tickets (${adminData.tickets.length})</button>
       <button class="adm-tab${adminTab==='users'?' on':''}"   onclick="setAdminTab('users',this)">Usuarios (${adminData.users.length})</button>
       <button class="adm-tab${adminTab==='passwords'?' on':''}" onclick="setAdminTab('passwords',this)">Contraseñas de artistas</button>
+      <button class="adm-tab${adminTab==='log'?' on':''}" onclick="setAdminTab('log',this)">Registro de accesos (${adminData.accessLog.length})</button>
     </div>
     <div id="adm-content"></div>`;
   renderAdminContent();
@@ -6898,19 +6908,42 @@ function renderAdminContent() {
     const regular = adminData.users.filter(u => u.email !== ADMIN_EMAIL);
 
     function userCard(u) {
-      return `<div class="adm-user" style="flex-direction:column;align-items:stretch;gap:10px">
+      const isAdm = u.email === ADMIN_EMAIL;
+      const planOpts = ['independiente','estudio','estudio_pro'].map(p=>
+        `<option value="${p}"${u.plan===p?' selected':''}>${PLANS[p].name}</option>`).join('');
+      const lastLogin = u.last_login_at ? new Date(u.last_login_at).toLocaleString('es-ES') : 'Nunca';
+      return `<div class="adm-user" style="flex-direction:column;align-items:stretch;gap:10px${u.active===false?';opacity:.55':''}">
         <div style="display:flex;align-items:center;gap:12px">
-          <div class="adm-av" style="${u.email===ADMIN_EMAIL?'background:linear-gradient(135deg,#7c5cfc,#a78bfa)':''}">${esc((u.name||u.email||'?')[0].toUpperCase())}</div>
+          <div class="adm-av" style="${isAdm?'background:linear-gradient(135deg,#7c5cfc,#a78bfa)':''}">${esc((u.name||u.email||'?')[0].toUpperCase())}</div>
           <div style="flex:1;min-width:0">
-            <div class="adm-uname">${esc(u.name)||'Sin nombre'}</div>
+            <div class="adm-uname">${esc(u.name)||'Sin nombre'}${u.active===false?' · <span style="color:var(--ro)">Desactivada</span>':''}</div>
             <div class="adm-uemail">${esc(u.email)}</div>
           </div>
-          ${u.email!==ADMIN_EMAIL?`<button class="bsec" style="padding:5px 10px;font-size:11px;border-color:rgba(124,92,252,.35);color:var(--vl);flex-shrink:0" onclick="adminViewUserProfiles(${esc(JSON.stringify(u.id))},${esc(JSON.stringify(u.name||u.email||''))})">Ver perfiles</button>`:''}
+          ${!isAdm?`<div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="bsec" style="padding:5px 10px;font-size:11px;border-color:rgba(34,211,238,.35);color:var(--cy)" onclick="enterSupportMode(${esc(JSON.stringify(u.id))},${esc(JSON.stringify(u.email||''))})">🛟 Modo soporte</button>
+            <button class="bsec" style="padding:5px 10px;font-size:11px;border-color:rgba(124,92,252,.35);color:var(--vl)" onclick="adminViewUserProfiles(${esc(JSON.stringify(u.id))},${esc(JSON.stringify(u.name||u.email||''))})">Ver perfiles</button>
+          </div>`:''}
         </div>
-        <div style="background:var(--void);border:1px solid var(--bd);border-radius:var(--r1);padding:8px 10px">
-          <div style="font-size:9px;color:var(--t3);font-weight:600;letter-spacing:.5px;margin-bottom:3px">EMAIL</div>
-          <div style="font-size:12px;color:var(--t1);font-family:monospace;word-break:break-all">${esc(u.email)||'-'}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div style="background:var(--void);border:1px solid var(--bd);border-radius:var(--r1);padding:8px 10px">
+            <div style="font-size:9px;color:var(--t3);font-weight:600;letter-spacing:.5px;margin-bottom:3px">REGISTRO</div>
+            <div style="font-size:12px;color:var(--t1)">${u.created_at?new Date(u.created_at).toLocaleDateString('es-ES'):'-'}</div>
+          </div>
+          <div style="background:var(--void);border:1px solid var(--bd);border-radius:var(--r1);padding:8px 10px">
+            <div style="font-size:9px;color:var(--t3);font-weight:600;letter-spacing:.5px;margin-bottom:3px">ÚLTIMA ACTIVIDAD</div>
+            <div style="font-size:12px;color:var(--t1)">${lastLogin}</div>
+          </div>
+          <div style="background:var(--void);border:1px solid var(--bd);border-radius:var(--r1);padding:8px 10px">
+            <div style="font-size:9px;color:var(--t3);font-weight:600;letter-spacing:.5px;margin-bottom:3px">PERFILES</div>
+            <div style="font-size:12px;color:var(--t1)">${u.profile_count!=null?u.profile_count:'-'}</div>
+          </div>
+          <div style="background:var(--void);border:1px solid var(--bd);border-radius:var(--r1);padding:8px 10px">
+            <div style="font-size:9px;color:var(--t3);font-weight:600;letter-spacing:.5px;margin-bottom:3px">PLAN</div>
+            ${isAdm?`<div style="font-size:12px;color:var(--t1)">${PLANS[u.plan||'independiente']?PLANS[u.plan].name:esc(u.plan)}</div>`
+              :`<select class="fi" style="font-size:11px;padding:3px 6px;width:100%" onchange="adminChangeUserPlan(${esc(JSON.stringify(u.id))},this.value)">${planOpts}</select>`}
+          </div>
         </div>
+        ${!isAdm?`<button class="bsec" style="padding:6px 10px;font-size:11px;${u.active===false?'border-color:rgba(16,185,129,.35);color:var(--gr)':'border-color:rgba(244,63,94,.35);color:var(--ro)'}" onclick="adminToggleActive(${esc(JSON.stringify(u.id))},${u.active===false})">${u.active===false?'Reactivar cuenta':'Desactivar cuenta'}</button>`:''}
       </div>`;
     }
 
@@ -6918,6 +6951,19 @@ function renderAdminContent() {
       `<div style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--vl);padding:4px 2px 8px;text-transform:uppercase">Administrador</div>`+
       admins.map(userCard).join('') +
       (regular.length ? `<div style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--t3);padding:16px 2px 8px;text-transform:uppercase;border-top:1px solid var(--bd);margin-top:8px">Usuarios (${regular.length})</div>`+regular.map(userCard).join('') : `<div style="font-size:12px;color:var(--t3);padding:20px 4px 4px">Aún no hay usuarios registrados.</div>`);
+  } else if (adminTab === 'log') {
+    if (!adminData.accessLog.length) {
+      c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--t3)">Sin accesos en modo soporte todavía.</div>';
+      return;
+    }
+    c.innerHTML = `<div style="font-size:11px;color:var(--t3);padding:2px 2px 10px">Cada vez que entras en "Modo soporte" a la cuenta de un usuario queda registrado aquí.</div>` +
+      adminData.accessLog.map(l=>`
+      <div class="adm-user" style="align-items:center;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div class="adm-uname">${esc(l.admin_email)} → ${esc(l.user_email)}</div>
+          <div class="adm-uemail">${new Date(l.created_at).toLocaleString('es-ES')}</div>
+        </div>
+      </div>`).join('');
   } else {
     if (!adminData.tickets.length) {
       c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--t3)">No hay tickets de soporte.<br><small>Los usuarios pueden reportar problemas desde sus perfiles.</small></div>';
@@ -6962,6 +7008,96 @@ function renderAdminContent() {
 async function adminUpdateTicket(id, data) {
   await fetch(API_BASE+'/api/admin/tickets/'+id, { method:'PATCH', headers: adminHeaders(), body: JSON.stringify(data) });
   adminRefresh();
+}
+
+async function adminChangeUserPlan(userId, plan) {
+  const res = await fetch(API_BASE+'/api/admin/users/'+userId, { method:'PATCH', headers: adminHeaders(), body: JSON.stringify({ plan }) });
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) { showToast(data.error||'No se pudo cambiar el plan'); adminRefresh(); return; }
+  showToast('Plan actualizado a '+(PLANS[plan]?PLANS[plan].name:plan));
+  adminRefresh();
+}
+
+async function adminToggleActive(userId, activate) {
+  if (!activate && !confirm('¿Desactivar esta cuenta? El usuario no podrá iniciar sesión hasta que la reactives.')) return;
+  const res = await fetch(API_BASE+'/api/admin/users/'+userId, { method:'PATCH', headers: adminHeaders(), body: JSON.stringify({ active: activate }) });
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) { showToast(data.error||'No se pudo actualizar la cuenta'); return; }
+  showToast(activate ? 'Cuenta reactivada' : 'Cuenta desactivada');
+  adminRefresh();
+}
+
+// ══════════════════════════════════════════
+// MODO SOPORTE (impersonar de solo lectura)
+// ══════════════════════════════════════════
+// Entra a ver la cuenta de un usuario tal cual la ve él, para diagnosticar un problema.
+// Solo lectura: el servidor rechaza cualquier escritura con el token que devuelve
+// /api/admin/impersonate (ver READ_ONLY_SAFE_METHODS en server.js), y saveUserProfiles() se
+// desactiva mientras _supportSession esté activo para no pisar el localStorage del admin ni
+// intentar guardar cambios que el servidor va a rechazar igualmente. Cada entrada queda
+// registrada server-side en admin_access_log antes de devolver los datos.
+async function enterSupportMode(userId, email) {
+  if (_supportSession) { showToast('Ya estás en modo soporte'); return; }
+  try {
+    const res = await fetch(API_BASE+'/api/admin/impersonate/'+userId, { method:'POST', headers: adminHeaders() });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error||'No se pudo entrar en modo soporte'); return; }
+    _supportSession = { originalToken: _authToken, originalUser: currentUser, targetEmail: data.user.email };
+    _authToken = data.token;
+    localStorage.setItem('tos_local_token', data.token);
+    currentUser = data.user;
+    profiles = data.profiles && data.profiles.length ? data.profiles : [{
+      id: profileIdSeq++, name: data.user.name, role: '', color: 'v',
+      appts: [], clients: [], expenses: [], projects: [], consents: [], docFiles: [],
+      waMessages: {}, waSettings: null, activityLog: [],
+    }];
+    var ownerProf = profiles.find(function(p){ return p.isAdminProfile; }) || profiles[0];
+    activeProfileId = ownerProf.id;
+    reseedIdCounters();
+    refreshProfileData();
+    closeModal();
+    var overlay = document.getElementById('adm-profiles-overlay');
+    if (overlay) overlay.style.display = 'none';
+    renderSupportBanner();
+    showAdminNav();
+    buildMiniCal(); buildCalView(); buildRP(); updateTopbar(); renderUserArea();
+    navTo('cal', document.querySelector('[data-page="cal"]'));
+    showToast('Modo soporte: viendo la cuenta de '+email+' (solo lectura)');
+  } catch(e) { showToast('Error de conexión'); }
+}
+
+function exitSupportMode() {
+  if (!_supportSession) return;
+  fetch(API_BASE+'/api/auth/logout', { method:'POST', headers:{ 'Authorization':'Bearer '+_authToken } }).catch(function(){});
+  _authToken = _supportSession.originalToken;
+  localStorage.setItem('tos_local_token', _authToken);
+  currentUser = _supportSession.originalUser;
+  _supportSession = null;
+  hideSupportBanner();
+  loadUserProfiles(currentUser);
+  showAdminNav();
+  buildMiniCal(); buildCalView(); buildRP(); updateTopbar(); renderUserArea();
+  navTo('admin', document.querySelector('[data-page="admin"]'));
+  showToast('Saliste del modo soporte');
+}
+
+function renderSupportBanner() {
+  var b = document.getElementById('support-mode-banner');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'support-mode-banner';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:10001;background:linear-gradient(90deg,#f59e0b,#f97316);color:#1a1006;font-weight:700;font-size:12px;padding:8px 14px;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 2px 10px rgba(0,0,0,.3)';
+    document.body.appendChild(b);
+  }
+  b.innerHTML = '🛟 MODO SOPORTE — viendo la cuenta de <span style="text-decoration:underline">'+esc(_supportSession.targetEmail)+'</span> · Solo lectura'+
+    '<button onclick="exitSupportMode()" style="background:#1a1006;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">Salir</button>';
+  b.style.display = 'flex';
+  document.body.style.paddingTop = '36px';
+}
+function hideSupportBanner() {
+  var b = document.getElementById('support-mode-banner');
+  if (b) b.style.display = 'none';
+  document.body.style.paddingTop = '';
 }
 
 // Admin: view a user's profiles and data

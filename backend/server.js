@@ -225,6 +225,26 @@ Promise.all([
   console.log('[DB] Migración de roles/planes (Fase 1) aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de roles/planes:', e.message); });
 
+// Panel de superadmin de la plataforma (distinto de access_role='owner' de la Fase 1 - ese es
+// el dueño de UN estudio; is_admin/ADMIN_EMAIL es quien gestiona TODOS los estudios): activar/
+// desactivar cuentas, última actividad y un log de auditoría simple de cada vez que el admin
+// entra en "modo soporte" a ver la cuenta de un usuario.
+Promise.all([
+  db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE'),
+  db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ'),
+  db.query(`CREATE TABLE IF NOT EXISTS admin_access_log (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    admin_email TEXT NOT NULL,
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_email  TEXT NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT NOW())`),
+]).then(function() {
+  return db.query('CREATE INDEX IF NOT EXISTS idx_admin_access_log_user ON admin_access_log(user_id)');
+}).then(function() {
+  console.log('[DB] Migración de panel superadmin aplicada');
+}).catch(function(e) { console.error('[DB] Error en migración de panel superadmin:', e.message); });
+
 const app = express();
 app.set('trust proxy', 1);
 // CORS abierto solo fuera de producción (desarrollo local / pruebas por LAN con el móvil, donde
@@ -244,6 +264,21 @@ app.use(function(req, res, next) {
   next();
 });
 app.use(express.json());
+// Modo soporte (ver PANEL SUPERADMIN más abajo): un token de sesión creado por
+// POST /api/admin/impersonate lleva readOnly:true. Se bloquea aquí, a nivel global, cualquier
+// método que no sea de lectura - así ninguna ruta existente ni futura tiene que acordarse de
+// comprobarlo caso por caso. Única excepción: cerrar la propia sesión de soporte (logout).
+var READ_ONLY_SAFE_METHODS = { GET: true, HEAD: true, OPTIONS: true };
+var READ_ONLY_ALLOWED_PATHS = ['/api/auth/logout'];
+app.use(function(req, res, next) {
+  if (READ_ONLY_SAFE_METHODS[req.method] || READ_ONLY_ALLOWED_PATHS.indexOf(req.path) !== -1) return next();
+  var token = req.headers.authorization && req.headers.authorization.replace('Bearer ', '');
+  var session = token && authSessions[token];
+  if (session && session.readOnly) {
+    return res.status(403).json({ error: 'Modo soporte: solo lectura. Los cambios no se guardan en la cuenta de este usuario.' });
+  }
+  next();
+});
 // index:false — ya no queremos que express.static sirva frontend/app.html automáticamente en
 // "/" (comportamiento por defecto de static con un archivo index.html). La landing pública y la
 // app autenticada ahora son documentos distintos, servidos explícitamente más abajo.
@@ -358,8 +393,10 @@ app.post('/api/auth/login', loginRateLimiter, function(req, res) {
       var check = BCRYPT_RE.test(stored) ? bcrypt.compare(pass, stored) : Promise.resolve(pass === stored);
       return check.then(function(match) {
         if (!match) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+        if (user.active === false) return res.status(403).json({ error: 'Esta cuenta ha sido desactivada. Contacta con soporte.' });
         var token = crypto.randomUUID();
         authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin };
+        db.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]).catch(function() {});
         res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
       });
     })
@@ -712,9 +749,62 @@ app.delete('/api/expenses/:id', authMiddleware, function(req, res) {
 // ══════════════════════════════════════════
 
 app.get('/api/admin/users', adminMiddleware, function(req, res) {
-  db.query('SELECT id, email, name, is_admin, created_at FROM users ORDER BY created_at ASC')
+  db.query(
+    'SELECT u.id, u.email, u.name, u.is_admin, u.plan, u.active, u.created_at, u.last_login_at, ' +
+    "COALESCE(pc.cnt, 0)::int AS profile_count " +
+    'FROM users u LEFT JOIN (SELECT user_id, COUNT(*) AS cnt FROM profiles GROUP BY user_id) pc ON pc.user_id = u.id ' +
+    'ORDER BY u.created_at ASC'
+  )
     .then(function(r) { res.json(r.rows); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Cambiar el plan y/o activar/desactivar una cuenta a mano (upgrades de cortesía, corregir un
+// error de pago, suspender una cuenta problemática...). No se puede tocar la cuenta del propio
+// admin - evita que se bloquee a sí mismo sin querer. Reutiliza el mismo tope de perfiles por
+// plan que /api/user/plan (self-service) para no dejar una cuenta con más perfiles de los que
+// su plan permite.
+app.patch('/api/admin/users/:id', adminMiddleware, function(req, res) {
+  var targetId = req.params.id;
+  db.query('SELECT id, is_admin FROM users WHERE id=$1', [targetId]).then(function(r) {
+    if (!r.rows.length) { res.status(404).json({ error: 'Usuario no encontrado' }); return null; }
+    if (r.rows[0].is_admin) { res.status(400).json({ error: 'No puedes modificar la cuenta de administrador' }); return null; }
+
+    var chain = Promise.resolve();
+    if (req.body.plan !== undefined) {
+      var plan = req.body.plan;
+      if (['independiente', 'estudio', 'estudio_pro'].indexOf(plan) === -1) {
+        res.status(400).json({ error: 'Plan inválido' });
+        return null;
+      }
+      chain = chain.then(function() {
+        return db.query('SELECT COUNT(*) FROM profiles WHERE user_id=$1', [targetId]).then(function(cr) {
+          var current = parseInt(cr.rows[0].count, 10);
+          var limit = PLAN_PROFILE_LIMITS[plan];
+          if (current > limit) {
+            var err = new Error('Esta cuenta ya tiene ' + current + ' perfiles; el plan "' + plan + '" permite máximo ' + limit + '.');
+            err.code = 'PLAN_LIMIT';
+            throw err;
+          }
+          return db.query('UPDATE users SET plan=$1 WHERE id=$2', [plan, targetId]);
+        });
+      });
+    }
+    if (req.body.active !== undefined) {
+      chain = chain.then(function() {
+        return db.query('UPDATE users SET active=$1 WHERE id=$2', [!!req.body.active, targetId]);
+      });
+    }
+    return chain.then(function() {
+      return db.query(
+        'SELECT id, email, name, is_admin, plan, active, created_at, last_login_at FROM users WHERE id=$1',
+        [targetId]
+      );
+    }).then(function(ur) { res.json(ur.rows[0]); });
+  }).catch(function(e) {
+    if (e && e.code === 'PLAN_LIMIT') { res.status(403).json({ error: e.message }); return; }
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+  });
 });
 
 app.get('/api/admin/tickets', adminMiddleware, function(req, res) {
@@ -1387,28 +1477,89 @@ app.delete('/api/finance/settlements/:id', authMiddleware, function(req, res) {
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
-// Admin: get a specific user's full data from PostgreSQL
-app.get('/api/admin/user-data/:userId', adminMiddleware, function(req, res) {
-  var uid = req.params.userId;
-  db.query('SELECT * FROM profiles WHERE user_id=$1 ORDER BY id ASC', [uid])
-    .then(function(pr) {
-      if (!pr.rows.length) return res.status(404).json({ error: 'Sin datos guardados aún' });
-      var profileIds = pr.rows.map(function(p){ return p.id; });
-      return Promise.all([
-        db.query('SELECT * FROM appointments WHERE profile_id=ANY($1) ORDER BY date,start', [profileIds]),
-        db.query('SELECT * FROM clients WHERE profile_id=ANY($1)', [profileIds])
-      ]).then(function(results) {
-        var appts = results[0].rows;
-        var clients = results[1].rows;
-        var profiles = pr.rows.map(function(p) {
-          return Object.assign({}, p, {
-            appts: appts.filter(function(a){ return a.profile_id===p.id; }),
-            clients: clients.filter(function(c){ return c.profile_id===p.id; })
-          });
-        });
-        res.json({ profiles: profiles, updated_at: new Date().toISOString() });
+// Devuelve el estado completo de una cuenta - todos sus perfiles con agenda/clientes/gastos/
+// proyectos/documentos/consentimientos/plantillas/WhatsApp, mismo shape que arma el frontend en
+// profiles[] localmente. La usan tanto "Ver perfiles" (resumen para el admin) como el modo
+// soporte (impersonar), que necesita los datos reales - no solo el conteo - para poder ver la
+// app tal cual la ve el usuario.
+function getFullAccountData(userId) {
+  return db.query('SELECT * FROM profiles WHERE user_id=$1 ORDER BY id ASC', [userId]).then(function(pr) {
+    if (!pr.rows.length) return { profiles: [], updated_at: null };
+    var profileIds = pr.rows.map(function(p) { return p.id; });
+    return Promise.all([
+      db.query('SELECT * FROM appointments WHERE profile_id=ANY($1) ORDER BY date,start', [profileIds]),
+      db.query('SELECT * FROM clients WHERE profile_id=ANY($1)', [profileIds]),
+      db.query('SELECT * FROM expenses WHERE profile_id=ANY($1)', [profileIds]),
+      db.query('SELECT * FROM projects WHERE profile_id=ANY($1)', [profileIds]),
+      db.query('SELECT * FROM doc_files WHERE profile_id=ANY($1)', [profileIds]),
+      db.query('SELECT * FROM consents WHERE profile_id=ANY($1)', [profileIds]),
+      db.query('SELECT * FROM doc_templates WHERE profile_id=ANY($1)', [profileIds]),
+      db.query('SELECT * FROM wa_messages WHERE profile_id=ANY($1)', [profileIds]),
+    ]).then(function(results) {
+      var appts = results[0].rows, clients = results[1].rows, expenses = results[2].rows,
+        projects = results[3].rows, docFiles = results[4].rows, consents = results[5].rows,
+        docTemplates = results[6].rows, waMessages = results[7].rows;
+      function mine(rows, p) { return rows.filter(function(r) { return r.profile_id === p.id; }); }
+      var profiles = pr.rows.map(function(p) {
+        return {
+          id: p.id, name: p.name, role: p.role, color: p.color,
+          isAdminProfile: !!p.is_admin_profile, accessRole: p.access_role,
+          appts: mine(appts, p).map(mapApptRow),
+          clients: mine(clients, p),
+          expenses: mine(expenses, p).map(mapExpenseRow),
+          projects: mine(projects, p),
+          docFiles: mine(docFiles, p),
+          consents: mine(consents, p).map(mapConsentRow),
+          docTemplates: mine(docTemplates, p).map(mapDocTemplateRow),
+          waMessages: groupWaMessages(mine(waMessages, p)),
+        };
       });
+      return { profiles: profiles, updated_at: new Date().toISOString() };
+    });
+  });
+}
+
+// Admin: resumen de una cuenta (usado por "Ver perfiles" en la pestaña Usuarios)
+app.get('/api/admin/user-data/:userId', adminMiddleware, function(req, res) {
+  getFullAccountData(req.params.userId)
+    .then(function(data) {
+      if (!data.profiles.length) return res.status(404).json({ error: 'Sin datos guardados aún' });
+      res.json(data);
     })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Modo soporte: el admin entra a ver la cuenta de un usuario tal cual la ve él (solo lectura -
+// ver el guard READ_ONLY_SAFE_METHODS más arriba). Cada uso queda registrado en
+// admin_access_log (quién, a quién, cuándo) antes de devolver nada, para que quede constancia
+// aunque falle algo después.
+app.post('/api/admin/impersonate/:userId', adminMiddleware, function(req, res) {
+  var targetId = req.params.userId;
+  db.query('SELECT id, email, name, is_admin FROM users WHERE id=$1', [targetId]).then(function(r) {
+    if (!r.rows.length) { res.status(404).json({ error: 'Usuario no encontrado' }); return null; }
+    var target = r.rows[0];
+    if (target.is_admin) { res.status(400).json({ error: 'No puedes entrar en modo soporte sobre la cuenta de administrador' }); return null; }
+    var adminSession = req.adminUser;
+    return db.query(
+      'INSERT INTO admin_access_log (admin_id, admin_email, user_id, user_email) VALUES ($1,$2,$3,$4)',
+      [adminSession.userId, adminSession.email, target.id, target.email]
+    ).then(function() {
+      return getFullAccountData(target.id);
+    }).then(function(data) {
+      var token = crypto.randomUUID();
+      authSessions[token] = {
+        userId: target.id, email: target.email, name: target.name, isAdmin: false,
+        readOnly: true, impersonatedByAdminId: adminSession.userId, impersonatedByAdminEmail: adminSession.email,
+      };
+      res.json({ token: token, user: { id: target.id, email: target.email, name: target.name }, profiles: data.profiles });
+    });
+  }).catch(function(e) { if (!res.headersSent) res.status(500).json({ error: e.message }); });
+});
+
+// Log de auditoría del modo soporte: quién (admin) entró a ver la cuenta de quién y cuándo.
+app.get('/api/admin/access-log', adminMiddleware, function(req, res) {
+  db.query('SELECT * FROM admin_access_log ORDER BY created_at DESC LIMIT 200')
+    .then(function(r) { res.json(r.rows); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
