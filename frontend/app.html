@@ -7082,6 +7082,8 @@ function exitSupportMode() {
 }
 
 function renderSupportBanner() {
+  injectSupportReadonlyStyle();
+  document.body.classList.add('support-readonly');
   var b = document.getElementById('support-mode-banner');
   if (!b) {
     b = document.createElement('div');
@@ -7089,15 +7091,50 @@ function renderSupportBanner() {
     b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:10001;background:linear-gradient(90deg,#f59e0b,#f97316);color:#1a1006;font-weight:700;font-size:12px;padding:8px 14px;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 2px 10px rgba(0,0,0,.3)';
     document.body.appendChild(b);
   }
-  b.innerHTML = '🛟 MODO SOPORTE — viendo la cuenta de <span style="text-decoration:underline">'+esc(_supportSession.targetEmail)+'</span> · Solo lectura'+
+  b.innerHTML = '🛟 MODO SOPORTE — viendo la cuenta de <span style="text-decoration:underline">'+esc(_supportSession.targetEmail)+'</span> · Solo lectura, los botones de guardar/borrar están desactivados'+
     '<button onclick="exitSupportMode()" style="background:#1a1006;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">Salir</button>';
   b.style.display = 'flex';
   document.body.style.paddingTop = '36px';
 }
 function hideSupportBanner() {
+  document.body.classList.remove('support-readonly');
   var b = document.getElementById('support-mode-banner');
   if (b) b.style.display = 'none';
   document.body.style.paddingTop = '';
+}
+
+// Funciones que guardan/borran datos - se usan para atenuar visualmente sus botones en modo
+// soporte (con .support-readonly en <body>). El bloqueo real ya lo hace el servidor (ver
+// READ_ONLY_SAFE_METHODS); esto es solo la señal visual para no hacer clic en algo que el
+// servidor va a rechazar de todas formas. Si se añade una función nueva de guardar/borrar,
+// añadirla aquí también.
+var SUPPORT_READONLY_WRITE_FNS = [
+  'deleteAppt','deleteClient','deleteConsent','deleteDoc','deleteExpense','deletePosSale',
+  'deleteProfile','deleteProject','deleteSettlementRow','deleteTemplate',
+  'saveAppt','saveArtistCommissions','saveAutoTemplate','saveClient','saveDocTemplate',
+  'saveExpense','savePosSale','savePosSaleEdit','saveProfile','saveProject',
+  'saveSettlementEdit','saveStudioSettings','saveTemplate','saveProjectNote',
+  'generateConsent','generateSettlement','markSettlementPaid','removeProfilePhoto',
+  'submitProfileAuth','submitResetProfilePw','submitSupportTicket',
+  'addImageToProject','addTemplate','openDocsUpload','openClientDocUpload',
+  'sendBulkWa','handleProfilePhoto',
+];
+function injectSupportReadonlyStyle() {
+  if (document.getElementById('support-readonly-style')) return;
+  var writeSel = SUPPORT_READONLY_WRITE_FNS.map(function(fn) {
+    return 'body.support-readonly [onclick*="'+fn+'("]';
+  }).concat(SUPPORT_READONLY_WRITE_FNS.map(function(fn) {
+    return 'body.support-readonly [onchange*="'+fn+'("]';
+  })).join(',\n');
+  var css =
+    'body.support-readonly .bprim:not([onclick^="closeModal"]):not([onclick^="doLogin"]):not([onclick^="doRegister"]):not([onclick^="sendForgot"]),\n' +
+    writeSel + ' {\n' +
+    '  opacity:.35 !important; filter:grayscale(70%); pointer-events:none !important; cursor:not-allowed !important;\n' +
+    '}';
+  var style = document.createElement('style');
+  style.id = 'support-readonly-style';
+  style.textContent = css;
+  document.head.appendChild(style);
 }
 
 // Admin: view a user's profiles and data
