@@ -999,12 +999,23 @@ function ensureDefaultEmailRules(userId) {
 // regla activa del estudio. El remitente (nombre visible) es el del ARTISTA asignado a la
 // cita (a.artistId) y, si tiene, el nombre de su estudio - no el de quien creó la cita, que
 // puede ser el dueño gestionando la agenda de todos.
+//
+// El cliente se busca en la tabla (por user_id, toda la cuenta), no en profile.clients: el
+// dueño del estudio ve/crea clientes y citas fusionados de todos los artistas en el navegador
+// (rebuildMergedStore), pero cada uno sigue viviendo en el array del perfil donde se creó -
+// una cita y su cliente pueden estar en profile_id distintos aunque en el navegador aparezcan
+// juntos. Buscar solo en profile.clients (el perfil de LA CITA) los deja sin encontrarse.
 function scheduleAftercareEmails(userId, apptId, a, profile) {
-  var clientsList = profile.clients || [];
-  var client = clientsList.find(function(c) { return c.name === a.name; });
-  var email = client && client.email ? String(client.email).trim() : '';
-  if (!email) return Promise.resolve();
-
+  return db.query(
+    "SELECT email FROM clients WHERE user_id=$1 AND name=$2 AND email<>'' ORDER BY created_at DESC LIMIT 1",
+    [userId, a.name || '']
+  ).then(function(cr) {
+    var email = cr.rows.length ? String(cr.rows[0].email).trim() : '';
+    if (!email) return;
+    return scheduleAftercareEmailsForClient(userId, apptId, a, profile, email);
+  }).catch(function() {});
+}
+function scheduleAftercareEmailsForClient(userId, apptId, a, profile, email) {
   var vars = {
     nombre: followupFirstName(a.name),
     tattoo: a.workType || a.type || a.notes || a.note || 'tatuaje',
