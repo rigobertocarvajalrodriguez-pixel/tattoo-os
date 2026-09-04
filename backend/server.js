@@ -16,10 +16,30 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'rigobertocarvajalrodriguez@gmail.com';
 const ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
+
+// Notificaciones de seguimiento por email (ver más abajo "SEGUIMIENTO DE CURACIÓN POR EMAIL"):
+// un único remitente de la plataforma para todos los estudios, con el nombre visible del
+// tatuador/estudio como remitente y el email de contacto del estudio como "Responder a" - así
+// ningún dueño de estudio tiene que configurar SMTP propio. Sin SMTP_USER/SMTP_PASS en el
+// entorno, los emails simplemente no se envían (se quedan en 'pending'); el resto de la app
+// sigue funcionando igual, mismo criterio que la conexión a PostgreSQL más abajo.
+var mailTransporter = null;
+if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+  mailTransporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT || '465', 10),
+    secure: (process.env.SMTP_SECURE || 'true') === 'true',
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+  console.log('[MAIL] Transporte SMTP configurado:', process.env.SMTP_USER);
+} else {
+  console.warn('[MAIL] SMTP_USER/SMTP_PASS no configurados - los emails de seguimiento quedarán pendientes hasta que se configuren.');
+}
 
 // Fase 1 de roles/planes: cuántos perfiles (dueño + artistas) caben en cada plan.
 // estudio_pro es "ilimitado" -> Infinity nunca se alcanza en la comprobación de abajo.
@@ -245,6 +265,52 @@ Promise.all([
   console.log('[DB] Migración de panel superadmin aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de panel superadmin:', e.message); });
 
+// Seguimiento de curación por EMAIL (sustituye al que era por WhatsApp - ver
+// "SEGUIMIENTO DE CURACIÓN POR EMAIL" más abajo). notification_email es el email de contacto
+// del estudio (Responder-a de las notificaciones) - se auto-vincula al email de la cuenta al
+// registrarse y solo el dueño/superadmin pueden cambiarlo después. studio_name en profiles
+// existía en el frontend (Ajustes > Estudio) pero nunca se guardaba en el servidor - hace
+// falta aquí porque el remitente de cada email lo arma el propio backend (nombre del
+// tatuador + su estudio), no el navegador.
+Promise.all([
+  db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_email TEXT'),
+  db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS studio_name TEXT'),
+  db.query(`CREATE TABLE IF NOT EXISTS email_rules (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    offset_days  INTEGER NOT NULL DEFAULT 1,
+    offset_hour  INTEGER NOT NULL DEFAULT 11,
+    subject      TEXT NOT NULL DEFAULT '',
+    body         TEXT NOT NULL DEFAULT '',
+    enabled      BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at   TIMESTAMPTZ DEFAULT NOW())`),
+  db.query(`CREATE TABLE IF NOT EXISTS email_followups (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    appointment_id TEXT NOT NULL,
+    user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    rule_id        UUID REFERENCES email_rules(id) ON DELETE SET NULL,
+    client_name    TEXT NOT NULL,
+    client_email   TEXT NOT NULL,
+    sender_name    TEXT NOT NULL DEFAULT '',
+    subject        TEXT NOT NULL DEFAULT '',
+    body           TEXT NOT NULL DEFAULT '',
+    scheduled_at   TIMESTAMPTZ NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'pending',
+    sent_at        TIMESTAMPTZ,
+    error          TEXT,
+    created_at     TIMESTAMPTZ DEFAULT NOW())`),
+]).then(function() {
+  return Promise.all([
+    db.query('UPDATE users SET notification_email=email WHERE notification_email IS NULL'),
+    db.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_email_followup_unique ON email_followups(appointment_id, rule_id)'),
+    db.query('CREATE INDEX IF NOT EXISTS idx_email_rules_user ON email_rules(user_id)'),
+    db.query('CREATE INDEX IF NOT EXISTS idx_email_followups_user ON email_followups(user_id)'),
+  ]);
+}).then(function() {
+  console.log('[DB] Migración de seguimiento por email aplicada');
+}).catch(function(e) { console.error('[DB] Error en migración de seguimiento por email:', e.message); });
+
 const app = express();
 app.set('trust proxy', 1);
 // CORS abierto solo fuera de producción (desarrollo local / pruebas por LAN con el móvil, donde
@@ -410,7 +476,9 @@ app.post('/api/auth/register', loginRateLimiter, function(req, res) {
   if (!email || !pass) return res.status(400).json({ error: 'Email y contraseña requeridos' });
   if (pass.length < 8) return res.status(400).json({ error: 'Contraseña mínimo 8 caracteres' });
   bcrypt.hash(pass, 10).then(function(hash) {
-    return db.query('INSERT INTO users (email, name, password) VALUES ($1,$2,$3) RETURNING *', [email, name, hash])
+    // notification_email arranca igual al email de la cuenta (auto-vinculado al registrarse,
+    // ver migración "seguimiento por email" más arriba) - el dueño puede cambiarlo después.
+    return db.query('INSERT INTO users (email, name, password, notification_email) VALUES ($1,$2,$3,$1) RETURNING *', [email, name, hash])
       .then(function(r) {
         var user = r.rows[0];
         var token = crypto.randomUUID();
@@ -875,12 +943,21 @@ app.post('/api/tickets', authMiddleware, function(req, res) {
 });
 
 // ══════════════════════════════════════════
-// SEGUIMIENTO DE CURACIÓN POR WHATSAPP (día 1 / día 3 tras completar la cita)
+// SEGUIMIENTO DE CURACIÓN POR EMAIL (día 1 / día 3 tras completar la cita)
 // ══════════════════════════════════════════
-var DEFAULT_FOLLOWUP_TEMPLATES = {
-  day1: 'Hola {nombre}! ¿Qué tal fue todo en la sesión de tu "{tattoo}"? \n\nTe dejo los cuidados para la curación:\n- Lava la zona con agua y jabón neutro 2 veces al día\n- Aplica una crema cicatrizante fina, sin tapar en exceso\n- No rasques ni arranques las pieles que se levanten\n- Evita el sol directo, la piscina, el mar y la sauna las próximas 2-3 semanas\n- Usa ropa holgada que no roce la zona\n\n¡Cualquier duda me escribes!',
-  day3: 'Hola {nombre}! ¿Cómo va la curación de tu "{tattoo}"? \n\nSi puedes, mándame una foto para ver cómo va el proceso y así confirmamos que todo evoluciona bien.\n\n¡Gracias!'
-};
+// Antes se enviaba por WhatsApp (wa_followups, ya no se usa - se deja la tabla en la BD por
+// si hay algo pendiente de consultar, pero nada vuelve a escribir ni leer de ahí). Cada regla
+// es ahora una fila real y editable por el dueño del estudio en email_rules (antes eran 2
+// automatizaciones fijas dentro de waSettings) - se siembran 2 por defecto (día 1/día 3) la
+// primera vez que una cuenta las necesita, para no perder el comportamiento de antes.
+var DEFAULT_EMAIL_RULES = [
+  { name: 'Seguimiento día 1', offset_days: 1, offset_hour: 11,
+    subject: '¿Qué tal fue tu sesión, {nombre}?',
+    body: 'Hola {nombre}! ¿Qué tal fue todo en la sesión de tu "{tattoo}"?\n\nTe dejo los cuidados para la curación:\n- Lava la zona con agua y jabón neutro 2 veces al día\n- Aplica una crema cicatrizante fina, sin tapar en exceso\n- No rasques ni arranques las pieles que se levanten\n- Evita el sol directo, la piscina, el mar y la sauna las próximas 2-3 semanas\n- Usa ropa holgada que no roce la zona\n\n¡Cualquier duda me escribes!' },
+  { name: 'Seguimiento día 3', offset_days: 3, offset_hour: 11,
+    subject: '¿Cómo va la curación de tu tatuaje?',
+    body: 'Hola {nombre}! ¿Cómo va la curación de tu "{tattoo}"?\n\nSi puedes, mándame una foto para ver cómo va el proceso y así confirmamos que todo evoluciona bien.\n\n¡Gracias!' },
+];
 
 function followupFirstName(name) {
   return (name || '').trim().split(' ')[0] || '';
@@ -902,18 +979,31 @@ function followupDate(dateStr, daysAhead, hour) {
   return d;
 }
 
-// Called when an appointment transitions to status='completed': schedules the day1/day3 messages
-function scheduleAftercareFollowups(userId, apptId, a, profile) {
+// Primera vez que una cuenta necesita sus reglas de email y no tiene ninguna: siembra las 2 de
+// siempre (día 1/día 3) como filas reales y editables, en vez de una lista fija en código -
+// así el dueño del estudio puede tocarlas o añadir más desde Ajustes sin perder las que ya
+// tenía funcionando.
+function ensureDefaultEmailRules(userId) {
+  return db.query('SELECT COUNT(*) FROM email_rules WHERE user_id=$1', [userId]).then(function(r) {
+    if (parseInt(r.rows[0].count, 10) > 0) return;
+    return Promise.all(DEFAULT_EMAIL_RULES.map(function(rule) {
+      return db.query(
+        'INSERT INTO email_rules (user_id,name,offset_days,offset_hour,subject,body) VALUES ($1,$2,$3,$4,$5,$6)',
+        [userId, rule.name, rule.offset_days, rule.offset_hour, rule.subject, rule.body]
+      );
+    }));
+  });
+}
+
+// Called when an appointment transitions to status='completed': programa un email por cada
+// regla activa del estudio. El remitente (nombre visible) es el del ARTISTA asignado a la
+// cita (a.artistId) y, si tiene, el nombre de su estudio - no el de quien creó la cita, que
+// puede ser el dueño gestionando la agenda de todos.
+function scheduleAftercareEmails(userId, apptId, a, profile) {
   var clientsList = profile.clients || [];
   var client = clientsList.find(function(c) { return c.name === a.name; });
-  var phone = client && client.phone ? String(client.phone).trim() : '';
-  if (!phone) return Promise.resolve();
-
-  var ws = profile.waSettings || {};
-  if (ws.enabled === false) return Promise.resolve();
-  var autos = ws.automations || [];
-  var day1Auto = autos.find(function(x) { return x.id === 'followup_48h'; });
-  var day3Auto = autos.find(function(x) { return x.id === 'followup_week'; });
+  var email = client && client.email ? String(client.email).trim() : '';
+  if (!email) return Promise.resolve();
 
   var vars = {
     nombre: followupFirstName(a.name),
@@ -923,49 +1013,109 @@ function scheduleAftercareFollowups(userId, apptId, a, profile) {
     senal: a.deposit || 0
   };
 
-  var jobs = [];
-  if (!day1Auto || day1Auto.enabled !== false) {
-    var msg1 = renderFollowupTemplate(day1Auto ? day1Auto.template : DEFAULT_FOLLOWUP_TEMPLATES.day1, vars);
-    jobs.push(db.query(
-      'INSERT INTO wa_followups (appointment_id,user_id,client_name,phone,kind,message,scheduled_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (appointment_id,kind) DO NOTHING',
-      [apptId, userId, a.name || '', phone, 'day1', msg1, followupDate(a.date, 1, 11)]
-    ));
-  }
-  if (!day3Auto || day3Auto.enabled !== false) {
-    var msg3 = renderFollowupTemplate(day3Auto ? day3Auto.template : DEFAULT_FOLLOWUP_TEMPLATES.day3, vars);
-    jobs.push(db.query(
-      'INSERT INTO wa_followups (appointment_id,user_id,client_name,phone,kind,message,scheduled_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (appointment_id,kind) DO NOTHING',
-      [apptId, userId, a.name || '', phone, 'day3', msg3, followupDate(a.date, 3, 11)]
-    ));
-  }
-  return Promise.all(jobs).catch(function() {});
+  return db.query('SELECT name, studio_name FROM profiles WHERE id=$1', [a.artistId || profile.id])
+    .then(function(pr) {
+      var artist = pr.rows[0];
+      var senderName = artist ? (artist.studio_name ? artist.name + ' · ' + artist.studio_name : artist.name) : (profile.name || 'Tu tatuador/a');
+      return ensureDefaultEmailRules(userId).then(function() {
+        return db.query('SELECT * FROM email_rules WHERE user_id=$1 AND enabled=TRUE', [userId]);
+      }).then(function(r) {
+        var jobs = r.rows.map(function(rule) {
+          var subject = renderFollowupTemplate(rule.subject, vars);
+          var body = renderFollowupTemplate(rule.body, vars);
+          return db.query(
+            'INSERT INTO email_followups (appointment_id,user_id,rule_id,client_name,client_email,sender_name,subject,body,scheduled_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (appointment_id,rule_id) DO NOTHING',
+            [apptId, userId, rule.id, a.name || '', email, senderName, subject, body, followupDate(a.date, rule.offset_days, rule.offset_hour)]
+          );
+        });
+        return Promise.all(jobs);
+      });
+    })
+    .catch(function() {});
 }
 
-// Background worker: envía los seguimientos programados que ya tocan, cuando WhatsApp está conectado
+// Background worker: envía los emails de seguimiento programados que ya tocan.
 setInterval(function() {
-  db.query("SELECT * FROM wa_followups WHERE status='pending' AND scheduled_at <= NOW() ORDER BY scheduled_at ASC LIMIT 20")
+  if (!mailTransporter) return; // SMTP_USER/SMTP_PASS sin configurar - ver arranque del servidor
+  db.query("SELECT ef.*, u.notification_email FROM email_followups ef JOIN users u ON u.id=ef.user_id WHERE ef.status='pending' AND ef.scheduled_at <= NOW() ORDER BY ef.scheduled_at ASC LIMIT 20")
     .then(function(r) {
       r.rows.forEach(function(f) {
-        var session = waSessions[f.user_id];
-        if (!session || !session.ready) return; // se reintenta en el siguiente ciclo
-        var num = f.phone.replace(/[\s+\-()]/g, '');
-        if (num.length === 9) num = '34' + num;
-        session.client.sendMessage(num + '@c.us', f.message)
-          .then(function() {
-            return db.query("UPDATE wa_followups SET status='sent', sent_at=NOW() WHERE id=$1", [f.id]);
-          })
-          .catch(function(e) {
-            db.query("UPDATE wa_followups SET status='failed', error=$1 WHERE id=$2", [e.message, f.id]).catch(function() {});
-          });
+        mailTransporter.sendMail({
+          from: '"' + f.sender_name + '" <' + process.env.SMTP_USER + '>',
+          replyTo: f.notification_email || undefined,
+          to: f.client_email,
+          subject: f.subject,
+          text: f.body,
+        }).then(function() {
+          return db.query("UPDATE email_followups SET status='sent', sent_at=NOW() WHERE id=$1", [f.id]);
+        }).catch(function(e) {
+          db.query("UPDATE email_followups SET status='failed', error=$1 WHERE id=$2", [e.message, f.id]).catch(function() {});
+        });
       });
     })
     .catch(function() {});
 }, 5 * 60 * 1000);
 
-// Consulta de seguimientos programados/enviados (para mostrar en Ajustes > WhatsApp)
-app.get('/api/wa/followups', authMiddleware, function(req, res) {
-  db.query('SELECT id,client_name,kind,status,scheduled_at,sent_at FROM wa_followups WHERE user_id=$1 ORDER BY scheduled_at DESC LIMIT 100', [req.userId])
+// Consulta de seguimientos programados/enviados (para mostrar en Ajustes > Notificaciones por email)
+app.get('/api/email/followups', authMiddleware, function(req, res) {
+  db.query('SELECT id,client_name,client_email,subject,status,scheduled_at,sent_at,error FROM email_followups WHERE user_id=$1 ORDER BY scheduled_at DESC LIMIT 100', [req.userId])
     .then(function(r) { res.json(r.rows); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Reglas de notificación por email: solo el dueño del estudio (o el superadmin de la
+// plataforma, vía adminMiddleware en otra ruta si hiciera falta) puede crearlas/tocarlas -
+// mismo criterio que el resto de Ajustes del estudio (ver SETTINGS_ADMIN_ONLY en el frontend).
+function requireOwner(req, res) {
+  if (req.user.accessRole === 'artist') { res.status(403).json({ error: 'Solo el dueño del estudio puede gestionar las notificaciones por email' }); return false; }
+  return true;
+}
+app.get('/api/email-rules', authMiddleware, function(req, res) {
+  ensureDefaultEmailRules(req.userId).then(function() {
+    return db.query('SELECT * FROM email_rules WHERE user_id=$1 ORDER BY created_at ASC', [req.userId]);
+  }).then(function(r) { res.json(r.rows); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+app.post('/api/email-rules', authMiddleware, function(req, res) {
+  if (!requireOwner(req, res)) return;
+  var b = req.body;
+  if (!b.name || !b.subject || !b.body) return res.status(400).json({ error: 'Faltan campos (nombre, asunto, cuerpo)' });
+  db.query(
+    'INSERT INTO email_rules (user_id,name,offset_days,offset_hour,subject,body,enabled) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+    [req.userId, b.name, parseInt(b.offset_days, 10) || 0, parseInt(b.offset_hour, 10) || 11, b.subject, b.body, b.enabled !== false]
+  ).then(function(r) { res.json(r.rows[0]); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+app.patch('/api/email-rules/:id', authMiddleware, function(req, res) {
+  if (!requireOwner(req, res)) return;
+  var b = req.body;
+  db.query(
+    'UPDATE email_rules SET name=COALESCE($1,name),offset_days=COALESCE($2,offset_days),offset_hour=COALESCE($3,offset_hour),subject=COALESCE($4,subject),body=COALESCE($5,body),enabled=COALESCE($6,enabled) WHERE id=$7 AND user_id=$8 RETURNING *',
+    [b.name, b.offset_days, b.offset_hour, b.subject, b.body, b.enabled, req.params.id, req.userId]
+  ).then(function(r) { r.rows.length ? res.json(r.rows[0]) : res.status(404).json({ error: 'No encontrada' }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+app.delete('/api/email-rules/:id', authMiddleware, function(req, res) {
+  if (!requireOwner(req, res)) return;
+  db.query('DELETE FROM email_rules WHERE id=$1 AND user_id=$2', [req.params.id, req.userId])
+    .then(function() { res.json({ ok: true }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Email de contacto del estudio (Responder-a de las notificaciones, ver más arriba) - se
+// auto-vincula al registrarse (backfill/registro más abajo) y solo el dueño o el superadmin
+// pueden cambiarlo después.
+app.get('/api/user/notification-email', authMiddleware, function(req, res) {
+  db.query('SELECT notification_email FROM users WHERE id=$1', [req.userId])
+    .then(function(r) { res.json({ notificationEmail: r.rows[0] && r.rows[0].notification_email }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+app.patch('/api/user/notification-email', authMiddleware, function(req, res) {
+  if (!requireOwner(req, res)) return;
+  var email = (req.body.notificationEmail || '').trim();
+  if (!email || email.indexOf('@') === -1) return res.status(400).json({ error: 'Email inválido' });
+  db.query('UPDATE users SET notification_email=$1 WHERE id=$2', [email, req.userId])
+    .then(function() { res.json({ ok: true, notificationEmail: email }); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
@@ -1010,8 +1160,8 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
 
     var ops = profilesData.map(function(p) {
       return db.query(
-        'INSERT INTO profiles (id,user_id,name,role,color,commission_pct,is_admin_profile,wa_settings) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET name=$3,role=$4,color=$5,commission_pct=$6,is_admin_profile=$7,wa_settings=$8',
-        [p.id, userId, p.name||'', p.role||'', p.color||'v', typeof p.commissionPct==='number'?p.commissionPct:50, p.id === adminId, p.waSettings ? JSON.stringify(p.waSettings) : null]
+        'INSERT INTO profiles (id,user_id,name,role,color,commission_pct,is_admin_profile,wa_settings,studio_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET name=$3,role=$4,color=$5,commission_pct=$6,is_admin_profile=$7,wa_settings=$8,studio_name=$9',
+        [p.id, userId, p.name||'', p.role||'', p.color||'v', typeof p.commissionPct==='number'?p.commissionPct:50, p.id === adminId, p.waSettings ? JSON.stringify(p.waSettings) : null, p.studioName||'']
       ).then(function() {
         var apptOps = (p.appts||[]).map(function(a) {
           var apptId = a.id !== undefined && a.id !== null ? String(a.id) : crypto.randomUUID();
@@ -1022,7 +1172,7 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
               [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
             ).then(function() {
               if (oldStatus !== 'completed' && a.status === 'completed') {
-                return scheduleAftercareFollowups(userId, apptId, a, p);
+                return scheduleAftercareEmails(userId, apptId, a, p);
               }
             });
           }).catch(function(){});

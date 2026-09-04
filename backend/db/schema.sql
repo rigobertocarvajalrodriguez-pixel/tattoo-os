@@ -8,10 +8,14 @@ CREATE TABLE IF NOT EXISTS users (
   is_admin       BOOLEAN DEFAULT FALSE,
   -- plan: ver migración "Fase 1" en server.js. active/last_login_at: ver migración
   -- "panel superadmin" en server.js (activar/desactivar cuentas y última actividad).
-  plan           TEXT NOT NULL DEFAULT 'independiente',
-  active         BOOLEAN NOT NULL DEFAULT TRUE,
-  last_login_at  TIMESTAMPTZ,
-  created_at     TIMESTAMPTZ DEFAULT NOW()
+  plan               TEXT NOT NULL DEFAULT 'independiente',
+  active             BOOLEAN NOT NULL DEFAULT TRUE,
+  last_login_at      TIMESTAMPTZ,
+  -- Email de contacto del estudio (Responder-a de las notificaciones por email, ver
+  -- "seguimiento por email" en server.js) - se auto-vincula al email de la cuenta al
+  -- registrarse; solo el dueño del estudio o el superadmin pueden cambiarlo después.
+  notification_email TEXT,
+  created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Modo soporte del panel superadmin: log de auditoría de cada vez que is_admin entra a ver la
@@ -39,6 +43,10 @@ CREATE TABLE IF NOT EXISTS profiles (
   password_plain    TEXT,
   is_admin_profile  BOOLEAN NOT NULL DEFAULT FALSE,
   wa_settings       JSONB,
+  -- Nombre del estudio de este perfil (Ajustes > Estudio en el frontend) - hace falta en el
+  -- servidor porque el remitente de cada email de seguimiento lo arma el propio backend
+  -- (nombre del tatuador + su estudio), ver "seguimiento por email" en server.js.
+  studio_name       TEXT,
   created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -217,6 +225,9 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- OBSOLETA: el seguimiento de curación se hace ahora por email (email_followups más abajo).
+-- Se deja la tabla tal cual (sin migración destructiva) por si queda algo histórico que
+-- consultar, pero nada en server.js vuelve a escribir ni leer de aquí.
 CREATE TABLE IF NOT EXISTS wa_followups (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   appointment_id TEXT NOT NULL,
@@ -232,6 +243,43 @@ CREATE TABLE IF NOT EXISTS wa_followups (
   created_at     TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_followup_unique ON wa_followups(appointment_id, kind);
+
+-- Reglas de notificación por email, editables por el dueño del estudio (Ajustes >
+-- Notificaciones por email). Se siembran 2 por defecto (día 1/día 3) la primera vez que una
+-- cuenta las necesita - ver ensureDefaultEmailRules() en server.js.
+CREATE TABLE IF NOT EXISTS email_rules (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  offset_days  INTEGER NOT NULL DEFAULT 1,
+  offset_hour  INTEGER NOT NULL DEFAULT 11,
+  subject      TEXT NOT NULL DEFAULT '',
+  body         TEXT NOT NULL DEFAULT '',
+  enabled      BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_email_rules_user ON email_rules(user_id);
+
+-- Cola de envío del seguimiento de curación por email - se programa al marcar una cita como
+-- completada (una fila por regla activa), y un worker en server.js la va enviando.
+CREATE TABLE IF NOT EXISTS email_followups (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  appointment_id TEXT NOT NULL,
+  user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rule_id        UUID REFERENCES email_rules(id) ON DELETE SET NULL,
+  client_name    TEXT NOT NULL,
+  client_email   TEXT NOT NULL,
+  sender_name    TEXT NOT NULL DEFAULT '',
+  subject        TEXT NOT NULL DEFAULT '',
+  body           TEXT NOT NULL DEFAULT '',
+  scheduled_at   TIMESTAMPTZ NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'pending',
+  sent_at        TIMESTAMPTZ,
+  error          TEXT,
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_followup_unique ON email_followups(appointment_id, rule_id);
+CREATE INDEX IF NOT EXISTS idx_email_followups_user ON email_followups(user_id);
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_profiles_user      ON profiles(user_id);

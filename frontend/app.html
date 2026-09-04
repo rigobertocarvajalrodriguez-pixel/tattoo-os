@@ -1745,6 +1745,10 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           <span data-i="settingsNotif">Notificaciones</span>
         </div>
+        <div class="sni" data-sp="email-notify" onclick="setSettingsPanel('email-notify',this)">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg>
+          Notificaciones por email
+        </div>
         <div class="sni" data-sp="whatsapp" onclick="setSettingsPanel('whatsapp',this)">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
           WhatsApp
@@ -3527,6 +3531,11 @@ function renderClients(filter=''){
     </div>`).join('');
 }
 function deleteClient(id){if(confirm(t('clientDeleted')+'?')){removeClient(id);renderClients();showToast(t('clientDeleted'))}}
+function saveClientEmail(id,val){
+  const cl=clients.find(c=>c.id===id);if(!cl)return;
+  cl.email=val.trim();
+  showToast('Email guardado');
+}
 function openClientProfile(id){
   const cl=clients.find(c=>c.id===id);if(!cl)return;
   const clientAppts=appts.filter(a=>a.name===cl.name);
@@ -3534,6 +3543,10 @@ function openClientProfile(id){
     <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:18px;margin-top:4px">
       <div style="width:48px;height:48px;border-radius:50%;background:${AVCOLS[cl.color]};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0;box-shadow:0 0 18px var(--vg)">${esc(cl.name.split(' ').map(n=>n[0]).join('').slice(0,2))}</div>
       <div><div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;margin-bottom:2px;color:var(--t1)">${esc(cl.name)}</div><div style="font-size:11px;color:var(--vl)">${esc(cl.ig)}</div><div style="font-size:11px;color:var(--t3)">${esc(cl.phone)}</div></div>
+    </div>
+    <div class="fg" style="margin-bottom:14px">
+      <label class="fl">Email <span style="font-weight:400;color:var(--t3)">(para los cuidados post-tatuaje)</span></label>
+      <input class="fi" type="email" placeholder="cliente@email.com" value="${esc(cl.email)||''}" onchange="saveClientEmail(${cl.id},this.value)">
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:16px">
       ${[['Sessions',cl.sessions,'var(--t1)'],['Total','€'+cl.spent.toLocaleString(),'var(--gr)'],['Media','€'+Math.round(cl.spent/(cl.sessions||1)),'var(--vl)']].map(([k,v,c2])=>`<div style="background:var(--surface);border:1px solid var(--bd);border-radius:var(--r2);padding:9px;text-align:center"><div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">${k}</div><div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:${c2}">${v}</div></div>`).join('')}
@@ -3990,7 +4003,7 @@ function setSettingsPanel(panel,el){
 }
 // Un artista (no Administrador) solo debe ver Apariencia, Idioma y Notificaciones -
 // el resto son ajustes del estudio completo, no de su propio perfil.
-var SETTINGS_ADMIN_ONLY=['studio','artists','whatsapp','account','ia','plan'];
+var SETTINGS_ADMIN_ONLY=['studio','artists','email-notify','whatsapp','account','ia','plan'];
 function applySettingsNavAccess(){
   var admin=activeIsAdmin();
   SETTINGS_ADMIN_ONLY.forEach(function(sp){
@@ -4133,6 +4146,8 @@ function renderSettings(){
             <div class="tog${on?' on':''}" onclick="this.classList.toggle('on')"></div>
           </div>`).join('')}
       </div>`;
+  } else if(activeSettingsPanel==='email-notify'){
+    renderEmailNotifSettings(b);
   } else if(activeSettingsPanel==='whatsapp'){
     renderWaSettings(b);
   } else if(activeSettingsPanel==='account'){
@@ -4807,6 +4822,7 @@ function openModal(type,data={}){
         <div class="fg"><label class="fl">${t('instagram')}</label><input class="fi" id="m-cig" type="text" placeholder="@usuario"></div>
         <div class="fg"><label class="fl">${t('phone')}</label><input class="fi" id="m-cphone" type="text" placeholder="+34..."></div>
       </div>
+      <div class="fg"><label class="fl">Email <span style="font-weight:400;color:var(--t3)">(para los cuidados post-tatuaje)</span></label><input class="fi" id="m-cemail" type="email" placeholder="cliente@email.com"></div>
       <div class="fg"><label class="fl">${t('notes')}</label><textarea class="fi" id="m-cnotes" rows="3" style="resize:none" placeholder="Alergias, preferencias..."></textarea></div>
       <div class="mac"><button class="bsec" onclick="closeModal()">${t('cancel')}</button><button class="bprim" onclick="saveClient()">${t('create')} </button></div>`;
   } else if(type==='expense'){
@@ -4951,7 +4967,7 @@ function editApptById(id) {
 function saveClient(){
   const nm=document.getElementById('m-cname').value.trim();if(!nm){showToast(t('fillFields'));return}
   const COLS=['v','c','r','a','g'];
-  addClient({id:clientSeq++,name:nm,ig:document.getElementById('m-cig').value||' - ',phone:document.getElementById('m-cphone').value||' - ',notes:document.getElementById('m-cnotes').value,sessions:0,spent:0,color:COLS[Math.floor(Math.random()*COLS.length)]});
+  addClient({id:clientSeq++,name:nm,ig:document.getElementById('m-cig').value||' - ',phone:document.getElementById('m-cphone').value||' - ',email:document.getElementById('m-cemail').value.trim(),notes:document.getElementById('m-cnotes').value,sessions:0,spent:0,color:COLS[Math.floor(Math.random()*COLS.length)]});
   logActivity('Cliente añadido: '+nm,'c');
   closeModal();renderClients();buildRpActivity();showToast(t('clientAdded'));
 }
@@ -6464,39 +6480,6 @@ Aquí van algunos consejos para el cuidado:
 ¡Cualquier duda me escribes! `
       },
       {
-        id: 'followup_48h',
-        name: 'Seguimiento día 1',
-        desc: 'Pregunta qué tal fue la cita y manda los cuidados de curación',
-        trigger: 'after_completed',
-        delay: 1,
-        delayUnit: 'days',
-        enabled: true,
-        template: `Hola {nombre}! ¿Qué tal fue todo en la sesión de tu "{tattoo}"?
-
-Te dejo los cuidados para la curación:
-- Lava la zona con agua y jabón neutro 2 veces al día
-- Aplica una crema cicatrizante fina, sin tapar en exceso
-- No rasques ni arranques las pieles que se levanten
-- Evita el sol directo, la piscina, el mar y la sauna las próximas 2-3 semanas
-- Usa ropa holgada que no roce la zona
-
-¡Cualquier duda me escribes!`
-      },
-      {
-        id: 'followup_week',
-        name: 'Seguimiento día 3',
-        desc: 'Pregunta cómo va la curación y pide una foto',
-        trigger: 'after_completed',
-        delay: 3,
-        delayUnit: 'days',
-        enabled: true,
-        template: `Hola {nombre}! ¿Cómo va la curación de tu "{tattoo}"?
-
-Si puedes, mándame una foto para ver cómo va el proceso y así confirmamos que todo evoluciona bien.
-
-¡Gracias!`
-      },
-      {
         id: 'project_session',
         name: 'Recordatorio próxima sesión',
         desc: 'Recuerda la próxima sesión 24h antes',
@@ -6780,6 +6763,150 @@ function checkWAStatus() {
     });
 }
 
+// -- SETTINGS: Notificaciones por email --
+// Reemplaza a los seguimientos de curación que antes iban por WhatsApp. Solo el dueño del
+// estudio ve esta pestaña (email-notify está en SETTINGS_ADMIN_ONLY); el backend además lo
+// exige de verdad en cada ruta (requireOwner), esto es solo para no mostrar controles que el
+// servidor va a rechazar.
+function emailHeaders() {
+  return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (_authToken || '') };
+}
+var emailRules = [];
+function renderEmailNotifSettings(container) {
+  container.innerHTML = `
+    <div class="set-section">
+      <div class="set-section-t">Email de contacto del estudio</div>
+      <div class="set-section-s">Tus clientes verán el nombre del tatuador y tu estudio como remitente; si responden, la respuesta llega a este email. Se vinculó automáticamente al registrarte - cámbialo si quieres usar otro.</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input class="fi" id="en-contact-email" type="email" placeholder="contacto@tuestudio.com" style="flex:1">
+        <button class="bprim" style="flex:none;padding:8px 16px" onclick="saveNotificationEmail()">Guardar</button>
+      </div>
+    </div>
+    <div class="set-section">
+      <div class="set-section-t">Cuidados post-tatuaje</div>
+      <div class="set-section-s">Se programan solos al marcar una cita como completada. Añade, edita o desactiva las que quieras.</div>
+      <div id="en-rules-list" style="font-size:11px;color:var(--t3)">Cargando…</div>
+      <button class="addbtn" style="margin-top:8px;background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none" onclick="addEmailRule()">+ Nueva notificación</button>
+    </div>
+    <div class="set-section">
+      <div class="set-section-t">Historial de envíos</div>
+      <div id="en-followups-list" style="font-size:11px;color:var(--t3)">Cargando…</div>
+    </div>`;
+  loadNotificationEmail();
+  loadEmailRules();
+  loadEmailFollowupsLog();
+}
+function loadNotificationEmail() {
+  fetch(API_BASE+'/api/user/notification-email', { headers: emailHeaders() })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var inp = document.getElementById('en-contact-email');
+      if (inp) inp.value = d.notificationEmail || '';
+    }).catch(function(){});
+}
+function saveNotificationEmail() {
+  var val = document.getElementById('en-contact-email').value.trim();
+  fetch(API_BASE+'/api/user/notification-email', { method:'PATCH', headers: emailHeaders(), body: JSON.stringify({ notificationEmail: val }) })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (!res.ok) { showToast(res.data.error || 'No se pudo guardar'); return; }
+      showToast('Email de contacto guardado');
+    }).catch(function(){ showToast('Error de conexión'); });
+}
+function loadEmailRules() {
+  var el = document.getElementById('en-rules-list');
+  fetch(API_BASE+'/api/email-rules', { headers: emailHeaders() })
+    .then(function(r){ return r.json(); })
+    .then(function(rows){
+      emailRules = Array.isArray(rows) ? rows : [];
+      renderEmailRules();
+    }).catch(function(){ if (el) el.textContent = 'No se pudo cargar (servidor no disponible).'; });
+}
+function renderEmailRules() {
+  var el = document.getElementById('en-rules-list');
+  if (!el) return;
+  if (!emailRules.length) { el.textContent = 'Sin notificaciones configuradas.'; return; }
+  el.innerHTML = emailRules.map(function(rule){
+    return '<div class="auto-card">'
+      + '<div class="auto-card-hd">'
+      + '<div><div class="auto-card-title">' + esc(rule.name) + '</div>'
+      + '<div class="auto-card-sub">' + rule.offset_days + ' día' + (rule.offset_days===1?'':'s') + ' después, ' + rule.offset_hour + ':00</div></div>'
+      + '<div class="tog' + (rule.enabled?' on':'') + '" onclick="toggleEmailRule(\'' + rule.id + '\')"></div>'
+      + '</div>'
+      + '<div class="fg" style="margin-top:8px"><label class="fl">Días después de completar</label>'
+      + '<input class="fi" type="number" min="0" id="en-days-' + rule.id + '" value="' + rule.offset_days + '" style="max-width:100px"></div>'
+      + '<div class="fg"><label class="fl">Asunto</label><input class="fi" id="en-subj-' + rule.id + '" value="' + esc(rule.subject) + '"></div>'
+      + '<textarea class="auto-card-tpl" id="en-body-' + rule.id + '" rows="5">' + esc(rule.body) + '</textarea>'
+      + '<div class="vars-hint">Variables: <code>{nombre}</code> <code>{tattoo}</code> <code>{fecha}</code> <code>{precio}</code> <code>{senal}</code></div>'
+      + '<div style="display:flex;justify-content:space-between;margin-top:8px">'
+      + '<button class="doc-act-btn del" onclick="deleteEmailRule(\'' + rule.id + '\')" aria-label="Eliminar">' + iconTrash({size:16}) + '</button>'
+      + '<button class="addbtn" style="font-size:10px;padding:5px 12px" onclick="saveEmailRule(\'' + rule.id + '\')">Guardar</button>'
+      + '</div></div>';
+  }).join('');
+}
+function toggleEmailRule(id) {
+  var rule = emailRules.find(function(r){ return r.id === id; });
+  if (!rule) return;
+  fetch(API_BASE+'/api/email-rules/'+id, { method:'PATCH', headers: emailHeaders(), body: JSON.stringify({ enabled: !rule.enabled }) })
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if (d.id) { rule.enabled = d.enabled; renderEmailRules(); showToast('Notificación ' + (d.enabled?'activada':'desactivada')); } else showToast(d.error||'Error'); })
+    .catch(function(){ showToast('Error de conexión'); });
+}
+function saveEmailRule(id) {
+  var body = {
+    offset_days: parseInt(document.getElementById('en-days-'+id).value, 10) || 0,
+    subject: document.getElementById('en-subj-'+id).value,
+    body: document.getElementById('en-body-'+id).value,
+  };
+  fetch(API_BASE+'/api/email-rules/'+id, { method:'PATCH', headers: emailHeaders(), body: JSON.stringify(body) })
+    .then(function(r){ return r.json().then(function(d){ return { ok:r.ok, data:d }; }); })
+    .then(function(res){
+      if (!res.ok) { showToast(res.data.error||'No se pudo guardar'); return; }
+      var i = emailRules.findIndex(function(r){ return r.id === id; });
+      if (i !== -1) emailRules[i] = res.data;
+      showToast('Notificación guardada');
+    }).catch(function(){ showToast('Error de conexión'); });
+}
+function addEmailRule() {
+  var body = { name: 'Nueva notificación', offset_days: 5, offset_hour: 11, subject: 'Hola {nombre}', body: 'Hola {nombre}! Escribe aquí el mensaje...' };
+  fetch(API_BASE+'/api/email-rules', { method:'POST', headers: emailHeaders(), body: JSON.stringify(body) })
+    .then(function(r){ return r.json().then(function(d){ return { ok:r.ok, data:d }; }); })
+    .then(function(res){
+      if (!res.ok) { showToast(res.data.error||'No se pudo crear'); return; }
+      emailRules.push(res.data);
+      renderEmailRules();
+      showToast('Notificación creada');
+    }).catch(function(){ showToast('Error de conexión'); });
+}
+function deleteEmailRule(id) {
+  if (!confirm('¿Eliminar esta notificación?')) return;
+  fetch(API_BASE+'/api/email-rules/'+id, { method:'DELETE', headers: emailHeaders() })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.ok) { showToast(d.error||'No se pudo eliminar'); return; }
+      emailRules = emailRules.filter(function(r){ return r.id !== id; });
+      renderEmailRules();
+      showToast('Notificación eliminada');
+    }).catch(function(){ showToast('Error de conexión'); });
+}
+function loadEmailFollowupsLog() {
+  var el = document.getElementById('en-followups-list');
+  fetch(API_BASE+'/api/email/followups', { headers: emailHeaders() })
+    .then(function(r){ return r.json(); })
+    .then(function(rows){
+      if (!el || !el.isConnected) return;
+      if (!rows || !rows.length) { el.textContent = 'Aún no hay envíos programados.'; return; }
+      var statusLabels = { pending: 'Pendiente', sent: 'Enviado', failed: 'Fallido' };
+      el.innerHTML = rows.slice(0, 20).map(function(f){
+        var when = new Date(f.sent_at || f.scheduled_at).toLocaleString('es-ES', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+        var color = f.status === 'sent' ? 'var(--gr)' : f.status === 'failed' ? '#f66' : 'var(--t3)';
+        return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)">'
+          + '<span>' + esc(f.client_name) + ' &middot; ' + esc(f.subject) + '</span>'
+          + '<span style="color:' + color + '">' + (statusLabels[f.status]||f.status) + ' &middot; ' + when + '</span></div>';
+      }).join('');
+    }).catch(function(){ if (el) el.textContent = 'No se pudo cargar (servidor no disponible).'; });
+}
+
 function renderWaSettings(container) {
   const s = waSettings;
   container.innerHTML = `
@@ -6804,13 +6931,8 @@ function renderWaSettings(container) {
       </div>
     </div>
     <div class="set-section">
-      <div class="set-section-t">Seguimientos de curación</div>
-      <div class="set-section-s">Se programan solos al marcar una cita como completada (día 1 y día 3)</div>
-      <div id="wa-followups-list" style="font-size:11px;color:var(--t3)">Cargando...</div>
-    </div>
-    <div class="set-section">
       <div class="set-section-t">Automatizacion WhatsApp</div>
-      <div class="set-section-s">Configura mensajes automáticos para tus clientes</div>
+      <div class="set-section-s">Configura mensajes automáticos para tus clientes. Los cuidados post-tatuaje (día 1 y día 3) ahora se envían por email - ver Ajustes &gt; Notificaciones por email</div>
       <div class="set-row">
         <div class="set-row-l"><div class="set-row-t">Automatizaciones activas</div><div class="set-row-s">Activa o desactiva todo el sistema de mensajes automáticos</div></div>
         <div class="tog${s.enabled?' on':''}" onclick="this.classList.toggle('on');waSettings.enabled=this.classList.contains('on');ap().waSettings=waSettings;showToast('Automatizaciones '+(waSettings.enabled?'activadas':'desactivadas'))"></div>
@@ -6819,19 +6941,19 @@ function renderWaSettings(container) {
     <div class="set-section">
       <div class="set-section-t">Mensajes automáticos</div>
       <div class="set-section-s">Edita el contenido y activa/desactiva cada automatización</div>
-      ${s.automations.map((auto, i) => `
+      ${s.automations.filter(auto => auto.id!=='followup_48h' && auto.id!=='followup_week').map(auto => `
         <div class="auto-card">
           <div class="auto-card-hd">
             <div>
               <div class="auto-card-title">${esc(auto.name)}</div>
               <div class="auto-card-sub">${esc(auto.desc)} · ${auto.delay > 0 ? auto.delay + ' ' + (auto.delayUnit === 'hours' ? 'horas' : 'días') : 'inmediato'} ${auto.trigger.includes('after') ? 'después' : 'antes'}</div>
             </div>
-            <div class="tog${auto.enabled?' on':''}" onclick="toggleAutoEnabled(${i})"></div>
+            <div class="tog${auto.enabled?' on':''}" onclick="toggleAutoEnabled('${auto.id}')"></div>
           </div>
-          <textarea class="auto-card-tpl" id="auto-tpl-${i}" rows="5">${esc(auto.template)}</textarea>
+          <textarea class="auto-card-tpl" id="auto-tpl-${auto.id}" rows="5">${esc(auto.template)}</textarea>
           <div class="vars-hint">Variables: <code>{nombre}</code> <code>{tattoo}</code> <code>{fecha}</code> <code>{proxima_cita}</code> <code>{precio}</code> <code>{senal}</code></div>
           <div style="display:flex;justify-content:flex-end;margin-top:8px">
-            <button class="addbtn" style="font-size:10px;padding:5px 12px" onclick="saveAutoTemplate(${i})">Guardar</button>
+            <button class="addbtn" style="font-size:10px;padding:5px 12px" onclick="saveAutoTemplate('${auto.id}')">Guardar</button>
           </div>
         </div>`).join('')}
     </div>
@@ -6851,38 +6973,20 @@ function renderWaSettings(container) {
         </div>`).join('')}
       <button class="addbtn" style="margin-top:4px;background:var(--elevated);border:1px solid var(--bd3);color:var(--t1);box-shadow:none" onclick="addTemplate()">+ Nueva plantilla</button>
     </div>`;
-  loadWaFollowups();
 }
 
-function loadWaFollowups() {
-  var el = document.getElementById('wa-followups-list');
-  if (!el || !_authToken) return;
-  fetch(API_BASE+'/api/wa/followups', { headers: waHeaders() })
-    .then(function(r){ return r.json(); })
-    .then(function(rows){
-      if (!el.isConnected) return;
-      if (!rows || !rows.length) { el.textContent = 'Aún no hay seguimientos programados.'; return; }
-      var labels = { day1: 'Día 1', day3: 'Día 3' };
-      var statusLabels = { pending: 'Pendiente', sent: 'Enviado', failed: 'Fallido' };
-      el.innerHTML = rows.slice(0, 20).map(function(f){
-        var when = new Date(f.sent_at || f.scheduled_at).toLocaleString('es-ES', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
-        var color = f.status === 'sent' ? 'var(--gr)' : f.status === 'failed' ? '#f66' : 'var(--t3)';
-        return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)">' +
-          '<span>' + esc(f.client_name) + ' &middot; ' + (labels[f.kind]||f.kind) + '</span>' +
-          '<span style="color:' + color + '">' + (statusLabels[f.status]||f.status) + ' &middot; ' + when + '</span></div>';
-      }).join('');
-    })
-    .catch(function(){ el.textContent = 'No se pudo cargar (servidor no disponible).'; });
-}
-
-function toggleAutoEnabled(i) {
-  waSettings.automations[i].enabled = !waSettings.automations[i].enabled;
+function toggleAutoEnabled(id) {
+  var a = waSettings.automations.find(function(x){ return x.id === id; });
+  if (!a) return;
+  a.enabled = !a.enabled;
   ap().waSettings = waSettings;
   setSettingsPanel('whatsapp', document.querySelector('[data-sp="whatsapp"]'));
-  showToast('Automatización ' + (waSettings.automations[i].enabled ? 'activada' : 'desactivada'));
+  showToast('Automatización ' + (a.enabled ? 'activada' : 'desactivada'));
 }
-function saveAutoTemplate(i) {
-  waSettings.automations[i].template = document.getElementById('auto-tpl-' + i).value;
+function saveAutoTemplate(id) {
+  var a = waSettings.automations.find(function(x){ return x.id === id; });
+  if (!a) return;
+  a.template = document.getElementById('auto-tpl-' + id).value;
   ap().waSettings = waSettings;
   showToast('Plantilla guardada ');
 }
