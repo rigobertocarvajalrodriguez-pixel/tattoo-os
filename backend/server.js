@@ -1085,15 +1085,32 @@ function ensureDefaultEmailRules(userId) {
 // (rebuildMergedStore), pero cada uno sigue viviendo en el array del perfil donde se creó -
 // una cita y su cliente pueden estar en profile_id distintos aunque en el navegador aparezcan
 // juntos. Buscar solo en profile.clients (el perfil de LA CITA) los deja sin encontrarse.
-function scheduleAftercareEmails(userId, apptId, a, profile) {
+// profilesData: el payload COMPLETO de este mismo /api/profile/sync (todos los perfiles, no
+// solo el de la cita) - hace falta como respaldo porque los inserts de clientes y de citas de
+// un mismo envío corren en paralelo (Promise.all), así que si un cliente es nuevo en el MISMO
+// sync que completa su cita, su INSERT puede no haberse confirmado aún cuando esta consulta
+// se ejecuta. Si la tabla todavía no lo tiene, se busca en el propio payload que se acaba de
+// recibir (que sí lo tiene, es el origen de ese INSERT).
+function scheduleAftercareEmails(userId, apptId, a, profile, profilesData) {
   return db.query(
     "SELECT email FROM clients WHERE user_id=$1 AND name=$2 AND email<>'' ORDER BY created_at DESC LIMIT 1",
     [userId, a.name || '']
   ).then(function(cr) {
     var email = cr.rows.length ? String(cr.rows[0].email).trim() : '';
+    if (!email) email = findClientEmailInPayload(profilesData, a.name);
     if (!email) return;
     return scheduleAftercareEmailsForClient(userId, apptId, a, profile, email);
   }).catch(function() {});
+}
+function findClientEmailInPayload(profilesData, name) {
+  if (!profilesData || !name) return '';
+  for (var i = 0; i < profilesData.length; i++) {
+    var clients = profilesData[i].clients || [];
+    for (var j = 0; j < clients.length; j++) {
+      if (clients[j].name === name && clients[j].email) return String(clients[j].email).trim();
+    }
+  }
+  return '';
 }
 function scheduleAftercareEmailsForClient(userId, apptId, a, profile, email) {
   var vars = {
@@ -1263,7 +1280,7 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
               [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
             ).then(function() {
               if (oldStatus !== 'completed' && a.status === 'completed') {
-                return scheduleAftercareEmails(userId, apptId, a, p);
+                return scheduleAftercareEmails(userId, apptId, a, p, profilesData);
               }
             });
           }).catch(function(){});
