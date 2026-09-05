@@ -16,7 +16,6 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
-const nodemailer = require('nodemailer');
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'rigobertocarvajalrodriguez@gmail.com';
@@ -25,20 +24,50 @@ const ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
 // Notificaciones de seguimiento por email (ver más abajo "SEGUIMIENTO DE CURACIÓN POR EMAIL"):
 // un único remitente de la plataforma para todos los estudios, con el nombre visible del
 // tatuador/estudio como remitente y el email de contacto del estudio como "Responder a" - así
-// ningún dueño de estudio tiene que configurar SMTP propio. Sin SMTP_USER/SMTP_PASS en el
-// entorno, los emails simplemente no se envían (se quedan en 'pending'); el resto de la app
-// sigue funcionando igual, mismo criterio que la conexión a PostgreSQL más abajo.
-var mailTransporter = null;
-if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-  mailTransporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT || '465', 10),
-    secure: (process.env.SMTP_SECURE || 'true') === 'true',
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-  });
-  console.log('[MAIL] Transporte SMTP configurado:', process.env.SMTP_USER);
+// ningún dueño de estudio tiene que configurar SMTP propio.
+//
+// Se envía vía la API HTTPS de SendGrid (no SMTP): se probó SMTP contra Gmail (puertos 465 y
+// 587) desde Render y las conexiones salientes daban timeout siempre - es un bloqueo de red del
+// hosting/anti-abuso de Gmail hacia IPs de datacenter, no un problema de puerto. La API HTTPS de
+// SendGrid no tiene ese problema. Requiere SENDGRID_API_KEY (API key de SendGrid) y
+// SENDGRID_FROM_EMAIL (el email verificado como "Single Sender" en SendGrid - tiene que
+// coincidir exactamente con el verificado, si no SendGrid rechaza el envío). Sin esas dos vars
+// en el entorno, los emails simplemente no se envían (se quedan en 'pending'); el resto de la
+// app sigue funcionando igual, mismo criterio que la conexión a PostgreSQL más abajo.
+var SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';
+var SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || '';
+var mailEnabled = !!(SENDGRID_API_KEY && SENDGRID_FROM_EMAIL);
+if (mailEnabled) {
+  console.log('[MAIL] SendGrid configurado, remitente verificado:', SENDGRID_FROM_EMAIL);
 } else {
-  console.warn('[MAIL] SMTP_USER/SMTP_PASS no configurados - los emails de seguimiento quedarán pendientes hasta que se configuren.');
+  console.warn('[MAIL] SENDGRID_API_KEY/SENDGRID_FROM_EMAIL no configurados - los emails de seguimiento quedarán pendientes hasta que se configuren.');
+}
+
+// Envía un email vía la API HTTPS de SendGrid. `fromName` es el nombre visible del remitente
+// (tatuador/estudio, cambia por email) - el email del remitente siempre es SENDGRID_FROM_EMAIL
+// (el único verificado en SendGrid), eso no puede variar por tatuador sin verificar cada email
+// por separado en SendGrid, así que la identidad por tatuador se logra solo con el nombre.
+function sendEmailViaSendGrid(opts) {
+  var payload = {
+    personalizations: [{ to: [{ email: opts.to }] }],
+    from: { email: SENDGRID_FROM_EMAIL, name: opts.fromName || 'Tattoo OS' },
+    subject: opts.subject,
+    content: [{ type: 'text/plain', value: opts.text }],
+  };
+  if (opts.replyTo) payload.reply_to = { email: opts.replyTo };
+  return fetch('https://api.sendgrid.com/v3/mail/send', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + SENDGRID_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  }).then(function(r) {
+    if (r.status >= 200 && r.status < 300) return true;
+    return r.text().then(function(t) {
+      throw new Error('SendGrid ' + r.status + ': ' + t);
+    });
+  });
 }
 
 // Fase 1 de roles/planes: cuántos perfiles (dueño + artistas) caben en cada plan.
@@ -1144,12 +1173,12 @@ function scheduleAftercareEmailsForClient(userId, apptId, a, profile, email) {
 
 // Background worker: envía los emails de seguimiento programados que ya tocan.
 setInterval(function() {
-  if (!mailTransporter) return; // SMTP_USER/SMTP_PASS sin configurar - ver arranque del servidor
+  if (!mailEnabled) return; // SENDGRID_API_KEY/SENDGRID_FROM_EMAIL sin configurar - ver arranque del servidor
   db.query("SELECT ef.*, u.notification_email FROM email_followups ef JOIN users u ON u.id=ef.user_id WHERE ef.status='pending' AND ef.scheduled_at <= NOW() ORDER BY ef.scheduled_at ASC LIMIT 20")
     .then(function(r) {
       r.rows.forEach(function(f) {
-        mailTransporter.sendMail({
-          from: '"' + f.sender_name + '" <' + process.env.SMTP_USER + '>',
+        sendEmailViaSendGrid({
+          fromName: f.sender_name,
           replyTo: f.notification_email || undefined,
           to: f.client_email,
           subject: f.subject,
