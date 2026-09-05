@@ -311,6 +311,86 @@ Promise.all([
   console.log('[DB] Migración de seguimiento por email aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de seguimiento por email:', e.message); });
 
+// Aislamiento real de datos por CUENTA a nivel de base de datos. Hasta ahora profiles.id y los
+// ids de citas/clientes/gastos/proyectos/documentos/consentimientos/plantillas/mensajes de
+// WhatsApp/ventas de mostrador los generaba el propio navegador (contadores 1,2,3... que
+// arrancan de cero en cada cuenta) y la BD los usaba tal cual como clave única GLOBAL - dos
+// cuentas distintas podían generar el mismo id y sus filas se pisaban entre sí sin ningún aviso
+// (INSERT... ON CONFLICT (id) DO UPDATE). Esto no era teórico: se confirmó en la práctica un
+// cliente y una cita de prueba sobrescribiendo datos reales de otra cuenta con el mismo id.
+//
+// Arreglo: las claves (primarias y foráneas) pasan de ser solo `id` a ser compuestas
+// `(user_id, id)` - el id solo tiene que ser único DENTRO de la cuenta que lo generó, que es
+// justo lo que ya garantiza reseedIdCounters() en el navegador. El navegador no cambia: sigue
+// generando ids simples, pero ahora dos cuentas pueden usar el mismo número sin pisarse. Todas
+// las consultas de la app que antes filtraban solo por profile_id/id ahora añaden también
+// user_id (ver INSERT...ON CONFLICT y los SELECT/UPDATE/DELETE por :id de perfil más abajo).
+//
+// Idempotente: si profiles_pkey ya incluye user_id, no hace nada (para no re-ejecutar en cada
+// arranque). Va al final de las migraciones porque necesita que todas las tablas ya existan.
+function migrateToPerAccountKeys() {
+  return db.query(
+    "SELECT 1 FROM information_schema.key_column_usage " +
+    "WHERE table_name='profiles' AND constraint_name='profiles_pkey' AND column_name='user_id'"
+  ).then(function(r) {
+    if (r.rows.length) return; // ya migrado
+    console.log('[DB] Migrando claves a (user_id, id) por cuenta...');
+    function run(sql) { return db.query(sql).catch(function(e) { console.error('[DB]   fallo en paso de migración de claves:', sql, '->', e.message); }); }
+    function runSeq(list) { return list.reduce(function(p, sql) { return p.then(function() { return run(sql); }); }, Promise.resolve()); }
+
+    return runSeq([
+      // 1) Quitar las FK que apuntan a profiles(id) - hace falta antes de poder tocar su PK.
+      'ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_profile_id_fkey',
+      'ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_artist_id_fkey',
+      'ALTER TABLE clients DROP CONSTRAINT IF EXISTS clients_profile_id_fkey',
+      'ALTER TABLE expenses DROP CONSTRAINT IF EXISTS expenses_profile_id_fkey',
+      'ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_profile_id_fkey',
+      'ALTER TABLE doc_files DROP CONSTRAINT IF EXISTS doc_files_profile_id_fkey',
+      'ALTER TABLE consents DROP CONSTRAINT IF EXISTS consents_profile_id_fkey',
+      'ALTER TABLE doc_templates DROP CONSTRAINT IF EXISTS doc_templates_profile_id_fkey',
+      'ALTER TABLE wa_messages DROP CONSTRAINT IF EXISTS wa_messages_profile_id_fkey',
+      'ALTER TABLE commission_settlements DROP CONSTRAINT IF EXISTS commission_settlements_artist_id_fkey',
+    ]).then(function() {
+      // 2) profiles: de PRIMARY KEY (id) a (user_id, id).
+      return runSeq([
+        'ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_pkey',
+        'ALTER TABLE profiles ADD CONSTRAINT profiles_pkey PRIMARY KEY (user_id, id)',
+      ]);
+    }).then(function() {
+      // 3) Recrear las FK como compuestas, apuntando a profiles(user_id, id).
+      return runSeq([
+        'ALTER TABLE appointments ADD CONSTRAINT appointments_profile_id_fkey FOREIGN KEY (user_id, profile_id) REFERENCES profiles(user_id, id) ON DELETE CASCADE',
+        'ALTER TABLE appointments ADD CONSTRAINT appointments_artist_id_fkey FOREIGN KEY (user_id, artist_id) REFERENCES profiles(user_id, id)',
+        'ALTER TABLE clients ADD CONSTRAINT clients_profile_id_fkey FOREIGN KEY (user_id, profile_id) REFERENCES profiles(user_id, id) ON DELETE CASCADE',
+        'ALTER TABLE expenses ADD CONSTRAINT expenses_profile_id_fkey FOREIGN KEY (user_id, profile_id) REFERENCES profiles(user_id, id) ON DELETE CASCADE',
+        'ALTER TABLE projects ADD CONSTRAINT projects_profile_id_fkey FOREIGN KEY (user_id, profile_id) REFERENCES profiles(user_id, id) ON DELETE CASCADE',
+        'ALTER TABLE doc_files ADD CONSTRAINT doc_files_profile_id_fkey FOREIGN KEY (user_id, profile_id) REFERENCES profiles(user_id, id) ON DELETE CASCADE',
+        'ALTER TABLE consents ADD CONSTRAINT consents_profile_id_fkey FOREIGN KEY (user_id, profile_id) REFERENCES profiles(user_id, id) ON DELETE CASCADE',
+        'ALTER TABLE doc_templates ADD CONSTRAINT doc_templates_profile_id_fkey FOREIGN KEY (user_id, profile_id) REFERENCES profiles(user_id, id) ON DELETE CASCADE',
+        'ALTER TABLE wa_messages ADD CONSTRAINT wa_messages_profile_id_fkey FOREIGN KEY (user_id, profile_id) REFERENCES profiles(user_id, id) ON DELETE CASCADE',
+        'ALTER TABLE commission_settlements ADD CONSTRAINT commission_settlements_artist_id_fkey FOREIGN KEY (user_id, artist_id) REFERENCES profiles(user_id, id)',
+      ]);
+    }).then(function() {
+      // 4) Las tablas con su propio id de cliente-generado: de PRIMARY KEY (id) a (user_id, id).
+      return runSeq(['appointments', 'clients', 'expenses', 'projects', 'doc_files', 'consents', 'wa_messages', 'pos_sales'].reduce(function(acc, t) {
+        return acc.concat([
+          'ALTER TABLE ' + t + ' DROP CONSTRAINT IF EXISTS ' + t + '_pkey',
+          'ALTER TABLE ' + t + ' ADD CONSTRAINT ' + t + '_pkey PRIMARY KEY (user_id, id)',
+        ]);
+      }, []));
+    }).then(function() {
+      // 5) doc_templates: su PK ya era compuesta (profile_id, template_id) - le falta user_id.
+      return runSeq([
+        'ALTER TABLE doc_templates DROP CONSTRAINT IF EXISTS doc_templates_pkey',
+        'ALTER TABLE doc_templates ADD CONSTRAINT doc_templates_pkey PRIMARY KEY (user_id, profile_id, template_id)',
+      ]);
+    }).then(function() {
+      console.log('[DB] Migración de claves por cuenta completada');
+    });
+  }).catch(function(e) { console.error('[DB] Error migrando a claves por cuenta:', e.message); });
+}
+migrateToPerAccountKeys();
+
 const app = express();
 app.set('trust proxy', 1);
 // CORS abierto solo fuera de producción (desarrollo local / pruebas por LAN con el móvil, donde
@@ -1024,7 +1104,7 @@ function scheduleAftercareEmailsForClient(userId, apptId, a, profile, email) {
     senal: a.deposit || 0
   };
 
-  return db.query('SELECT name, studio_name FROM profiles WHERE id=$1', [a.artistId || profile.id])
+  return db.query('SELECT name, studio_name FROM profiles WHERE id=$1 AND user_id=$2', [a.artistId || profile.id, userId])
     .then(function(pr) {
       var artist = pr.rows[0];
       var senderName = artist ? (artist.studio_name ? artist.name + ' · ' + artist.studio_name : artist.name) : (profile.name || 'Tu tatuador/a');
@@ -1171,15 +1251,15 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
 
     var ops = profilesData.map(function(p) {
       return db.query(
-        'INSERT INTO profiles (id,user_id,name,role,color,commission_pct,is_admin_profile,wa_settings,studio_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET name=$3,role=$4,color=$5,commission_pct=$6,is_admin_profile=$7,wa_settings=$8,studio_name=$9',
+        'INSERT INTO profiles (id,user_id,name,role,color,commission_pct,is_admin_profile,wa_settings,studio_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (user_id, id) DO UPDATE SET name=$3,role=$4,color=$5,commission_pct=$6,is_admin_profile=$7,wa_settings=$8,studio_name=$9',
         [p.id, userId, p.name||'', p.role||'', p.color||'v', typeof p.commissionPct==='number'?p.commissionPct:50, p.id === adminId, p.waSettings ? JSON.stringify(p.waSettings) : null, p.studioName||'']
       ).then(function() {
         var apptOps = (p.appts||[]).map(function(a) {
           var apptId = a.id !== undefined && a.id !== null ? String(a.id) : crypto.randomUUID();
-          return db.query('SELECT status FROM appointments WHERE id=$1', [apptId]).then(function(prev) {
+          return db.query('SELECT status FROM appointments WHERE id=$1 AND user_id=$2', [apptId, userId]).then(function(prev) {
             var oldStatus = prev.rows.length ? prev.rows[0].status : null;
             return db.query(
-              'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT (id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18',
+              'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT (user_id, id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18',
               [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
             ).then(function() {
               if (oldStatus !== 'completed' && a.status === 'completed') {
@@ -1191,14 +1271,14 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
         var clientOps = (p.clients||[]).map(function(c) {
           var clientId = c.id !== undefined && c.id !== null ? String(c.id) : crypto.randomUUID();
           return db.query(
-            'INSERT INTO clients (id,profile_id,user_id,name,phone,email,instagram,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET name=$4,phone=$5,email=$6,instagram=$7,notes=$8',
+            'INSERT INTO clients (id,profile_id,user_id,name,phone,email,instagram,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (user_id, id) DO UPDATE SET name=$4,phone=$5,email=$6,instagram=$7,notes=$8',
             [clientId, p.id, userId, c.name||'', c.phone||'', c.email||'', c.instagram||'', c.notes||'']
           ).catch(function(){});
         });
         var expenseOps = (p.expenses||[]).map(function(ex) {
           var expId = ex.id !== undefined && ex.id !== null ? String(ex.id) : crypto.randomUUID();
           return db.query(
-            'INSERT INTO expenses (id,profile_id,user_id,amount,category,description,date,kind) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET amount=$4,category=$5,description=$6,date=$7,kind=$8',
+            'INSERT INTO expenses (id,profile_id,user_id,amount,category,description,date,kind) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (user_id, id) DO UPDATE SET amount=$4,category=$5,description=$6,date=$7,kind=$8',
             [expId, p.id, userId, ex.amount||0, ex.cat||'', ex.name||'', ex.date||'', ex.kind||'variable']
           ).catch(function(){});
         });
@@ -1207,27 +1287,27 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
         var projectOps = (p.projects||[]).map(function(pr) {
           var prId = pr.id !== undefined && pr.id !== null ? String(pr.id) : crypto.randomUUID();
           return db.query(
-            'INSERT INTO projects (id,profile_id,user_id,name,client,notes,tags,images) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET name=$4,client=$5,notes=$6,tags=$7,images=$8',
+            'INSERT INTO projects (id,profile_id,user_id,name,client,notes,tags,images) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (user_id, id) DO UPDATE SET name=$4,client=$5,notes=$6,tags=$7,images=$8',
             [prId, p.id, userId, pr.name||'', pr.client||'', pr.notes||'', pr.tags||[], pr.images||[]]
           ).catch(function(){});
         });
         var docFileOps = (p.docFiles||[]).map(function(df) {
           var dfId = df.id !== undefined && df.id !== null ? String(df.id) : crypto.randomUUID();
           return db.query(
-            'INSERT INTO doc_files (id,profile_id,user_id,name,client,date,size,type,url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET name=$4,client=$5,date=$6,size=$7,type=$8,url=$9',
+            'INSERT INTO doc_files (id,profile_id,user_id,name,client,date,size,type,url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (user_id, id) DO UPDATE SET name=$4,client=$5,date=$6,size=$7,type=$8,url=$9',
             [dfId, p.id, userId, df.name||'', df.client||'', df.date||'', df.size||'', df.type||'', df.url||'']
           ).catch(function(){});
         });
         var consentOps = (p.consents||[]).map(function(cs) {
           var csId = cs.id !== undefined && cs.id !== null ? String(cs.id) : crypto.randomUUID();
           return db.query(
-            'INSERT INTO consents (id,profile_id,user_id,client_name,dni,dob,phone,email,address,tattoo_type,zone,size_desc,session_date,artist,price,deposit,medical,checks,created_at_label) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT (id) DO UPDATE SET client_name=$4,dni=$5,dob=$6,phone=$7,email=$8,address=$9,tattoo_type=$10,zone=$11,size_desc=$12,session_date=$13,artist=$14,price=$15,deposit=$16,medical=$17,checks=$18,created_at_label=$19',
+            'INSERT INTO consents (id,profile_id,user_id,client_name,dni,dob,phone,email,address,tattoo_type,zone,size_desc,session_date,artist,price,deposit,medical,checks,created_at_label) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT (user_id, id) DO UPDATE SET client_name=$4,dni=$5,dob=$6,phone=$7,email=$8,address=$9,tattoo_type=$10,zone=$11,size_desc=$12,session_date=$13,artist=$14,price=$15,deposit=$16,medical=$17,checks=$18,created_at_label=$19',
             [csId, p.id, userId, cs.clientName||'', cs.dni||'', cs.dob||'', cs.phone||'', cs.email||'', cs.address||'', cs.tattooType||'', cs.zone||'', cs.size||'', cs.sessionDate||'', cs.artist||'', cs.price||'', cs.deposit||'', cs.medical||'', JSON.stringify(cs.checks||[]), cs.createdAt||'']
           ).catch(function(){});
         });
         var docTemplateOps = (p.docTemplates||[]).map(function(dt) {
           return db.query(
-            'INSERT INTO doc_templates (profile_id,user_id,template_id,name,content) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (profile_id,template_id) DO UPDATE SET name=$4,content=$5',
+            'INSERT INTO doc_templates (profile_id,user_id,template_id,name,content) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id,profile_id,template_id) DO UPDATE SET name=$4,content=$5',
             [p.id, userId, dt.id||'', dt.name||'', dt.content||'']
           ).catch(function(){});
         });
@@ -1236,7 +1316,7 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
           (p.waMessages[clientId]||[]).forEach(function(m) {
             var mId = m.id !== undefined && m.id !== null ? String(m.id) : crypto.randomUUID();
             waMessageOps.push(db.query(
-              'INSERT INTO wa_messages (id,profile_id,user_id,client_id,text,dir,ts,auto,auto_id,read) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET text=$5,dir=$6,ts=$7,auto=$8,auto_id=$9,read=$10',
+              'INSERT INTO wa_messages (id,profile_id,user_id,client_id,text,dir,ts,auto,auto_id,read) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (user_id, id) DO UPDATE SET text=$5,dir=$6,ts=$7,auto=$8,auto_id=$9,read=$10',
               [mId, p.id, userId, String(clientId), m.text||'', m.dir||'out', m.ts||new Date().toISOString(), !!m.auto, m.autoId||null, !!m.read]
             ).catch(function(){}));
           });
@@ -1248,7 +1328,7 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
     var posSaleOps = posSalesData.map(function(s) {
       var saleId = s.id !== undefined && s.id !== null ? String(s.id) : crypto.randomUUID();
       return db.query(
-        'INSERT INTO pos_sales (id,user_id,item,amount,method,date) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET item=$3,amount=$4,method=$5,date=$6',
+        'INSERT INTO pos_sales (id,user_id,item,amount,method,date) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id, id) DO UPDATE SET item=$3,amount=$4,method=$5,date=$6',
         [saleId, userId, s.item||'', s.amount||0, s.method||'efectivo', s.date||'']
       ).catch(function(){});
     });
@@ -1270,7 +1350,7 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
 // Le dice al frontend si este perfil ya tiene contraseña (para mostrar "crear" o "ingresar").
 app.get('/api/profile/:id/has-password', authMiddleware, function(req, res) {
   var profileId = parseInt(req.params.id, 10);
-  db.query('SELECT user_id, password_hash FROM profiles WHERE id=$1', [profileId])
+  db.query('SELECT user_id, password_hash FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId])
     .then(function(r) {
       if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
       if (r.rows[0].user_id !== req.userId) return res.status(403).json({ error: 'No autorizado' });
@@ -1287,7 +1367,7 @@ app.post('/api/profile/:id/auth', authMiddleware, function(req, res) {
   var password = req.body.password || '';
   if (!password) return res.status(400).json({ error: 'Falta la contraseña' });
 
-  db.query('SELECT id, user_id, password_hash, is_admin_profile, access_role FROM profiles WHERE id=$1', [profileId])
+  db.query('SELECT id, user_id, password_hash, is_admin_profile, access_role FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId])
     .then(function(r) {
       if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
       var profile = r.rows[0];
@@ -1307,7 +1387,7 @@ app.post('/api/profile/:id/auth', authMiddleware, function(req, res) {
       if (!profile.password_hash) {
         // Primer acceso: esta contraseña queda establecida para este perfil.
         bcrypt.hash(password, 10).then(function(hash) {
-          return db.query('UPDATE profiles SET password_hash=$1, password_plain=$2 WHERE id=$3', [hash, password, profileId]);
+          return db.query('UPDATE profiles SET password_hash=$1, password_plain=$2 WHERE id=$3 AND user_id=$4', [hash, password, profileId, req.userId]);
         }).then(unlock).catch(function(e) { res.status(500).json({ error: e.message }); });
       } else {
         bcrypt.compare(password, profile.password_hash).then(function(match) {
@@ -1352,7 +1432,7 @@ function groupWaMessages(rows) {
 app.get('/api/profile/:id/data', authMiddleware, function(req, res) {
   var profileId = parseInt(req.params.id, 10);
 
-  db.query('SELECT id, user_id, is_admin_profile, access_role FROM profiles WHERE id=$1', [profileId])
+  db.query('SELECT id, user_id, is_admin_profile, access_role FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId])
     .then(function(r) {
       if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
       var profile = r.rows[0];
@@ -1366,18 +1446,21 @@ app.get('/api/profile/:id/data', authMiddleware, function(req, res) {
         });
         var isOwner = profile.access_role === 'owner';
         var scopeIds = isOwner ? allProfiles.rows.map(function(p) { return p.id; }) : [profileId];
-        var apptFilter = isOwner ? 'profile_id=ANY($1)' : 'profile_id=$1';
+        // AND user_id=$2 en cada filtro: profile_id ya no es único globalmente (ver migración
+        // de claves por cuenta), así que sin esto podría traer filas de otra cuenta que
+        // coincida por casualidad con el mismo profile_id.
+        var apptFilter = (isOwner ? 'profile_id=ANY($1)' : 'profile_id=$1') + ' AND user_id=$2';
         var apptParam = isOwner ? scopeIds : profileId;
 
         return Promise.all([
-          db.query('SELECT * FROM appointments WHERE ' + apptFilter + ' ORDER BY date,start', [apptParam]),
-          db.query('SELECT * FROM clients WHERE ' + apptFilter, [apptParam]),
-          db.query('SELECT * FROM expenses WHERE ' + apptFilter, [apptParam]),
-          db.query('SELECT * FROM projects WHERE ' + apptFilter, [apptParam]),
-          db.query('SELECT * FROM doc_files WHERE ' + apptFilter, [apptParam]),
-          db.query('SELECT * FROM consents WHERE ' + apptFilter, [apptParam]),
-          db.query('SELECT * FROM doc_templates WHERE ' + apptFilter, [apptParam]),
-          db.query('SELECT * FROM wa_messages WHERE ' + apptFilter, [apptParam]),
+          db.query('SELECT * FROM appointments WHERE ' + apptFilter + ' ORDER BY date,start', [apptParam, req.userId]),
+          db.query('SELECT * FROM clients WHERE ' + apptFilter, [apptParam, req.userId]),
+          db.query('SELECT * FROM expenses WHERE ' + apptFilter, [apptParam, req.userId]),
+          db.query('SELECT * FROM projects WHERE ' + apptFilter, [apptParam, req.userId]),
+          db.query('SELECT * FROM doc_files WHERE ' + apptFilter, [apptParam, req.userId]),
+          db.query('SELECT * FROM consents WHERE ' + apptFilter, [apptParam, req.userId]),
+          db.query('SELECT * FROM doc_templates WHERE ' + apptFilter, [apptParam, req.userId]),
+          db.query('SELECT * FROM wa_messages WHERE ' + apptFilter, [apptParam, req.userId]),
         ]).then(function(results) {
           res.json({
             roster: roster,
@@ -1421,7 +1504,7 @@ app.delete('/api/profile/:id', authMiddleware, function(req, res) {
   var profileId = parseInt(req.params.id, 10);
   if (req.user.accessRole === 'artist') return res.status(403).json({ error: 'Solo el dueño del estudio puede eliminar perfiles' });
 
-  db.query('SELECT id, user_id, is_admin_profile, access_role FROM profiles WHERE id=$1', [profileId])
+  db.query('SELECT id, user_id, is_admin_profile, access_role FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId])
     .then(function(r) {
       if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
       var profile = r.rows[0];
@@ -1429,7 +1512,7 @@ app.delete('/api/profile/:id', authMiddleware, function(req, res) {
       if (profile.is_admin_profile || profile.access_role === 'owner') {
         return res.status(400).json({ error: 'No puedes eliminar el perfil del dueño del estudio' });
       }
-      return db.query('DELETE FROM profiles WHERE id=$1', [profileId]).then(function() {
+      return db.query('DELETE FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId]).then(function() {
         res.json({ ok: true });
       });
     })
@@ -1446,12 +1529,12 @@ app.post('/api/my-profiles/:id/reset-password', authMiddleware, function(req, re
   var newPassword = req.body.newPassword || '';
   if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
 
-  db.query('SELECT user_id FROM profiles WHERE id=$1', [profileId])
+  db.query('SELECT user_id FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId])
     .then(function(r) {
       if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
       if (r.rows[0].user_id !== req.userId) return res.status(403).json({ error: 'No autorizado' });
       return bcrypt.hash(newPassword, 10).then(function(hash) {
-        return db.query('UPDATE profiles SET password_hash=$1, password_plain=$2 WHERE id=$3', [hash, newPassword, profileId]);
+        return db.query('UPDATE profiles SET password_hash=$1, password_plain=$2 WHERE id=$3 AND user_id=$4', [hash, newPassword, profileId, req.userId]);
       });
     })
     .then(function() { res.json({ ok: true }); })
@@ -1500,7 +1583,7 @@ app.get('/api/finance/reports', authMiddleware, function(req, res) {
       "SELECT a.artist_id, p.name AS artist_name, p.commission_pct, COUNT(*) AS cnt, COALESCE(SUM(a.price),0) AS total_price, " +
       "COALESCE(SUM(CASE WHEN a.deposit_method='stripe' THEN a.deposit ELSE 0 END),0) AS stripe_deposit, " +
       "COALESCE(SUM(CASE WHEN a.balance_method='stripe' THEN a.price-a.deposit ELSE 0 END),0) AS stripe_balance " +
-      "FROM appointments a LEFT JOIN profiles p ON p.id=a.artist_id " +
+      "FROM appointments a LEFT JOIN profiles p ON p.id=a.artist_id AND p.user_id=a.user_id " +
       "WHERE a.user_id=$1 AND a.status='completed' AND a.date>=$2 AND a.date<=$3" + artistFilter + " " +
       "GROUP BY a.artist_id, p.name, p.commission_pct",
       apptParams
@@ -1647,15 +1730,18 @@ function getFullAccountData(userId) {
   return db.query('SELECT * FROM profiles WHERE user_id=$1 ORDER BY id ASC', [userId]).then(function(pr) {
     if (!pr.rows.length) return { profiles: [], updated_at: null };
     var profileIds = pr.rows.map(function(p) { return p.id; });
+    // AND user_id=$2 en cada una: profile_id ya no es único globalmente (ver migración de
+    // claves por cuenta), así que sin esto una cuenta distinta con el mismo profile_id por
+    // casualidad se colaría en los datos de esta cuenta.
     return Promise.all([
-      db.query('SELECT * FROM appointments WHERE profile_id=ANY($1) ORDER BY date,start', [profileIds]),
-      db.query('SELECT * FROM clients WHERE profile_id=ANY($1)', [profileIds]),
-      db.query('SELECT * FROM expenses WHERE profile_id=ANY($1)', [profileIds]),
-      db.query('SELECT * FROM projects WHERE profile_id=ANY($1)', [profileIds]),
-      db.query('SELECT * FROM doc_files WHERE profile_id=ANY($1)', [profileIds]),
-      db.query('SELECT * FROM consents WHERE profile_id=ANY($1)', [profileIds]),
-      db.query('SELECT * FROM doc_templates WHERE profile_id=ANY($1)', [profileIds]),
-      db.query('SELECT * FROM wa_messages WHERE profile_id=ANY($1)', [profileIds]),
+      db.query('SELECT * FROM appointments WHERE profile_id=ANY($1) AND user_id=$2 ORDER BY date,start', [profileIds, userId]),
+      db.query('SELECT * FROM clients WHERE profile_id=ANY($1) AND user_id=$2', [profileIds, userId]),
+      db.query('SELECT * FROM expenses WHERE profile_id=ANY($1) AND user_id=$2', [profileIds, userId]),
+      db.query('SELECT * FROM projects WHERE profile_id=ANY($1) AND user_id=$2', [profileIds, userId]),
+      db.query('SELECT * FROM doc_files WHERE profile_id=ANY($1) AND user_id=$2', [profileIds, userId]),
+      db.query('SELECT * FROM consents WHERE profile_id=ANY($1) AND user_id=$2', [profileIds, userId]),
+      db.query('SELECT * FROM doc_templates WHERE profile_id=ANY($1) AND user_id=$2', [profileIds, userId]),
+      db.query('SELECT * FROM wa_messages WHERE profile_id=ANY($1) AND user_id=$2', [profileIds, userId]),
     ]).then(function(results) {
       var appts = results[0].rows, clients = results[1].rows, expenses = results[2].rows,
         projects = results[3].rows, docFiles = results[4].rows, consents = results[5].rows,

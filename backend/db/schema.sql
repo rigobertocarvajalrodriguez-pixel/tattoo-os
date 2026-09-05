@@ -1,4 +1,13 @@
 -- Tattoo OS Database Schema
+--
+-- NOTA sobre las claves (user_id, id): las tablas cuyo id lo genera el propio navegador
+-- (profiles, appointments, clients, expenses, projects, doc_files, consents, doc_templates,
+-- wa_messages, pos_sales) llevan clave primaria/foránea COMPUESTA con user_id, no solo id -
+-- el id de un navegador (1, 2, 3...) solo tiene que ser único DENTRO de esa cuenta, nunca
+-- globalmente, así que dos cuentas distintas pueden generar el mismo id sin pisarse. Este
+-- archivo ya refleja esa forma; si alguna vez se recrea la BD desde cero con las claves
+-- simples de antes, migrateToPerAccountKeys() en server.js las corrige solo en el primer
+-- arranque (ver esa función para el porqué completo).
 
 CREATE TABLE IF NOT EXISTS users (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
