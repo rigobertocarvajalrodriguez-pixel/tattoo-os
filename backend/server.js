@@ -48,11 +48,15 @@ if (mailEnabled) {
 // (el único verificado en SendGrid), eso no puede variar por tatuador sin verificar cada email
 // por separado en SendGrid, así que la identidad por tatuador se logra solo con el nombre.
 function sendEmailViaSendGrid(opts) {
+  var content = [{ type: 'text/plain', value: opts.text }];
+  // SendGrid quiere el texto plano antes que el HTML en el array "content" (define el orden de
+  // las partes MIME) - si no se manda html, el cliente de correo usa el texto plano tal cual.
+  if (opts.html) content.push({ type: 'text/html', value: opts.html });
   var payload = {
     personalizations: [{ to: [{ email: opts.to }] }],
     from: { email: SENDGRID_FROM_EMAIL, name: opts.fromName || 'Tattoo OS' },
     subject: opts.subject,
-    content: [{ type: 'text/plain', value: opts.text }],
+    content: content,
   };
   if (opts.replyTo) payload.reply_to = { email: opts.replyTo };
   return fetch('https://api.sendgrid.com/v3/mail/send', {
@@ -68,6 +72,74 @@ function sendEmailViaSendGrid(opts) {
       throw new Error('SendGrid ' + r.status + ': ' + t);
     });
   });
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Convierte el cuerpo en texto plano de una regla (líneas separadas por \n, algunas empiezan
+// por "- " como viñeta) en HTML: cada línea suelta es un párrafo, las líneas de viñeta
+// consecutivas se agrupan en una lista <ul>. Coincide con cómo el dueño del estudio escribe las
+// reglas en Ajustes > Notificaciones por email (texto libre con guiones para listas).
+function renderEmailBodyHtml(text) {
+  var lines = String(text || '').split('\n');
+  var html = '';
+  var i = 0;
+  var pStyle = 'margin:0 0 16px;font:400 15px/1.7 Arial,Helvetica,sans-serif;color:#c3c5d9;';
+  var ulStyle = 'margin:0 0 16px;padding-left:20px;font:400 15px/1.7 Arial,Helvetica,sans-serif;color:#c3c5d9;';
+  while (i < lines.length) {
+    var line = lines[i];
+    if (line.trim() === '') { i++; continue; }
+    if (/^-\s+/.test(line.trim())) {
+      var items = [];
+      while (i < lines.length && /^-\s+/.test(lines[i].trim())) {
+        items.push('<li style="margin:0 0 6px;">' + escapeHtml(lines[i].trim().replace(/^-\s+/, '')) + '</li>');
+        i++;
+      }
+      html += '<ul style="' + ulStyle + '">' + items.join('') + '</ul>';
+    } else {
+      html += '<p style="' + pStyle + '">' + escapeHtml(line) + '</p>';
+      i++;
+    }
+  }
+  return html;
+}
+
+// Plantilla visual de los correos de seguimiento (estética "TOS": fondo oscuro, insignia de
+// marca, tipografía clara) - a pedido explícito del dueño sobre cómo quiere que se vean sus
+// correos, a partir de un diseño de referencia (bienvenida-tattoos.png). El "heading" es el
+// subject ya personalizado (trae el {nombre} del cliente resuelto), el cuerpo es el texto de la
+// regla convertido a HTML con renderEmailBodyHtml.
+function buildFollowupEmailHtml(opts) {
+  var bodyHtml = renderEmailBodyHtml(opts.bodyText);
+  var signature = opts.senderName
+    ? '<tr><td style="padding:8px 0 0;font:400 14px/1.6 Arial,Helvetica,sans-serif;color:#9092ab;">&mdash; ' + escapeHtml(opts.senderName) + '</td></tr>'
+    : '';
+  return '<!doctype html><html><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark">' +
+    '<title>' + escapeHtml(opts.heading) + '</title></head>' +
+    '<body style="margin:0;padding:0;background:#0b0d14;">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b0d14;"><tr><td align="center" style="padding:40px 20px;">' +
+    '<table role="presentation" width="100%" style="max-width:560px;" cellpadding="0" cellspacing="0">' +
+    '<tr><td style="padding-bottom:20px;border-bottom:1px solid #23263a;">' +
+    '<table role="presentation" width="100%"><tr>' +
+    '<td style="font:700 13px/1 Arial,Helvetica,sans-serif;letter-spacing:1px;color:#c9c6ff;background:#1c1f33;border:1px solid #34375a;border-radius:6px;padding:8px 12px;" width="1">TOS</td>' +
+    '<td>&nbsp;</td>' +
+    '<td align="right" style="font:600 11px/1 Arial,Helvetica,sans-serif;letter-spacing:1.5px;color:#787c99;white-space:nowrap;">SEGUIMIENTO</td>' +
+    '</tr></table></td></tr>' +
+    '<tr><td style="padding:28px 0 12px;"><div style="font:700 25px/1.3 Arial,Helvetica,sans-serif;color:#f4f4f8;">' + escapeHtml(opts.heading) + '</div></td></tr>' +
+    '<tr><td>' + bodyHtml + '</td></tr>' +
+    signature +
+    '<tr><td style="padding-top:32px;">' +
+    '<table role="presentation" width="100%" style="border-top:1px solid #23263a;"><tr>' +
+    '<td style="padding-top:18px;font:400 11px/1.5 Arial,Helvetica,sans-serif;color:#5c5f78;">Tattoo OS &middot; Seguimiento de curaci&oacute;n</td>' +
+    '<td align="right" style="padding-top:18px;font:400 11px/1.5 Arial,Helvetica,sans-serif;color:#5c5f78;white-space:nowrap;">Responde a este correo para escribirnos</td>' +
+    '</tr></table></td></tr>' +
+    '</table></td></tr></table>' +
+    '</body></html>';
 }
 
 // Fase 1 de roles/planes: cuántos perfiles (dueño + artistas) caben en cada plan.
@@ -1183,6 +1255,7 @@ setInterval(function() {
           to: f.client_email,
           subject: f.subject,
           text: f.body,
+          html: buildFollowupEmailHtml({ heading: f.subject, bodyText: f.body, senderName: f.sender_name }),
         }).then(function() {
           return db.query("UPDATE email_followups SET status='sent', sent_at=NOW() WHERE id=$1", [f.id]);
         }).catch(function(e) {
