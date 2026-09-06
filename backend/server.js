@@ -113,33 +113,142 @@ function renderEmailBodyHtml(text) {
 // correos, a partir de un diseño de referencia (bienvenida-tattoos.png). El "heading" es el
 // subject ya personalizado (trae el {nombre} del cliente resuelto), el cuerpo es el texto de la
 // regla convertido a HTML con renderEmailBodyHtml.
+// Cabecera y pie compartidos por todos los correos con la estética "TOS" (insignia de marca +
+// etiqueta a la derecha; pie con dos columnas) - ver buildFollowupEmailHtml y
+// buildWelcomeEmailHtml, que solo cambian el contenido central.
+function emailHeaderHtml(label) {
+  return '<tr><td style="padding-bottom:20px;border-bottom:1px solid #23263a;">' +
+    '<table role="presentation" width="100%"><tr>' +
+    '<td style="font:700 13px/1 Arial,Helvetica,sans-serif;letter-spacing:1px;color:#c9c6ff;background:#1c1f33;border:1px solid #34375a;border-radius:6px;padding:8px 12px;" width="1">TOS</td>' +
+    '<td>&nbsp;</td>' +
+    '<td align="right" style="font:600 11px/1 Arial,Helvetica,sans-serif;letter-spacing:1.5px;color:#787c99;white-space:nowrap;">' + escapeHtml(label) + '</td>' +
+    '</tr></table></td></tr>';
+}
+function emailFooterHtml(left, right) {
+  return '<tr><td style="padding-top:32px;">' +
+    '<table role="presentation" width="100%" style="border-top:1px solid #23263a;"><tr>' +
+    '<td style="padding-top:18px;font:400 11px/1.5 Arial,Helvetica,sans-serif;color:#5c5f78;">' + left + '</td>' +
+    '<td align="right" style="padding-top:18px;font:400 11px/1.5 Arial,Helvetica,sans-serif;color:#5c5f78;white-space:nowrap;">' + right + '</td>' +
+    '</tr></table></td></tr>';
+}
+function emailShellHtml(title, innerRowsHtml) {
+  return '<!doctype html><html><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark">' +
+    '<title>' + escapeHtml(title) + '</title></head>' +
+    '<body style="margin:0;padding:0;background:#0b0d14;">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b0d14;"><tr><td align="center" style="padding:40px 20px;">' +
+    '<table role="presentation" width="100%" style="max-width:560px;" cellpadding="0" cellspacing="0">' +
+    innerRowsHtml +
+    '</table></td></tr></table>' +
+    '</body></html>';
+}
+
 function buildFollowupEmailHtml(opts) {
   var bodyHtml = renderEmailBodyHtml(opts.bodyText);
   var signature = opts.senderName
     ? '<tr><td style="padding:8px 0 0;font:400 14px/1.6 Arial,Helvetica,sans-serif;color:#9092ab;">&mdash; ' + escapeHtml(opts.senderName) + '</td></tr>'
     : '';
-  return '<!doctype html><html><head><meta charset="utf-8">' +
-    '<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark">' +
-    '<title>' + escapeHtml(opts.heading) + '</title></head>' +
-    '<body style="margin:0;padding:0;background:#0b0d14;">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b0d14;"><tr><td align="center" style="padding:40px 20px;">' +
-    '<table role="presentation" width="100%" style="max-width:560px;" cellpadding="0" cellspacing="0">' +
-    '<tr><td style="padding-bottom:20px;border-bottom:1px solid #23263a;">' +
-    '<table role="presentation" width="100%"><tr>' +
-    '<td style="font:700 13px/1 Arial,Helvetica,sans-serif;letter-spacing:1px;color:#c9c6ff;background:#1c1f33;border:1px solid #34375a;border-radius:6px;padding:8px 12px;" width="1">TOS</td>' +
-    '<td>&nbsp;</td>' +
-    '<td align="right" style="font:600 11px/1 Arial,Helvetica,sans-serif;letter-spacing:1.5px;color:#787c99;white-space:nowrap;">SEGUIMIENTO</td>' +
-    '</tr></table></td></tr>' +
+  var rows = emailHeaderHtml('SEGUIMIENTO') +
     '<tr><td style="padding:28px 0 12px;"><div style="font:700 25px/1.3 Arial,Helvetica,sans-serif;color:#f4f4f8;">' + escapeHtml(opts.heading) + '</div></td></tr>' +
     '<tr><td>' + bodyHtml + '</td></tr>' +
     signature +
-    '<tr><td style="padding-top:32px;">' +
-    '<table role="presentation" width="100%" style="border-top:1px solid #23263a;"><tr>' +
-    '<td style="padding-top:18px;font:400 11px/1.5 Arial,Helvetica,sans-serif;color:#5c5f78;">Tattoo OS &middot; Seguimiento de curaci&oacute;n</td>' +
-    '<td align="right" style="padding-top:18px;font:400 11px/1.5 Arial,Helvetica,sans-serif;color:#5c5f78;white-space:nowrap;">Responde a este correo para escribirnos</td>' +
-    '</tr></table></td></tr>' +
-    '</table></td></tr></table>' +
-    '</body></html>';
+    emailFooterHtml('Tattoo OS &middot; Seguimiento de curaci&oacute;n', 'Responde a este correo para escribirnos');
+  return emailShellHtml(opts.heading, rows);
+}
+
+// Correo de bienvenida al registrarse (misma estética "TOS") - a partir de una referencia
+// visual dada por el usuario (bienvenida-tattoos.png). El contenido está adaptado a lo que la
+// app hace de verdad hoy: se quitó la sección de "Plan/Facturación" de la referencia (no hay
+// prueba con límite de días ni cobro real todavía) y "soporte@tattoos.app" (dominio que no
+// existe) se cambió por el contacto real - ver WELCOME_EMAIL_CONTACT.
+var WELCOME_EMAIL_CONTACT = 'rigobertocarvajalrodriguez@gmail.com';
+var WELCOME_FEATURES = [
+  ['Agenda de citas', 'Reserva sesiones por tatuador, con duración, seña y estado. Ves el día del estudio completo y evitas huecos y solapamientos.'],
+  ['Proyectos', 'Cada tatuaje es un proyecto: referencias, notas y las sesiones que lo componen, del primer boceto al último repaso.'],
+  ['Clientes', 'Ficha con datos de contacto, consentimientos, historial de trabajos y notas privadas. Todo lo que necesitas antes de que se siente en la camilla.'],
+  ['Finanzas', 'Ingresos por sesión, señas cobradas, gastos de material y reparto por tatuador. Sabes qué ha entrado esta semana sin abrir una hoja de cálculo.'],
+  ['Avisos y curado', 'Recordatorios automáticos de la cita y, después, la pauta de cuidados del tatuaje enviada al cliente en los días que importan.'],
+];
+var WELCOME_STEPS = [
+  'Completa el perfil de tu estudio: nombre y color de identificación.',
+  'Añade a los tatuadores del equipo desde Ajustes → Equipo y roles. Si trabajas solo, con tu perfil es suficiente.',
+  'Crea tu primer cliente, con su email para los avisos de cuidados post-tatuaje.',
+  'Crea su proyecto y agenda la primera cita.',
+  'Marca la cita como completada cuando termine la sesión, y comprueba que le llegan los correos de seguimiento.',
+];
+var WELCOME_ACCOUNT = [
+  ['Acceso', 'El correo con el que te registraste.'],
+  ['Equipo', 'Invita a tatuadores desde Ajustes → Equipo y roles.'],
+];
+var WELCOME_EMAIL_TEXT =
+  'Bienvenido a Tattoo OS\n\n' +
+  'Gracias por registrarte. Tattoo OS es el sistema de gestión para estudios de tatuajes y tatuadores: agenda, proyectos, clientes, finanzas y avisos, todo en un mismo panel.\n\n' +
+  'QUÉ PUEDES HACER\n' + WELCOME_FEATURES.map(function(f) { return '- ' + f[0] + ': ' + f[1]; }).join('\n') + '\n\n' +
+  'PRIMEROS PASOS\n' + WELCOME_STEPS.map(function(s, i) { return (i + 1) + '. ' + s; }).join('\n') + '\n\n' +
+  'TU CUENTA\n' + WELCOME_ACCOUNT.map(function(a) { return a[0] + ': ' + a[1]; }).join('\n') + '\n\n' +
+  'LOS DATOS DE TUS CLIENTES\n' +
+  'La información de tus clientes es tuya: no se comparte con terceros ni se usa para publicidad. Solo las personas que invites a tu estudio pueden verla, y cada perfil tiene su nivel de acceso.\n' +
+  'Puedes borrar los datos de un cliente en cualquier momento desde su ficha, y descargar una copia de seguridad completa de tu estudio desde Ajustes cuando quieras. Los consentimientos firmados quedan asociados a cada trabajo, con fecha.\n\n' +
+  'CUANDO NECESITES AYUDA\n' +
+  'Escríbenos a ' + WELCOME_EMAIL_CONTACT + ' y te contestamos en cuanto podamos. Si algo te bloquea, cuéntanoslo: en esta etapa cada mensaje cambia el producto.\n' +
+  'Por ahora, lo mejor que puedes hacer es entrar y moverte por el panel con calma. Abre la agenda, crea un proyecto, mira las finanzas. Nada de lo que toques ahora rompe nada.';
+
+function buildWelcomeEmailHtml() {
+  var pStyle = 'margin:0 0 16px;font:400 15px/1.7 Arial,Helvetica,sans-serif;color:#c3c5d9;';
+  var h2Style = 'margin:0 0 4px;font:700 18px/1.3 Arial,Helvetica,sans-serif;color:#f4f4f8;';
+
+  var featureRows = WELCOME_FEATURES.map(function(f, i) {
+    var border = i < WELCOME_FEATURES.length - 1 ? 'border-bottom:1px solid #1e2130;' : '';
+    return '<tr><td style="padding:14px 0;' + border + '" valign="top">' +
+      '<table role="presentation" width="100%"><tr>' +
+      '<td width="140" valign="top" style="font:600 14px/1.5 Arial,Helvetica,sans-serif;color:#b7b2ff;padding-right:16px;">' + escapeHtml(f[0]) + '</td>' +
+      '<td valign="top" style="font:400 14px/1.6 Arial,Helvetica,sans-serif;color:#c3c5d9;">' + escapeHtml(f[1]) + '</td>' +
+      '</tr></table></td></tr>';
+  }).join('');
+
+  var stepsHtml = '<ol style="margin:0 0 8px;padding-left:20px;font:400 15px/1.7 Arial,Helvetica,sans-serif;color:#c3c5d9;">' +
+    WELCOME_STEPS.map(function(s) { return '<li style="margin:0 0 8px;">' + escapeHtml(s) + '</li>'; }).join('') +
+    '</ol>';
+
+  var accountRows = WELCOME_ACCOUNT.map(function(a, i) {
+    var border = i < WELCOME_ACCOUNT.length - 1 ? 'border-bottom:1px solid #1e2130;' : '';
+    return '<tr><td style="padding:12px 0;' + border + '" valign="top">' +
+      '<table role="presentation" width="100%"><tr>' +
+      '<td width="90" valign="top" style="font:600 11px/1.6 Arial,Helvetica,sans-serif;letter-spacing:.5px;color:#787c99;text-transform:uppercase;padding-right:16px;">' + escapeHtml(a[0]) + '</td>' +
+      '<td valign="top" style="font:400 14px/1.6 Arial,Helvetica,sans-serif;color:#c3c5d9;">' + escapeHtml(a[1]) + '</td>' +
+      '</tr></table></td></tr>';
+  }).join('');
+
+  var mailto = '<a href="mailto:' + WELCOME_EMAIL_CONTACT + '" style="color:#b7b2ff;text-decoration:underline;">' + WELCOME_EMAIL_CONTACT + '</a>';
+
+  var rows = emailHeaderHtml('BIENVENIDA') +
+    '<tr><td style="padding:28px 0 12px;"><div style="font:700 26px/1.3 Arial,Helvetica,sans-serif;color:#f4f4f8;">Bienvenido a Tattoo OS</div></td></tr>' +
+    '<tr><td><p style="' + pStyle + '">Gracias por registrarte. Tattoo OS es el sistema de gestión para estudios de tatuajes y tatuadores: agenda, proyectos, clientes, finanzas y avisos, todo en un mismo panel. Este correo te explica en dos minutos qué hay dentro y por dónde empezar.</p></td></tr>' +
+
+    '<tr><td style="padding:20px 0 6px;"><div style="' + h2Style + '">Qué puedes hacer</div></td></tr>' +
+    '<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0">' + featureRows + '</table></td></tr>' +
+
+    '<tr><td style="padding:28px 0 6px;"><div style="' + h2Style + '">Primeros pasos</div></td></tr>' +
+    '<tr><td><p style="' + pStyle + '">No hace falta hacerlo todo hoy. En este orden, el panel empieza a serte útil desde el primer día.</p></td></tr>' +
+    '<tr><td>' + stepsHtml + '</td></tr>' +
+
+    '<tr><td style="padding:28px 0 6px;"><div style="' + h2Style + '">Tu cuenta</div></td></tr>' +
+    '<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0">' + accountRows + '</table></td></tr>' +
+
+    '<tr><td style="padding:28px 0 6px;"><div style="' + h2Style + '">Los datos de tus clientes</div></td></tr>' +
+    '<tr><td><p style="' + pStyle + '">La información de tus clientes es tuya: no se comparte con terceros ni se usa para publicidad. Solo las personas que invites a tu estudio pueden verla, y cada perfil tiene su nivel de acceso.</p></td></tr>' +
+    '<tr><td><p style="' + pStyle + '">Puedes borrar los datos de un cliente en cualquier momento desde su ficha, y descargar una copia de seguridad completa de tu estudio desde Ajustes cuando quieras. Los consentimientos firmados quedan asociados a cada trabajo, con fecha.</p></td></tr>' +
+
+    '<tr><td style="padding:24px 0 0;">' +
+    '<table role="presentation" width="100%" style="background:#171a26;border:1px solid #262a3d;border-radius:12px;" cellpadding="0" cellspacing="0"><tr><td style="padding:20px 22px;">' +
+    '<div style="font:700 15px/1.4 Arial,Helvetica,sans-serif;color:#f4f4f8;margin:0 0 10px;">Cuando necesites ayuda</div>' +
+    '<p style="margin:0 0 12px;font:400 14px/1.6 Arial,Helvetica,sans-serif;color:#aeb0c4;">Escríbenos a ' + mailto + ' y te contestamos en cuanto podamos. Si algo te bloquea, cuéntanoslo: en esta etapa cada mensaje cambia el producto.</p>' +
+    '<p style="margin:0;font:400 14px/1.6 Arial,Helvetica,sans-serif;color:#aeb0c4;">Por ahora, lo mejor que puedes hacer es entrar y moverte por el panel con calma. Abre la agenda, crea un proyecto, mira las finanzas. Nada de lo que toques ahora rompe nada.</p>' +
+    '</td></tr></table></td></tr>' +
+
+    emailFooterHtml('Tattoo OS &middot; Correo de bienvenida', mailto);
+
+  return emailShellHtml('Bienvenido a Tattoo OS', rows);
 }
 
 // Fase 1 de roles/planes: cuántos perfiles (dueño + artistas) caben en cada plan.
@@ -665,6 +774,19 @@ app.post('/api/auth/register', loginRateLimiter, function(req, res) {
         var token = crypto.randomUUID();
         authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: false };
         res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
+        // Correo de bienvenida: no bloquea la respuesta del registro ni la rompe si falla (por
+        // eso va después de responder, con su propio catch) - es solo informativo, no forma
+        // parte del flujo de autenticación.
+        if (mailEnabled) {
+          sendEmailViaSendGrid({
+            fromName: 'Tattoo OS',
+            replyTo: WELCOME_EMAIL_CONTACT,
+            to: user.email,
+            subject: 'Bienvenido a Tattoo OS',
+            text: WELCOME_EMAIL_TEXT,
+            html: buildWelcomeEmailHtml(),
+          }).catch(function() {});
+        }
       });
   }).catch(function(e) {
     if (e.code === '23505') return res.status(400).json({ error: 'El email ya está registrado' });
