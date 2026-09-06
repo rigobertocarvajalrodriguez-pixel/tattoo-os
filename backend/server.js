@@ -1317,15 +1317,15 @@ app.post('/api/tickets', authMiddleware, function(req, res) {
 });
 
 // ══════════════════════════════════════════
-// SEGUIMIENTO DE CURACIÓN POR EMAIL (día 1 / día 3 tras completar la cita)
+// SEGUIMIENTO DE CURACIÓN POR EMAIL (inmediato + día 3 tras completar la cita)
 // ══════════════════════════════════════════
 // Antes se enviaba por WhatsApp (wa_followups, ya no se usa - se deja la tabla en la BD por
 // si hay algo pendiente de consultar, pero nada vuelve a escribir ni leer de ahí). Cada regla
 // es ahora una fila real y editable por el dueño del estudio en email_rules (antes eran 2
-// automatizaciones fijas dentro de waSettings) - se siembran 2 por defecto (día 1/día 3) la
+// automatizaciones fijas dentro de waSettings) - se siembran 2 por defecto (inmediato/día 3) la
 // primera vez que una cuenta las necesita, para no perder el comportamiento de antes.
 var DEFAULT_EMAIL_RULES = [
-  { name: 'Seguimiento día 1', offset_days: 1, offset_hour: 11,
+  { name: 'Seguimiento inmediato', offset_days: 0, offset_hour: 11,
     subject: '¿Qué tal fue tu sesión, {nombre}?',
     body: 'Hola {nombre}! ¿Qué tal fue todo en la sesión de tu "{tattoo}"?\n\nTe dejo los cuidados para la curación:\n- Lava la zona con agua y jabón neutro 2 veces al día\n- Aplica una crema cicatrizante fina, sin tapar en exceso\n- No rasques ni arranques las pieles que se levanten\n- Evita el sol directo, la piscina, el mar y la sauna las próximas 2-3 semanas\n- Usa ropa holgada que no roce la zona\n\n¡Cualquier duda me escribes!' },
   { name: 'Seguimiento día 3', offset_days: 3, offset_hour: 11,
@@ -1347,10 +1347,16 @@ function renderFollowupTemplate(tpl, vars) {
 }
 
 // El offset de cada regla (offset_days/offset_hour) se cuenta desde el momento en que se
-// confirma/completa la cita (HOY, cuando corre esta función), no desde la fecha guardada en la
-// cita - a petición explícita del dueño. dateStr es la fecha de HOY en formato YYYY-MM-DD (ver
+// completa la cita (HOY, cuando corre esta función), no desde la fecha guardada en la cita - a
+// petición explícita del dueño. dateStr es la fecha de HOY en formato YYYY-MM-DD (ver
 // scheduleAftercareEmailsForClient), no la fecha de la cita.
+//
+// offset_days=0 es un caso especial: "casi al instante" (lo recoge el worker en su próxima
+// pasada, cada 5 min) - se ignora offset_hour a propósito, porque anclarlo a una hora fija del
+// día (p.ej. las 11:00) haría que si ya son las 15:00 saliera "ya", pero si son las 9:00 se
+// quedara esperando hasta las 11:00 en vez de salir ya mismo como se pide.
 function followupDate(dateStr, daysAhead, hour) {
+  if (daysAhead === 0) return new Date();
   var d = new Date(dateStr + 'T' + (hour || 11) + ':00:00');
   if (isNaN(d.getTime())) d = new Date();
   d.setDate(d.getDate() + daysAhead);
@@ -1583,21 +1589,16 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
               'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT (user_id, id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18',
               [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
             ).then(function() {
-              // El seguimiento se dispara al pasar a 'completed' O a 'confirmed' - a petición
-              // explícita del dueño: en su estudio "Confirmada" es el estado que usa como
-              // sesión terminada, y casi nunca toca "Completada" aparte, así que con solo
-              // 'completed' el correo nunca llegaba a salir.
+              // El seguimiento se dispara al pasar a 'completed' (decisión final del dueño: usa
+              // "Completada" específicamente para marcar la sesión terminada - se probó también
+              // disparar con 'confirmed', pero no es lo que quiere).
               //
-              // El offset de cada regla (día 1/día 3) se cuenta desde ESTE momento (cuando se
-              // confirma/completa), no desde la fecha guardada en la cita - también a petición
-              // explícita, ver followupDate()/scheduleAftercareEmailsForClient(). Ojo: esto
-              // asume que "confirmar" pasa el mismo día de la sesión real (así es como se usa
-              // hoy); si algún estudio confirmara reservas con antelación en vez de al terminar
-              // la sesión, el correo de cuidados saldría antes de tiempo - no es el caso de
-              // esta cuenta, pero quede anotado por si en el futuro hay más de un estudio real
-              // usando la plataforma con convenciones distintas.
-              var DONE_STATUSES = { completed: true, confirmed: true };
-              if (!DONE_STATUSES[oldStatus] && DONE_STATUSES[a.status]) {
+              // El offset de cada regla se cuenta desde ESTE momento (cuando se completa), no
+              // desde la fecha guardada en la cita - ver followupDate()/
+              // scheduleAftercareEmailsForClient(). La regla "Seguimiento inmediato" tiene
+              // offset_days=0, que followupDate() trata como "ya mismo" (lo recoge el worker en
+              // su próxima pasada, cada 5 min).
+              if (oldStatus !== 'completed' && a.status === 'completed') {
                 return scheduleAftercareEmails(userId, apptId, a, p, profilesData);
               }
             });
