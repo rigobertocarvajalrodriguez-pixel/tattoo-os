@@ -6430,21 +6430,12 @@ function renderUserBadge() {
   if (tbLeft) tbLeft.appendChild(badge);
 }
 
-// Check session on load - usa token local
+// Petición explícita del dueño: la sesión nunca se recuerda entre visitas - cada vez que se
+// entra a la página hay que iniciar sesión de nuevo, aunque el navegador tuviera guardado un
+// token válido de una vez anterior. Se borra en vez de simplemente ignorarlo, para que una
+// pestaña vieja tampoco pueda reutilizarlo más tarde.
 function checkSession() {
-  var token = localStorage.getItem('tos_local_token');
-  if (!token) return;
-  fetch(API_BASE+'/api/auth/me', { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); })
-    .then(function(result) {
-      if (result.user) {
-        _authToken = token;
-        loginSuccess(result.user);
-      } else {
-        localStorage.removeItem('tos_local_token');
-      }
-    })
-    .catch(function() { localStorage.removeItem('tos_local_token'); });
+  localStorage.removeItem('tos_local_token');
 }
 
 // Auto-save profiles every 30s
