@@ -787,6 +787,31 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .ck-required{font-size:9px;font-weight:700;color:var(--gr);background:rgba(16,185,129,.1);padding:2px 6px;border-radius:4px;flex-shrink:0}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
+/* ── TOUR DE BIENVENIDA (onboarding) ── */
+/* #tour-spot: spotlight con la técnica clásica de box-shadow enorme - la "ventana" recortada
+   es simplemente el área SIN sombra (el propio div, sin relleno); pointer-events:none a
+   propósito, así el tour solo dirige la atención visualmente, sin bloquear la página por
+   debajo (ver auditoría de animaciones para --ease-drawer). */
+#tour-spot{position:fixed;z-index:9500;pointer-events:none;border-radius:var(--r3);box-shadow:0 0 0 9999px rgba(4,4,10,.75);transition:top .3s var(--ease-drawer),left .3s var(--ease-drawer),width .3s var(--ease-drawer),height .3s var(--ease-drawer);display:none}
+#tour-spot.show{display:block}
+#tour-tooltip{position:fixed;z-index:9501;background:var(--elevated);border:1px solid var(--bd3);border-radius:var(--r3);padding:18px 20px;width:min(300px,calc(100vw - 32px));box-shadow:0 24px 60px rgba(0,0,0,.5);display:none}
+#tour-tooltip.show{display:block;animation:mopen .2s var(--ease-out)}
+#tour-tooltip:focus{outline:none}
+.tour-step{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--vl);margin-bottom:8px}
+.tour-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--t1);margin-bottom:6px}
+.tour-text{font-size:12.5px;line-height:1.6;color:var(--t2);margin-bottom:16px}
+.tour-actions{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.tour-skip{background:none;border:none;color:var(--t3);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;padding:6px 4px;transition:color .15s var(--ease-out)}
+.tour-skip:hover{color:var(--t1)}
+.tour-next{background:linear-gradient(135deg,var(--v),var(--vl));border:none;border-radius:var(--r2);padding:8px 18px;color:#fff;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:transform .15s var(--ease-out)}
+.tour-next:hover{transform:translateY(-1px)}
+/* Móvil: menos sitio para andar posicionando con flecha - panel fijo abajo, sin el spotlight
+   (el elemento señalado puede vivir dentro del sidebar móvil, que _tourSetMobileMenu() abre/
+   cierra por el propio JS del tour). */
+@media(max-width:640px){
+  #tour-tooltip.mobile{position:fixed!important;left:12px!important;right:12px;bottom:calc(var(--safe-bot) + 12px)!important;top:auto!important;width:auto}
+}
+
 /* LIGHTBOX */
 .lbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;align-items:center;justify-content:center;backdrop-filter:blur(10px)}
 .lbox.open{display:flex}
@@ -2491,6 +2516,7 @@ function _psContinue(){
   setPlan(chosen);
   localStorage.setItem('plan_chosen','1');
   hidePlanScreen();
+  maybeStartOnboardingTour();
 }
 
 const AVCOLS={v:'linear-gradient(135deg,#7c5cfc,#a78bfa)',c:'linear-gradient(135deg,#0ea5e9,#22d3ee)',r:'linear-gradient(135deg,#f43f5e,#fb7185)',a:'linear-gradient(135deg,#f59e0b,#fcd34d)',g:'linear-gradient(135deg,#10b981,#34d399)'};
@@ -4115,6 +4141,11 @@ function renderSettings(){
             </div>`;
           }).join('')}
         </div>
+      </div>
+      <div class="set-section">
+        <div class="set-section-t">Tour guiado</div>
+        <div class="set-section-s">Repasa las secciones principales del panel, la misma introducción que ves al registrarte.</div>
+        <button class="bsec" style="margin-top:10px" onclick="startOnboardingTour()">Ver tour</button>
       </div>`;
   } else if(activeSettingsPanel==='language'){
     b.innerHTML=`
@@ -6428,7 +6459,11 @@ function loginSuccess(user) {
   showToast('Bienvenido, ' + user.name);
   showAdminNav();
   loadUserPlan();
-  if (!localStorage.getItem('plan_chosen')) { showPlanScreen(); }
+  // El tour de bienvenida espera a que se elija plan primero si toca (ver _psContinue()) -
+  // mostrar los dos a la vez sería confuso. Si el plan ya estaba elegido de antes (mismo
+  // navegador) pero la cuenta no ha visto el tour todavía (p.ej. primera vez en OTRO
+  // dispositivo), se lanza aquí directamente.
+  if (!localStorage.getItem('plan_chosen')) { showPlanScreen(); } else { maybeStartOnboardingTour(); }
   if (window._initRemoteView) window._initRemoteView(user.id);
   // Cargar tickets del usuario (para ver respuestas del admin)
   setTimeout(loadUserTickets, 1000);
@@ -6436,6 +6471,160 @@ function loginSuccess(user) {
   if (_authToken) {
     fetch(API_BASE+'/api/profile/sync', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},
       body: JSON.stringify({ email: user.email, name: user.name }) }).catch(function(){});
+  }
+}
+
+// ==========================================
+// TOUR DE BIENVENIDA (onboarding)
+// ==========================================
+// Se guarda en BD (users.has_completed_onboarding), no solo en localStorage, para que no se
+// repita si el usuario entra desde otro dispositivo - ver /api/user/onboarding. "Ver tour" en
+// Ajustes > Apariencia lo relanza en cualquier momento sin tocar ese campo (ya está en true).
+var ONBOARDING_STEPS = [
+  { selector: '.nav', mobileMenu: true,
+    title: 'Tu estudio, organizado',
+    text: 'Aquí tienes todas las secciones: Calendario, Clientes, Finanzas, Documentos...' },
+  { selector: '.new-btn', mobileMenu: true,
+    title: 'Tu primera cita',
+    text: 'Empieza aquí: crea tu primera cita.' },
+  { selector: '[data-page="clients"]', mobileMenu: true,
+    title: 'Clientes',
+    text: 'El historial de cada cliente se guarda solo. Si le añades su email, recibe automáticamente los cuidados post-tatuaje después de la sesión.' },
+  { selector: '[data-page="docs"]', mobileMenu: true,
+    title: 'Documentos',
+    text: 'Plantillas de consentimiento listas para usar, sin crearlas desde cero.' },
+  { selector: '#aiw-bubble', mobileMenu: false,
+    title: 'Nova, tu asistente',
+    text: 'Pregúntale cualquier duda sobre tu estudio, cuando quieras.' },
+];
+var _tourStep = -1;
+var _tourKeyHandler = null;
+
+// Llamar aquí (no directamente a startOnboardingTour) en cualquier punto que NO sea "Ver tour"
+// manual - solo arranca si la cuenta de verdad no lo ha visto todavía.
+function maybeStartOnboardingTour() {
+  if (currentUser && currentUser.hasCompletedOnboarding === false) {
+    setTimeout(startOnboardingTour, 500);
+  }
+}
+function startOnboardingTour() {
+  _tourStep = -1;
+  _tourAdvance();
+}
+function _tourEnsureEls() {
+  if (document.getElementById('tour-spot')) return;
+  var spot = document.createElement('div');
+  spot.id = 'tour-spot';
+  var tip = document.createElement('div');
+  tip.id = 'tour-tooltip';
+  tip.setAttribute('role', 'dialog');
+  tip.setAttribute('aria-modal', 'true');
+  tip.tabIndex = -1;
+  document.body.appendChild(spot);
+  document.body.appendChild(tip);
+}
+// Abre/cierra el sidebar móvil por el propio tour (no toggleMobileSidebar() - ese alterna, esto
+// fuerza un estado concreto, para no desincronizarse si el usuario ya lo había abierto/cerrado
+// a mano mientras tanto).
+function _tourSetMobileMenu(open) {
+  if (window.innerWidth > 640) return;
+  var sb = document.querySelector('.sidebar');
+  var ov = document.getElementById('sidebar-overlay');
+  if (!sb) return;
+  sb.classList.toggle('mobile-open', open);
+  if (ov) ov.classList.toggle('open', open);
+}
+function _tourAdvance() {
+  _tourStep++;
+  if (_tourStep >= ONBOARDING_STEPS.length) { _tourFinish(); return; }
+  _tourRenderStep();
+}
+function _tourRenderStep() {
+  _tourEnsureEls();
+  var step = ONBOARDING_STEPS[_tourStep];
+  var isMobile = window.innerWidth <= 640;
+  var needsMenu = isMobile && step.mobileMenu;
+  _tourSetMobileMenu(needsMenu);
+  // Si hay que abrir el sidebar móvil, dar tiempo a que termine su propia animación de
+  // deslizamiento antes de medir dónde quedó el elemento señalado - si no, el spotlight se
+  // coloca sobre donde el elemento ESTABA a punto de estar, no donde queda de verdad.
+  setTimeout(function() { _tourPositionStep(step); }, needsMenu ? 260 : 0);
+}
+function _tourPositionStep(step) {
+  var target = document.querySelector(step.selector);
+  var spot = document.getElementById('tour-spot');
+  var tip = document.getElementById('tour-tooltip');
+  if (!target || target.offsetParent === null) { _tourAdvance(); return; } // no existe o está oculto - salta el paso, nunca se queda atascado
+  var r = target.getBoundingClientRect();
+  var pad = 6;
+  spot.style.top = (r.top - pad) + 'px';
+  spot.style.left = (r.left - pad) + 'px';
+  spot.style.width = (r.width + pad * 2) + 'px';
+  spot.style.height = (r.height + pad * 2) + 'px';
+  spot.classList.add('show');
+
+  var isMobile = window.innerWidth <= 640;
+  var isLast = _tourStep === ONBOARDING_STEPS.length - 1;
+  tip.classList.toggle('mobile', isMobile);
+  tip.innerHTML =
+    '<div class="tour-step">Paso ' + (_tourStep + 1) + ' de ' + ONBOARDING_STEPS.length + '</div>' +
+    '<div class="tour-title">' + esc(step.title) + '</div>' +
+    '<div class="tour-text">' + esc(step.text) + '</div>' +
+    '<div class="tour-actions">' +
+      '<button class="tour-skip" onclick="skipOnboardingTour()">Saltar tour</button>' +
+      '<button class="tour-next" onclick="_tourAdvance()">' + (isLast ? 'Finalizar' : 'Siguiente') + '</button>' +
+    '</div>';
+  tip.classList.add('show');
+  if (isMobile) {
+    // Posición fija por CSS (#tour-tooltip.mobile, ver más arriba) - no calcular top/left aquí.
+  } else {
+    // Se mide DESPUÉS de pintar el innerHTML nuevo (rAF), si no el alto/ancho leído sería el
+    // del contenido del paso ANTERIOR.
+    requestAnimationFrame(function() {
+      var tr = tip.getBoundingClientRect();
+      var top = r.bottom + 12;
+      if (top + tr.height > window.innerHeight - 12) top = r.top - tr.height - 12;
+      if (top < 12) top = 12;
+      var left = r.left;
+      if (left + tr.width > window.innerWidth - 12) left = window.innerWidth - tr.width - 12;
+      if (left < 12) left = 12;
+      tip.style.top = top + 'px';
+      tip.style.left = left + 'px';
+    });
+  }
+  tip.focus();
+  _tourBindKeys();
+}
+function _tourBindKeys() {
+  if (_tourKeyHandler) return;
+  _tourKeyHandler = function(e) {
+    if (e.key === 'Escape') { skipOnboardingTour(); return; }
+    if (e.key === 'Tab') {
+      var tip = document.getElementById('tour-tooltip');
+      var focusable = tip ? tip.querySelectorAll('button') : [];
+      if (!focusable.length) return;
+      var first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      else if (document.activeElement === tip) { e.preventDefault(); first.focus(); }
+    }
+  };
+  document.addEventListener('keydown', _tourKeyHandler, true);
+}
+function _tourUnbindKeys() {
+  if (_tourKeyHandler) { document.removeEventListener('keydown', _tourKeyHandler, true); _tourKeyHandler = null; }
+}
+function skipOnboardingTour() { _tourFinish(); }
+function _tourFinish() {
+  var spot = document.getElementById('tour-spot');
+  var tip = document.getElementById('tour-tooltip');
+  if (spot) spot.classList.remove('show');
+  if (tip) tip.classList.remove('show');
+  _tourSetMobileMenu(false);
+  _tourUnbindKeys();
+  if (currentUser && !currentUser.hasCompletedOnboarding) {
+    currentUser.hasCompletedOnboarding = true;
+    fetch(API_BASE + '/api/user/onboarding', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (_authToken || '') } }).catch(function() {});
   }
 }
 

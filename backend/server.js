@@ -550,6 +550,14 @@ Promise.all([
   console.log('[DB] Migración de recuperación de contraseña aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de recuperación de contraseña:', e.message); });
 
+// Tour de bienvenida (onboarding): en BD y no solo en localStorage para que no se repita si el
+// usuario entra desde otro dispositivo. FALSE por defecto en cuentas nuevas; se pone TRUE al
+// terminarlo o saltarlo (ver PATCH /api/user/onboarding) - "Ver tour" en Ajustes lo relanza sin
+// tocar este campo (ya está en true, no hace falta).
+db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS has_completed_onboarding BOOLEAN NOT NULL DEFAULT FALSE')
+  .then(function() { console.log('[DB] Migración de tour de bienvenida aplicada'); })
+  .catch(function(e) { console.error('[DB] Error en migración de tour de bienvenida:', e.message); });
+
 // Aislamiento real de datos por CUENTA a nivel de base de datos. Hasta ahora profiles.id y los
 // ids de citas/clientes/gastos/proyectos/documentos/consentimientos/plantillas/mensajes de
 // WhatsApp/ventas de mostrador los generaba el propio navegador (contadores 1,2,3... que
@@ -782,7 +790,7 @@ app.post('/api/auth/login', loginRateLimiter, function(req, res) {
         var token = crypto.randomUUID();
         authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin };
         db.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]).catch(function() {});
-        res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
+        res.json({ token: token, user: { id: user.id, email: user.email, name: user.name, hasCompletedOnboarding: !!user.has_completed_onboarding } });
       });
     })
     .catch(function(e) { res.status(500).json({ error: 'Error de base de datos' }); });
@@ -802,7 +810,7 @@ app.post('/api/auth/register', loginRateLimiter, function(req, res) {
         var user = r.rows[0];
         var token = crypto.randomUUID();
         authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: false };
-        res.json({ token: token, user: { id: user.id, email: user.email, name: user.name } });
+        res.json({ token: token, user: { id: user.id, email: user.email, name: user.name, hasCompletedOnboarding: false } });
         // Correo de bienvenida: no bloquea la respuesta del registro ni la rompe si falla (por
         // eso va después de responder, con su propio catch) - es solo informativo, no forma
         // parte del flujo de autenticación.
@@ -871,11 +879,13 @@ app.get('/api/auth/me', function(req, res) {
   var session = authSessions[token];
   if (!session) return res.status(401).json({ error: 'Token inválido' });
   // Plan real (Fase 1): se lee de BD en cada llamada, nunca del token en memoria, para que un
-  // cambio de plan se refleje sin tener que volver a hacer login.
-  db.query('SELECT plan FROM users WHERE id=$1', [session.userId])
+  // cambio de plan se refleje sin tener que volver a hacer login. has_completed_onboarding
+  // igual: así el tour de bienvenida no se repite en el navegador de otro dispositivo.
+  db.query('SELECT plan, has_completed_onboarding FROM users WHERE id=$1', [session.userId])
     .then(function(r) {
-      var plan = (r.rows[0] && r.rows[0].plan) || 'independiente';
-      res.json({ user: { id: session.userId, email: session.email, name: session.name, plan: plan } });
+      var row = r.rows[0] || {};
+      var plan = row.plan || 'independiente';
+      res.json({ user: { id: session.userId, email: session.email, name: session.name, plan: plan, hasCompletedOnboarding: !!row.has_completed_onboarding } });
     })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
@@ -898,6 +908,15 @@ app.post('/api/user/plan', authMiddleware, function(req, res) {
         res.json({ ok: true, plan: plan });
       });
     })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Marca el tour de bienvenida como visto (al terminarlo o al saltarlo - mismo endpoint para
+// los dos casos, ver skipTour()/finishTour() en el frontend). "Ver tour" en Ajustes lo relanza
+// sin llamar aquí (ya está en true, no hace falta tocar nada).
+app.patch('/api/user/onboarding', authMiddleware, function(req, res) {
+  db.query('UPDATE users SET has_completed_onboarding=TRUE WHERE id=$1', [req.userId])
+    .then(function() { res.json({ ok: true }); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
