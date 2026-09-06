@@ -77,54 +77,25 @@ body.concrete{
   background-size:cover;background-position:center;background-repeat:no-repeat;
   background-attachment:fixed;
 }
-/* Paneles/chrome con fondo sólido → glassmorphism. Mismo criterio que landing.html: un
-   selector agrupado que consume los tokens --glass-* de arriba. Para sumar otro panel al
-   tema, añadir su clase aquí. */
+/* Auditoría "Apple Liquid Glass" (ver hallazgos completos en el historial de commits):
+   el glass real queda SOLO en el chrome de navegación/estructura permanente - barras,
+   sidebar, panel lateral, drawer, modales/hojas y unos pocos botones sueltos que se
+   comprobaron NO anidados dentro de otra superficie de cristal. Todo lo demás que llevaba
+   glass antes (menús/inputs que viven DENTRO de estas mismas superficies, y tarjetas de
+   contenido) se movió a los dos bloques de abajo, con el motivo de cada uno. Para sumar
+   otro panel de chrome al tema, añadir su clase aquí. */
 .concrete .sidebar,
 .concrete .topbar,
 .concrete .mobile-topbar,
 .concrete .rp,
 .concrete .drawer,
 .concrete .login-card,
-/* Menús / desplegables */
-.concrete .prof-picker,
-.concrete .vtabs,
-.concrete .arr,
-.concrete .yr-tag,
-.concrete .srch-dd,
+/* Botones/controles sueltos, comprobados en el HTML que NO viven anidados dentro de otra
+   superficie de cristal - candidatos legítimos a su propio glass. */
 .concrete .adm-tabs,
 .concrete .back-btn,
 .concrete .bnav-circle,
-.concrete .mb-menu-btn,
-/* Buscadores / inputs */
-.concrete .srch-inp-box,
-.concrete .cs-inp,
-.concrete .fi,
-.concrete .wa-compose-input,
-.concrete .auto-card-tpl,
-.concrete .adm-note,
 .concrete .magic-btn,
-.concrete .login-tab-row,
-/* Tarjetas (clientes, finanzas, proyectos, documentos, automatizaciones, admin...) */
-.concrete .cc,
-.concrete .fc,
-.concrete .ymc,
-.concrete .sc,
-.concrete .mnchart,
-.concrete .upi,
-.concrete .pj,
-.concrete .pj-notes,
-.concrete .bigchart,
-.concrete .exi,
-.concrete .set-row,
-.concrete .doc-card,
-.concrete .doc-item,
-.concrete .auto-card,
-.concrete .adm-user,
-.concrete .adm-ticket,
-.concrete .consent-section,
-.concrete .wa-msg.in,
-.concrete .wp-wrap,
 /* Modales */
 .concrete .modal,
 .concrete .plan-upgrade-box,
@@ -137,20 +108,33 @@ body.concrete{
 .concrete .modal,
 .concrete .plan-upgrade-box,
 .concrete .drawer{box-shadow:var(--glass-shadow)}
-/* Paneles con el fondo puesto por style="" inline en vez de por clase (editor de plantillas
-   WhatsApp, ventas de mostrador, liquidaciones, varios paneles de Admin/tickets...) — hay
-   ~20 sitios así, todos con el mismo fondo `var(--elevated)`/`var(--surface)` literal en el
-   atributo style. En vez de tocar cada uno dentro del JS que los genera (arriesgado en un
-   archivo de 8000+ líneas), los capturo por selector de atributo — cubre los actuales y
-   cualquiera nuevo que se añada con el mismo patrón. Necesita !important: un style inline
-   siempre gana en especificidad a cualquier selector de clase/atributo, por bien anidado
-   que esté. */
-.concrete [style*="background:var(--elevated)"],
-.concrete [style*="background:var(--surface)"]{
-  background:var(--glass-bg) !important;
-  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
-  border-color:var(--glass-border) !important;
-}
+
+/* Regla "sin glass sobre glass": lo de aquí abajo tenía su propio blur pero vive ANIDADO
+   dentro de una de las superficies de arriba, que ya lleva el suyo - comprobado en el HTML,
+   no es hipotético:
+   - .prof-picker vive dentro de .sidebar
+   - .mb-menu-btn vive dentro de .mobile-topbar
+   - .srch-inp-box/.vtabs/.arr/.yr-tag/.srch-dd viven dentro de .topbar (dentro de
+     #cal-topbar-controls)
+   - .fi/.cs-inp/.wa-compose-input/.adm-note/.auto-card-tpl son campos de formulario que
+     aparecen casi siempre dentro de .modal/.drawer/.login-card
+   - .login-tab-row vive dentro de .login-card
+   Todos estos ya tienen su propio fondo sólido definido fuera de .concrete (var(--elevated)/
+   var(--surface) en su regla base) - no hace falta declarar nada nuevo, con NO estar en el
+   grupo de arriba ya caen de vuelta a ese fondo normal, sin blur. */
+
+/* Regla "capa correcta" (glass solo en navegación, no en contenido): estas eran fichas/filas
+   de CONTENIDO (clientes, gastos, proyectos, documentos, automatizaciones, admin, mensajes de
+   chat) con el mismo glass que la navegación - mismo caso, ya tienen fondo sólido propio fuera
+   de .concrete, basta con no estar en el grupo de arriba:
+   .cc .fc .ymc .sc .mnchart .upi .pj .pj-notes .bigchart .exi .set-row .doc-card .doc-item
+   .auto-card .adm-user .adm-ticket .consent-section .wa-msg.in .wp-wrap
+
+   El selector de atributo que capturaba ~20 paneles con estilo inline (editor de plantillas
+   WhatsApp, ventas de mostrador, liquidaciones, tickets de admin) también se quitó por el
+   mismo motivo: aplicaba glass sin distinguir si el panel era navegación o contenido (la
+   mayoría son listas de datos) - esos paneles se quedan con el fondo sólido que ya traían
+   literal en su atributo style. */
 /* #overlay es el scrim detrás de TODOS los modales (Nueva Cita, editar cliente, etc.) —
    con su rgba(4,4,10,.85) original, el modal glass de encima solo tenía un negro casi
    plano que desenfocar (blur de un color uniforme no muestra textura ninguna). Lo
@@ -159,6 +143,22 @@ body.concrete{
    .sidebar-overlay (menú móvil). */
 .concrete .overlay{background:rgba(0,0,0,.35);backdrop-filter:blur(10px) saturate(160%);-webkit-backdrop-filter:blur(10px) saturate(160%)}
 .concrete .sidebar-overlay{background:rgba(0,0,0,.35)}
+/* Accesibilidad - transparencia reducida: cuando el sistema operativo lo pide, las
+   superficies de cristal (todo lo que consume --glass-bg/--glass-blur, ver el bloque de
+   arriba) se vuelven casi opacas y sin desenfoque, en vez de dejar de aplicar el tema entero.
+   Los dos scrims (overlay de modales y del menú móvil, justo arriba) no usan esos tokens -
+   llevan su blur/opacidad escritos directamente, así que se corrigen aparte con el mismo
+   criterio. Va DESPUÉS de esas reglas a propósito: misma especificidad (.concrete .overlay),
+   así que si fuera antes perdería el empate por orden de cascada y el media query nunca
+   ganaría. */
+@media (prefers-reduced-transparency: reduce) {
+  .concrete{
+    --glass-bg:rgba(20,20,30,.95);
+    --glass-blur:none;
+  }
+  .concrete .overlay{background:rgba(10,10,16,.95);backdrop-filter:none;-webkit-backdrop-filter:none}
+  .concrete .sidebar-overlay{background:rgba(10,10,16,.95);backdrop-filter:none;-webkit-backdrop-filter:none}
+}
 /* #app y #login-screen pintan su propio fondo sólido por encima de <body> — sin esto
    taparían la foto de hormigón por completo (login-screen es pantalla completa y va por
    delante de todo con z-index:9999, así que es el que más se nota si se olvida). */
