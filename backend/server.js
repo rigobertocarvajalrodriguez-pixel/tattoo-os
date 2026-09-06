@@ -1346,6 +1346,10 @@ function renderFollowupTemplate(tpl, vars) {
     .replace(/{senal}/g, vars.senal || '0');
 }
 
+// El offset de cada regla (offset_days/offset_hour) se cuenta desde el momento en que se
+// confirma/completa la cita (HOY, cuando corre esta función), no desde la fecha guardada en la
+// cita - a petición explícita del dueño. dateStr es la fecha de HOY en formato YYYY-MM-DD (ver
+// scheduleAftercareEmailsForClient), no la fecha de la cita.
 function followupDate(dateStr, daysAhead, hour) {
   var d = new Date(dateStr + 'T' + (hour || 11) + ':00:00');
   if (isNaN(d.getTime())) d = new Date();
@@ -1419,6 +1423,11 @@ function scheduleAftercareEmailsForClient(userId, apptId, a, profile, email) {
     .then(function(pr) {
       var artist = pr.rows[0];
       var senderName = artist ? (artist.studio_name ? artist.name + ' · ' + artist.studio_name : artist.name) : (profile.name || 'Tu tatuador/a');
+      // Ancla del offset de cada regla: el momento en que se confirma/completa la cita (HOY),
+      // no la fecha guardada en la cita - a petición explícita del dueño, para que "día 1"
+      // signifique de verdad "1 día después de marcar esto", sin importar si a.date está
+      // desactualizada o si la cita se confirma días después de la fecha que tenía puesta.
+      var confirmedTodayStr = new Date().toISOString().slice(0, 10);
       return ensureDefaultEmailRules(userId).then(function() {
         return db.query('SELECT * FROM email_rules WHERE user_id=$1 AND enabled=TRUE', [userId]);
       }).then(function(r) {
@@ -1427,7 +1436,7 @@ function scheduleAftercareEmailsForClient(userId, apptId, a, profile, email) {
           var body = renderFollowupTemplate(rule.body, vars);
           return db.query(
             'INSERT INTO email_followups (appointment_id,user_id,rule_id,client_name,client_email,sender_name,subject,body,scheduled_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (appointment_id,rule_id) DO NOTHING',
-            [apptId, userId, rule.id, a.name || '', email, senderName, subject, body, followupDate(a.date, rule.offset_days, rule.offset_hour)]
+            [apptId, userId, rule.id, a.name || '', email, senderName, subject, body, followupDate(confirmedTodayStr, rule.offset_days, rule.offset_hour)]
           );
         });
         return Promise.all(jobs);
@@ -1577,12 +1586,16 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
               // El seguimiento se dispara al pasar a 'completed' O a 'confirmed' - a petición
               // explícita del dueño: en su estudio "Confirmada" es el estado que usa como
               // sesión terminada, y casi nunca toca "Completada" aparte, así que con solo
-              // 'completed' el correo nunca llegaba a salir. Es seguro para cualquier estudio
-              // que sí distinga ambos estados (reserva confirmada de antemano vs. sesión
-              // terminada): el envío real siempre queda anclado a la FECHA de la cita
-              // (followupDate() sobre a.date + offset_days de la regla), nunca a "ahora mismo",
-              // así que aunque alguien confirme una cita futura con antelación, el correo no
-              // sale antes de que le toque - solo se programa la cola un poco antes.
+              // 'completed' el correo nunca llegaba a salir.
+              //
+              // El offset de cada regla (día 1/día 3) se cuenta desde ESTE momento (cuando se
+              // confirma/completa), no desde la fecha guardada en la cita - también a petición
+              // explícita, ver followupDate()/scheduleAftercareEmailsForClient(). Ojo: esto
+              // asume que "confirmar" pasa el mismo día de la sesión real (así es como se usa
+              // hoy); si algún estudio confirmara reservas con antelación en vez de al terminar
+              // la sesión, el correo de cuidados saldría antes de tiempo - no es el caso de
+              // esta cuenta, pero quede anotado por si en el futuro hay más de un estudio real
+              // usando la plataforma con convenciones distintas.
               var DONE_STATUSES = { completed: true, confirmed: true };
               if (!DONE_STATUSES[oldStatus] && DONE_STATUSES[a.status]) {
                 return scheduleAftercareEmails(userId, apptId, a, p, profilesData);
