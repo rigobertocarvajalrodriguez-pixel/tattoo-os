@@ -1440,8 +1440,21 @@ function scheduleAftercareEmailsForClient(userId, apptId, a, profile, email) {
         var jobs = r.rows.map(function(rule) {
           var subject = renderFollowupTemplate(rule.subject, vars);
           var body = renderFollowupTemplate(rule.body, vars);
+          // Si ya existe una fila para esta (cita, regla) y se quedó en 'failed' (p.ej. el
+          // tramo en que SMTP contra Gmail daba timeout, antes de migrar a SendGrid, o
+          // cualquier fallo real futuro), se reintenta de verdad: se pisa con los datos
+          // frescos y vuelve a 'pending'. Si ya está 'sent' o sigue 'pending', no se toca -
+          // evita reenviar dos veces el mismo correo. Encontrado en un caso real: una cita
+          // reutilizó el id de una prueba vieja que había fallado por SMTP, y como el
+          // DO NOTHING original no distinguía 'failed' de 'sent', el cliente real nunca
+          // llegó a recibir nada.
           return db.query(
-            'INSERT INTO email_followups (appointment_id,user_id,rule_id,client_name,client_email,sender_name,subject,body,scheduled_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (appointment_id,rule_id) DO NOTHING',
+            'INSERT INTO email_followups (appointment_id,user_id,rule_id,client_name,client_email,sender_name,subject,body,scheduled_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ' +
+            'ON CONFLICT (appointment_id,rule_id) DO UPDATE SET ' +
+            'client_name=EXCLUDED.client_name, client_email=EXCLUDED.client_email, sender_name=EXCLUDED.sender_name, ' +
+            'subject=EXCLUDED.subject, body=EXCLUDED.body, scheduled_at=EXCLUDED.scheduled_at, ' +
+            "status='pending', sent_at=NULL, error=NULL " +
+            "WHERE email_followups.status='failed'",
             [apptId, userId, rule.id, a.name || '', email, senderName, subject, body, followupDate(confirmedTodayStr, rule.offset_days, rule.offset_hour)]
           );
         });
