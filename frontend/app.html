@@ -1966,8 +1966,20 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
       <div class="login-form-sub">Te enviaremos un enlace para restablecerla</div>
       <div class="login-success" id="forgot-ok"></div>
       <div class="fg"><label class="fl">Email</label><input class="fi" id="f-email" type="email" placeholder="tu@email.com" onkeydown="if(event.key==='Enter')sendForgot()"></div>
-      <button class="bprim" style="width:100%;margin-top:4px" onclick="sendForgot()">Enviar enlace →</button>
+      <button class="bprim" style="width:100%;margin-top:4px" id="forgot-btn" onclick="sendForgot()">Enviar enlace →</button>
       <button class="bsec" style="width:100%;margin-top:8px" onclick="setLoginTab('login')">← Volver</button>
+    </div>
+    <!-- RESET PW (llegando desde el enlace del email) -->
+    <div id="lf-reset" style="display:none">
+      <div class="login-form-title">Elige una nueva contraseña</div>
+      <div class="login-form-sub">Se aplicará a tu cuenta de Tattoo OS</div>
+      <div class="login-error" id="reset-err"></div>
+      <div class="login-success" id="reset-ok"></div>
+      <div id="reset-form">
+        <div class="fg"><label class="fl">Nueva contraseña</label><input class="fi" id="rp-pass1" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doResetPassword()"></div>
+        <div class="fg"><label class="fl">Confirmar contraseña</label><input class="fi" id="rp-pass2" type="password" placeholder="Repite la contraseña" onkeydown="if(event.key==='Enter')doResetPassword()"></div>
+        <button class="bprim" style="width:100%;margin-top:4px" id="reset-btn" onclick="doResetPassword()">Guardar contraseña →</button>
+      </div>
     </div>
   </div>
   <div style="margin-top:20px;font-size:10px;color:var(--t3);text-align:center">
@@ -5775,11 +5787,12 @@ function setLoginTab(tab) {
   document.getElementById('lf-register').style.display = tab === 'register' ? '' : 'none';
   document.getElementById('lf-magic').style.display = tab === 'magic' ? '' : 'none';
   document.getElementById('lf-forgot').style.display = tab === 'forgot' ? '' : 'none';
+  document.getElementById('lf-reset').style.display = tab === 'reset' ? '' : 'none';
   clearLoginErrors();
 }
 
 function clearLoginErrors() {
-  ['login-err','reg-err','reg-ok','forgot-ok'].forEach(id => {
+  ['login-err','reg-err','reg-ok','forgot-ok','reset-err','reset-ok'].forEach(id => {
     const el = document.getElementById(id);
     if(el) { el.classList.remove('show'); el.textContent = ''; }
   });
@@ -5872,10 +5885,63 @@ function doForgotPassword() { setLoginTab('forgot'); }
 function sendForgot() {
   const email = document.getElementById('f-email').value.trim().toLowerCase();
   const okEl = document.getElementById('forgot-ok');
+  const btn = document.getElementById('forgot-btn');
   if (!email) return;
-  okEl.textContent = `Si existe una cuenta con ${email}, recibirás un email con el enlace.`;
-  okEl.classList.add('show');
-  document.getElementById('f-email').disabled = true;
+  btn.disabled = true;
+  fetch(API_BASE+'/api/auth/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email }) })
+    .then(function(r) { return r.json(); })
+    .catch(function() { /* misma respuesta genérica aunque falle la red - ver nota abajo */ })
+    .then(function() {
+      // Respuesta siempre igual, haya ido bien o no la petición: el backend nunca revela si el
+      // email existe (evita que alguien use este formulario para averiguar cuentas registradas),
+      // así que el frontend tampoco distingue "no existe" de "sí existe, ya se envió".
+      okEl.textContent = `Si existe una cuenta con ${email}, recibirás un email con el enlace.`;
+      okEl.classList.add('show');
+      document.getElementById('f-email').disabled = true;
+    });
+}
+
+// Token de recuperación de contraseña, si se entró desde el enlace del email (?resetToken=...) -
+// ver checkResetTokenFromUrl(), llamada una vez al arrancar la app.
+var _resetToken = null;
+function checkResetTokenFromUrl() {
+  var token = new URLSearchParams(location.search).get('resetToken');
+  if (!token) return;
+  _resetToken = token;
+  setLoginTab('reset');
+}
+
+function doResetPassword() {
+  var pass1 = document.getElementById('rp-pass1').value || '';
+  var pass2 = document.getElementById('rp-pass2').value || '';
+  var errEl = document.getElementById('reset-err');
+  var okEl = document.getElementById('reset-ok');
+  errEl.classList.remove('show');
+  if (pass1.length < 8) { errEl.textContent = 'La contraseña debe tener al menos 8 caracteres'; errEl.classList.add('show'); return; }
+  if (pass1 !== pass2) { errEl.textContent = 'Las contraseñas no coinciden'; errEl.classList.add('show'); return; }
+  var btn = document.getElementById('reset-btn');
+  btn.disabled = true;
+  fetch(API_BASE+'/api/auth/reset-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: _resetToken, newPassword: pass1 }) })
+    .then(function(r) { return r.json(); })
+    .then(function(result) {
+      if (result.error) {
+        errEl.textContent = result.error;
+        errEl.classList.add('show');
+        btn.disabled = false;
+        return;
+      }
+      document.getElementById('reset-form').style.display = 'none';
+      okEl.textContent = 'Contraseña actualizada. Ya puedes iniciar sesión con ella.';
+      okEl.classList.add('show');
+      // Limpia el token de la URL para que no quede reutilizable desde el historial del navegador.
+      history.replaceState(null, '', location.pathname);
+      setTimeout(function() { setLoginTab('login'); }, 2000);
+    })
+    .catch(function(err) {
+      errEl.textContent = 'Error de conexión: ' + err.message;
+      errEl.classList.add('show');
+      btn.disabled = false;
+    });
 }
 
 // ==========================================
@@ -8158,6 +8224,9 @@ function initMobile() {
       var _authParam = new URLSearchParams(location.search).get('auth');
       if (_authParam === 'register') setLoginTab('register');
     } catch(eAuthQ) {}
+
+    _step = 'checkResetTokenFromUrl';
+    try { checkResetTokenFromUrl(); } catch(eResetQ) {}
 
   } catch(e) {
     console.error('Tattoo OS init error at step [' + _step + ']:', e);

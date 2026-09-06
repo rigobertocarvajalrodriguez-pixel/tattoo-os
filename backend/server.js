@@ -251,6 +251,23 @@ function buildWelcomeEmailHtml() {
   return emailShellHtml('Bienvenido a Tattoo OS', rows);
 }
 
+// Correo de recuperación de contraseña (misma estética "TOS") - el botón usa el color de acento
+// como fondo relleno (en vez de solo texto con subrayado, como en los demás correos) porque es
+// la única acción real que tiene este correo y conviene que destaque a simple vista.
+function buildPasswordResetEmailHtml(resetUrl) {
+  var pStyle = 'margin:0 0 16px;font:400 15px/1.7 Arial,Helvetica,sans-serif;color:#c3c5d9;';
+  var button = '<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:8px;background:#b7b2ff;">' +
+    '<a href="' + escapeHtml(resetUrl) + '" style="display:inline-block;padding:12px 22px;font:700 14px/1 Arial,Helvetica,sans-serif;color:#0b0d14;text-decoration:none;border-radius:8px;">Restablecer contraseña</a>' +
+    '</td></tr></table>';
+  var rows = emailHeaderHtml('RECUPERAR ACCESO') +
+    '<tr><td style="padding:28px 0 12px;"><div style="font:700 26px/1.3 Arial,Helvetica,sans-serif;color:#f4f4f8;">Recupera tu contraseña</div></td></tr>' +
+    '<tr><td><p style="' + pStyle + '">Alguien (probablemente tú) pidió restablecer la contraseña de tu cuenta de Tattoo OS. Pulsa el botón para elegir una nueva.</p></td></tr>' +
+    '<tr><td style="padding:4px 0 20px;">' + button + '</td></tr>' +
+    '<tr><td><p style="' + pStyle + '">Este enlace caduca en 1 hora y solo funciona una vez. Si no fuiste tú, ignora este correo: tu contraseña actual sigue funcionando igual.</p></td></tr>' +
+    emailFooterHtml('Tattoo OS &middot; Recuperar contraseña', 'Responde a este correo si algo falla');
+  return emailShellHtml('Recupera tu contraseña', rows);
+}
+
 // Fase 1 de roles/planes: cuántos perfiles (dueño + artistas) caben en cada plan.
 // estudio_pro es "ilimitado" -> Infinity nunca se alcanza en la comprobación de abajo.
 var PLAN_PROFILE_LIMITS = { independiente: 1, estudio: 3, estudio_pro: Infinity };
@@ -520,6 +537,18 @@ Promise.all([
 }).then(function() {
   console.log('[DB] Migración de seguimiento por email aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de seguimiento por email:', e.message); });
+
+// Recuperar contraseña por email: el frontend ya tenía un formulario "¿Olvidaste tu
+// contraseña?" (pestaña "forgot" del login) pero era un stub visual que no llamaba a ningún
+// sitio - ver sendForgot() en el frontend, ahora conectado de verdad. reset_token es de un solo
+// uso: se borra en cuanto se usa, y pedir uno nuevo invalida cualquier anterior (solo el último
+// enlace enviado funciona).
+Promise.all([
+  db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT'),
+  db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ'),
+]).then(function() {
+  console.log('[DB] Migración de recuperación de contraseña aplicada');
+}).catch(function(e) { console.error('[DB] Error en migración de recuperación de contraseña:', e.message); });
 
 // Aislamiento real de datos por CUENTA a nivel de base de datos. Hasta ahora profiles.id y los
 // ids de citas/clientes/gastos/proyectos/documentos/consentimientos/plantillas/mensajes de
@@ -792,6 +821,48 @@ app.post('/api/auth/register', loginRateLimiter, function(req, res) {
     if (e.code === '23505') return res.status(400).json({ error: 'El email ya está registrado' });
     res.status(500).json({ error: 'Error de base de datos' });
   });
+});
+
+// Recuperar contraseña: respuesta siempre idéntica exista o no la cuenta (no revelar qué
+// emails están registrados) - ver checkResetTokenFromUrl()/sendForgot() en el frontend, que ya
+// tenía el formulario montado pero no llamaba a ningún endpoint real.
+app.post('/api/auth/forgot-password', loginRateLimiter, function(req, res) {
+  var email = (req.body.email || '').trim().toLowerCase();
+  var respondGeneric = function() { res.json({ ok: true }); };
+  if (!email) return respondGeneric();
+  db.query('SELECT id FROM users WHERE email=$1', [email]).then(function(r) {
+    if (!r.rows.length) return; // cuenta inexistente: no se envía nada, pero la respuesta es igual
+    var userId = r.rows[0].id;
+    var token = crypto.randomUUID();
+    var expires = new Date(Date.now() + 60 * 60 * 1000); // 1h
+    return db.query('UPDATE users SET reset_token=$1, reset_token_expires=$2 WHERE id=$3', [token, expires, userId])
+      .then(function() {
+        if (!mailEnabled) return;
+        var resetUrl = PROD_ORIGIN + '/app?resetToken=' + token;
+        return sendEmailViaSendGrid({
+          fromName: 'Tattoo OS',
+          replyTo: WELCOME_EMAIL_CONTACT,
+          to: email,
+          subject: 'Recupera tu contraseña de Tattoo OS',
+          text: 'Para restablecer tu contraseña entra a este enlace (caduca en 1 hora): ' + resetUrl,
+          html: buildPasswordResetEmailHtml(resetUrl),
+        }).catch(function() {});
+      });
+  }).catch(function() {}).then(respondGeneric);
+});
+
+app.post('/api/auth/reset-password', loginRateLimiter, function(req, res) {
+  var token = (req.body.token || '').trim();
+  var newPassword = req.body.newPassword || '';
+  if (!token) return res.status(400).json({ error: 'Enlace inválido' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+  db.query('SELECT id FROM users WHERE reset_token=$1 AND reset_token_expires > NOW()', [token]).then(function(r) {
+    if (!r.rows.length) return res.status(400).json({ error: 'El enlace no es válido o ha caducado. Pide uno nuevo.' });
+    var userId = r.rows[0].id;
+    return bcrypt.hash(newPassword, 10).then(function(hash) {
+      return db.query('UPDATE users SET password=$1, reset_token=NULL, reset_token_expires=NULL WHERE id=$2', [hash, userId]);
+    }).then(function() { res.json({ ok: true }); });
+  }).catch(function(e) { res.status(500).json({ error: 'Error de base de datos' }); });
 });
 
 app.get('/api/auth/me', function(req, res) {
@@ -1503,7 +1574,17 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
               'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT (user_id, id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18',
               [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
             ).then(function() {
-              if (oldStatus !== 'completed' && a.status === 'completed') {
+              // El seguimiento se dispara al pasar a 'completed' O a 'confirmed' - a petición
+              // explícita del dueño: en su estudio "Confirmada" es el estado que usa como
+              // sesión terminada, y casi nunca toca "Completada" aparte, así que con solo
+              // 'completed' el correo nunca llegaba a salir. Es seguro para cualquier estudio
+              // que sí distinga ambos estados (reserva confirmada de antemano vs. sesión
+              // terminada): el envío real siempre queda anclado a la FECHA de la cita
+              // (followupDate() sobre a.date + offset_days de la regla), nunca a "ahora mismo",
+              // así que aunque alguien confirme una cita futura con antelación, el correo no
+              // sale antes de que le toque - solo se programa la cola un poco antes.
+              var DONE_STATUSES = { completed: true, confirmed: true };
+              if (!DONE_STATUSES[oldStatus] && DONE_STATUSES[a.status]) {
                 return scheduleAftercareEmails(userId, apptId, a, p, profilesData);
               }
             });
