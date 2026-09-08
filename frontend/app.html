@@ -134,18 +134,39 @@ body.concrete{
    var(--surface) en su regla base) - no hace falta declarar nada nuevo, con NO estar en el
    grupo de arriba ya caen de vuelta a ese fondo normal, sin blur. */
 
-/* Regla "capa correcta" (glass solo en navegación, no en contenido): estas eran fichas/filas
-   de CONTENIDO (clientes, gastos, proyectos, documentos, automatizaciones, admin, mensajes de
-   chat) con el mismo glass que la navegación - mismo caso, ya tienen fondo sólido propio fuera
-   de .concrete, basta con no estar en el grupo de arriba:
-   .cc .fc .ymc .sc .mnchart .upi .pj .pj-notes .bigchart .exi .set-row .doc-card .doc-item
-   .auto-card .adm-user .adm-ticket .consent-section .wa-msg.in .wp-wrap
-
-   El selector de atributo que capturaba ~20 paneles con estilo inline (editor de plantillas
-   WhatsApp, ventas de mostrador, liquidaciones, tickets de admin) también se quitó por el
-   mismo motivo: aplicaba glass sin distinguir si el panel era navegación o contenido (la
-   mayoría son listas de datos) - esos paneles se quedan con el fondo sólido que ya traían
-   literal en su atributo style. */
+/* Corrección a petición explícita: lo de aquí abajo se había quitado en la auditoría Liquid
+   Glass (regla "capa correcta", HIG de Apple: nunca glass anidado dentro de otro glass) pero
+   esa regla se aplicó sin distinguir SI de verdad vivían anidados dentro de una superficie de
+   arriba - la mayoría no. Estas tarjetas de contenido (Finanzas, Clientes, Año del calendario,
+   Proyectos, Documentos, notificaciones/automatizaciones de Ajustes, panel de superadmin,
+   mensajes entrantes de WhatsApp) se pintan DIRECTAS sobre el fondo de hormigón (su contenedor,
+   .page/.pb, no tiene fondo propio) - igual que .modal o .login-card, no van anidadas dentro de
+   otro cristal, así que sí les toca su propio glass en este tema. Solo se excluyen de este
+   grupo las que SÍ viven dentro de una superficie ya-glass, comprobado en el HTML:
+   - .sc/.mnchart/.upi dentro de .rp (panel lateral del Calendario, ya tiene su glass)
+   - .consent-section/.wp-wrap dentro de .modal (formulario de consentimiento / rueda de fecha)
+   .sc se reutiliza también en el panel de superadmin (fuera de .rp) - ese caso sí se declara
+   abajo, con selector propio para no arrastrar el de dentro de .rp. */
+.concrete .fc,
+.concrete .cc,
+.concrete .ymc,
+.concrete .pj,
+.concrete .pj-notes,
+.concrete .bigchart,
+.concrete .exi,
+.concrete .set-row,
+.concrete .doc-card,
+.concrete .doc-item,
+.concrete .auto-card,
+.concrete .adm-user,
+.concrete .adm-ticket,
+.concrete .wa-msg.in,
+.concrete #page-admin .sc,
+.concrete .fin-table-box{
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border-color:var(--glass-border);
+}
 /* #overlay es el scrim detrás de TODOS los modales (Nueva Cita, editar cliente, etc.) —
    con su rgba(4,4,10,.85) original, el modal glass de encima solo tenía un negro casi
    plano que desenfocar (blur de un color uniforme no muestra textura ninguna). Lo
@@ -529,6 +550,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .fdelta{font-size:10px;margin-top:5px}
 .fp{color:var(--gr)} .fn{color:var(--ro)}
 .bigchart{background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r4);padding:16px;margin-bottom:18px;transition:background .3s var(--ease-out)}
+.fin-table-box{background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r4);overflow:hidden;transition:background .3s var(--ease-out)}
 .bc-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .bc-t{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--t1)}
 .bc-leg{display:flex;gap:10px}
@@ -3674,7 +3696,7 @@ function renderFinance(){
     </div>`).join('');
   document.getElementById('fin-table').innerHTML=`
     <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);font-weight:700;margin-bottom:8px">${t('monthly')}</div>
-    <div style="background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r4);overflow:hidden">
+    <div class="fin-table-box">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;padding:9px 14px;border-bottom:1px solid var(--bd)">
         ${[t('month'),t('income'),t('expenses'),'Beneficio'].map(h=>`<div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);font-weight:700">${h}</div>`).join('')}
       </div>
