@@ -3668,7 +3668,7 @@ function renderFinance(){
   document.getElementById('bigbars').innerHTML=monthlyData.map((m,i)=>`
     <div class="bbw">
       <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:96px;gap:2px;width:100%">
-        ${m.income?`<div class="bb" style="background:linear-gradient(180deg,rgba(124,92,252,.45),rgba(124,92,252,.15));border:1px solid rgba(124,92,252,.3);height:${Math.round(m.income/maxI*88)}px"></div>`:`<div style="height:3px;width:100%"></div>`}
+        ${m.income?`<div class="bb" style="background:linear-gradient(180deg,rgba(var(--v-rgb),.45),rgba(var(--v-rgb),.15));border:1px solid rgba(var(--v-rgb),.3);height:${Math.round(m.income/maxI*88)}px"></div>`:`<div style="height:3px;width:100%"></div>`}
       </div>
       <span class="bbl">${t('months')[i].slice(0,1)}</span>
     </div>`).join('');
@@ -7405,7 +7405,7 @@ function renderMyProfilePasswords() {
   c.innerHTML = myProfilePasswords.map(p => `
     <div class="adm-user" style="flex-direction:column;align-items:stretch;gap:10px">
       <div style="display:flex;align-items:center;gap:12px">
-        <div class="adm-av" style="${p.isAdminProfile?'background:linear-gradient(135deg,#7c5cfc,#a78bfa)':''}">${esc((p.name||'?')[0].toUpperCase())}</div>
+        <div class="adm-av" style="${p.isAdminProfile?'background:linear-gradient(135deg,var(--v),var(--vl))':''}">${esc((p.name||'?')[0].toUpperCase())}</div>
         <div style="flex:1;min-width:0">
           <div class="adm-uname">${esc(p.name)||'Sin nombre'}${p.isAdminProfile?' · Administrador':''}</div>
           <div class="adm-uemail">${esc(p.role)}</div>
@@ -7467,7 +7467,7 @@ function renderAdminContent() {
       const lastLogin = u.last_login_at ? new Date(u.last_login_at).toLocaleString('es-ES') : 'Nunca';
       return `<div class="adm-user" style="flex-direction:column;align-items:stretch;gap:10px${u.active===false?';opacity:.55':''}">
         <div style="display:flex;align-items:center;gap:12px">
-          <div class="adm-av" style="${isAdm?'background:linear-gradient(135deg,#7c5cfc,#a78bfa)':''}">${esc((u.name||u.email||'?')[0].toUpperCase())}</div>
+          <div class="adm-av" style="${isAdm?'background:linear-gradient(135deg,var(--v),var(--vl))':''}">${esc((u.name||u.email||'?')[0].toUpperCase())}</div>
           <div style="flex:1;min-width:0">
             <div class="adm-uname">${esc(u.name)||'Sin nombre'}${u.active===false?' · <span style="color:var(--ro)">Desactivada</span>':''}</div>
             <div class="adm-uemail">${esc(u.email)}</div>
