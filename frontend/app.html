@@ -162,10 +162,21 @@ body.concrete{
 .concrete .adm-ticket,
 .concrete .wa-msg.in,
 .concrete #page-admin .sc,
-.concrete .fin-table-box{
+.concrete .fin-table-box,
+.concrete .tpl-viewer-box,
+.concrete .wa-qr-box,
+.concrete .tk-card{
   background:var(--glass-bg);
   backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
   border-color:var(--glass-border);
+}
+/* .danger-box conserva su tinte rojo de aviso (no tiene sentido que la "zona de peligro" se
+   vuelva neutra) pero suma el mismo desenfoque que el resto - mismo motivo que arriba, vive
+   directa sobre el fondo de hormigón sin ningún glass por encima. */
+.concrete .danger-box{
+  background:rgba(244,63,94,.1);
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border-color:rgba(244,63,94,.3);
 }
 /* #overlay es el scrim detrás de TODOS los modales (Nueva Cita, editar cliente, etc.) —
    con su rgba(4,4,10,.85) original, el modal glass de encima solo tenía un negro casi
@@ -551,6 +562,10 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .fp{color:var(--gr)} .fn{color:var(--ro)}
 .bigchart{background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r4);padding:16px;margin-bottom:18px;transition:background .3s var(--ease-out)}
 .fin-table-box{background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r4);overflow:hidden;transition:background .3s var(--ease-out)}
+.tpl-viewer-box{background:var(--surface);border:1px solid var(--bd2);border-radius:var(--r3);padding:20px;transition:background .3s var(--ease-out)}
+.wa-qr-box{background:var(--surface);border:1px solid var(--bd);border-radius:12px;padding:18px;transition:background .3s var(--ease-out)}
+.tk-card{background:var(--elevated);border:1px solid var(--bd);border-radius:var(--r2);padding:10px 12px;margin-bottom:6px;transition:background .3s var(--ease-out)}
+.danger-box{background:rgba(244,63,94,.06);border:1px solid rgba(244,63,94,.2);border-radius:var(--r3);padding:14px 16px;transition:background .3s var(--ease-out)}
 .bc-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .bc-t{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--t1)}
 .bc-leg{display:flex;gap:10px}
@@ -1882,7 +1897,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
       <div id="docs-templates-view" style="display:none">
         <div style="display:flex;gap:16px;align-items:flex-start">
           <div style="width:220px;flex-shrink:0;display:flex;flex-direction:column;gap:4px" id="tpl-type-list"></div>
-          <div style="flex:1;min-width:0;background:var(--surface);border:1px solid var(--bd2);border-radius:var(--r3);padding:20px" id="tpl-viewer">
+          <div class="tpl-viewer-box" style="flex:1;min-width:0" id="tpl-viewer">
             <div style="text-align:center;padding:48px;color:var(--t3)">Selecciona un tipo de documento</div>
           </div>
         </div>
@@ -4147,13 +4162,13 @@ function renderSettings(){
           </div>
         </div>
       </div>`:''}
-      <div class="set-section">
+      ${theme==='concrete'?'':`<div class="set-section">
         <div class="set-section-t">Accent</div>
-        <div class="set-section-s">Color de acento de la interfaz${theme==='concrete'?' (Hormigón usa su propio beige fijo - este color se aplica al cambiar a otro tema)':''}</div>
+        <div class="set-section-s">Color de acento de la interfaz</div>
         <div style="display:flex;gap:10px;margin-top:6px">
           ${[['#7c5cfc','Violeta'],['#22d3ee','Cyan'],['#f43f5e','Rosa'],['#10b981','Verde'],['#f59e0b','Ámbar']].map(([c,nm])=>`<div onclick="setAccent('${c}')" title="${nm}" style="width:32px;height:32px;border-radius:50%;background:${c};cursor:pointer;transition:transform .2s var(--ease-out),box-shadow .2s var(--ease-out);border:3px solid ${currentAccent===c?'#fff':'transparent'};box-shadow:${currentAccent===c?'0 0 0 2px '+c:'none'}" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform=''"></div>`).join('')}
         </div>
-      </div>
+      </div>`}
       <div class="set-section">
         <div class="set-section-t">Tipografía</div>
         <div class="set-section-s">Tamaño del texto en toda la aplicación</div>
@@ -7249,7 +7264,7 @@ function renderWaSettings(container) {
         </div>
         <button onclick="checkWAStatus()" style="background:var(--v);border:none;border-radius:8px;padding:7px 16px;color:#fff;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">Verificar</button>
       </div>
-      <div id="wa-qr-panel" style="display:none;margin-top:14px;text-align:center;padding:18px;background:var(--surface);border:1px solid var(--bd);border-radius:12px">
+      <div id="wa-qr-panel" class="wa-qr-box" style="display:none;margin-top:14px;text-align:center">
         <div style="font-size:12px;color:var(--t2);margin-bottom:12px;font-weight:500">Escanea este QR con tu WhatsApp para vincular</div>
         <img id="wa-qr-img" src="" alt="QR WhatsApp" style="max-width:200px;border-radius:10px;border:3px solid var(--v)">
         <div style="font-size:11px;color:var(--t3);margin-top:8px">WhatsApp > Dispositivos vinculados > Vincular dispositivo</div>
@@ -7854,7 +7869,7 @@ async function loadUserTickets() {
   if (!tickets.length) { el.innerHTML = ''; return; }
   el.innerHTML = '<div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);font-weight:700;margin-bottom:8px">Tus reportes</div>' +
     tickets.map(tk=>`
-    <div style="background:var(--elevated);border:1px solid ${tk.has_unread?'rgba(var(--v-rgb),.4)':' var(--bd)'};border-radius:var(--r2);padding:10px 12px;margin-bottom:6px;cursor:pointer" onclick="openTicketThread('${tk.id}',${esc(JSON.stringify(tk.title||''))})">
+    <div class="tk-card" style="border-color:${tk.has_unread?'rgba(var(--v-rgb),.4)':'var(--bd)'};cursor:pointer" onclick="openTicketThread('${tk.id}',${esc(JSON.stringify(tk.title||''))})">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
         <div style="font-size:12px;font-weight:500;color:var(--t1)">${esc(tk.title)||'Sin título'}</div>
         <div style="display:flex;align-items:center;gap:6px">
@@ -7959,7 +7974,7 @@ function renderAccountSettings(container) {
     <div class="set-section">
       <div class="set-section-t" style="color:var(--ro)">Zona de peligro</div>
       <div class="set-section-s" style="margin-bottom:12px">Acciones irreversibles sobre tu perfil</div>
-      <div style="background:rgba(244,63,94,.06);border:1px solid rgba(244,63,94,.2);border-radius:var(--r3);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div class="danger-box" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
         <div>
           <div style="font-size:12px;font-weight:600;color:var(--t1);margin-bottom:2px">Eliminar datos del perfil</div>
           <div style="font-size:11px;color:var(--t3)">Borra citas, clientes, gastos, proyectos y documentos</div>
