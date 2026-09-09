@@ -71,6 +71,15 @@ input,textarea,[contenteditable]{user-select:text!important;-webkit-user-select:
    tokens --glass-* en :root de arriba. */
 .concrete{
   --t1:#ffffff;--t2:rgba(255,255,255,.82);--t3:rgba(255,255,255,.62);--t4:rgba(255,255,255,.5);
+  /* --void/--base/--surface/--elevated/--raised nunca se habían redefinido aquí - se quedaban
+     con el valor del tema Oscuro (p.ej. --elevated:#13131f), que tiene más azul que rojo/verde
+     (R=G=19, B=31) y sobre la foto cálida de hormigón se ve morado/azulado, no neutro. Estos
+     valores mantienen la misma progresión de claridad que los originales pero con B≤R en vez de
+     B>R - gris "piedra" neutro de verdad en vez de azul-marino. Los usa TODO lo que vive
+     directamente sobre el fondo de hormigón sin su propio glass (buscador, flechas, selector de
+     año, tarjetas de resumen...), así que este cambio es la causa raíz de gran parte del "sigue
+     en morado" reportado en este tema.  */
+  --void:#0a0a09;--base:#0e0e0c;--surface:#171714;--elevated:#1d1d19;--raised:#26261f;
   --glass-bg:rgba(255,255,255,.08);
   --glass-blur:blur(20px) saturate(160%);
   --glass-border:rgba(255,255,255,.15);
