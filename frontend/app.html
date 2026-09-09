@@ -4277,13 +4277,9 @@ function renderSettings(){
           </div>
         </div>
       </div>`:''}
-      ${theme==='concrete'?'':`<div class="set-section">
-        <div class="set-section-t">Accent</div>
-        <div class="set-section-s">Color de acento de la interfaz</div>
-        <div style="display:flex;gap:10px;margin-top:6px">
-          ${[['#7c5cfc','Violeta'],['#22d3ee','Cyan'],['#f43f5e','Rosa'],['#10b981','Verde'],['#f59e0b','Ámbar']].map(([c,nm])=>`<div onclick="setAccent('${c}')" title="${nm}" style="width:32px;height:32px;border-radius:50%;background:${c};cursor:pointer;transition:transform .2s var(--ease-out),box-shadow .2s var(--ease-out);border:3px solid ${currentAccent===c?'#fff':'transparent'};box-shadow:${currentAccent===c?'0 0 0 2px '+c:'none'}" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform=''"></div>`).join('')}
-        </div>
-      </div>`}
+      <!-- Selector de acento eliminado: con el tema "Aguja" (Oscuro/Claro) --v es tinta fija
+           y ya no se lee de aquí (ver applyThemeAccent), e Hormigón ya tenía su propio beige
+           fijo desde antes - así que en ningún tema queda nada que este selector cambiara. -->
       <div class="set-section">
         <div class="set-section-t">Tipografía</div>
         <div class="set-section-s">Tamaño del texto en toda la aplicación</div>
