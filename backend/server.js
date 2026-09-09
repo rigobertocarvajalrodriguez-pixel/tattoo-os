@@ -12,8 +12,10 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode');
+// whatsapp-web.js: integración de chat con clientes vía WhatsApp, sustituida por el chat interno
+// de equipo (team_messages). Se comenta en vez de borrar por si se retoma más adelante.
+// const { Client, LocalAuth } = require('whatsapp-web.js');
+// const qrcode = require('qrcode');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
@@ -388,6 +390,14 @@ db.query('ALTER TABLE projects ALTER COLUMN id DROP DEFAULT').then(function() {
       client_id TEXT NOT NULL, text TEXT DEFAULT '', dir TEXT DEFAULT 'out', ts TIMESTAMPTZ,
       auto BOOLEAN DEFAULT FALSE, auto_id TEXT, read BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW())`),
+    db.query(`CREATE TABLE IF NOT EXISTS team_messages (
+      id TEXT PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      profile_id INTEGER NOT NULL, content TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW())`),
+    db.query(`CREATE TABLE IF NOT EXISTS team_chat_reads (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      profile_id INTEGER NOT NULL, last_read_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (user_id, profile_id))`),
   ]);
 }).then(function() {
   console.log('[DB] Migración de Proyectos/Documentos/WhatsApp (Fase F) aplicada');
@@ -712,8 +722,9 @@ app.get('/icon-:size.png', function(req, res) {
   res.send(svg);
 });
 
-// Sessions store: { userId: { client, qr, ready, state } }
-const waSessions = {};
+// Sessions store de whatsapp-web.js: { userId: { client, qr, ready, state } } - solo usado dentro
+// del bloque comentado más abajo (chat con clientes, sustituido por team_messages).
+// const waSessions = {};
 
 const SESSION_BASE = process.env.NODE_ENV === 'production' ? '/tmp/wa_sessions' : path.join(__dirname, 'data', 'wa_sessions');
 if (!fs.existsSync(SESSION_BASE)) fs.mkdirSync(SESSION_BASE, { recursive: true });
@@ -1028,7 +1039,10 @@ function adminMiddleware(req, res, next) {
   next();
 }
 
-// Start WhatsApp session for a user
+// Chat con clientes vía whatsapp-web.js, sustituido por el chat interno de equipo (team_messages,
+// ver más abajo). Se comenta la función completa y las 5 rutas en vez de borrarlas por si se
+// retoma más adelante.
+/*
 function startWASession(userId) {
   if (waSessions[userId] &&
       waSessions[userId].state !== 'ERROR' &&
@@ -1052,10 +1066,6 @@ function startWASession(userId) {
   var clientOptions = {
     authStrategy: new LocalAuth({ dataPath: sessionDir, clientId: userId }),
     puppeteer: {
-      // --disable-web-security e --ignore-certificate-errors se quitan a propósito: apagaban la
-      // política de mismo origen y la verificación de certificados TLS para todo lo que cargue
-      // este Chrome (web.whatsapp.com usa certificados públicos normales, no hay razón real para
-      // desactivar la verificación aquí, a diferencia del pooler de la base de datos).
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -1111,11 +1121,6 @@ function startWASession(userId) {
     }
   });
 }
-
-// Health check
-app.get('/health', function(req, res) {
-  res.json({ status: 'ok', sessions: Object.keys(waSessions).length, platform: process.platform });
-});
 
 // Start WA session
 app.post('/api/wa/start', authMiddleware, function(req, res) {
@@ -1175,6 +1180,12 @@ app.post('/api/wa/send', authMiddleware, async function(req, res) {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+*/
+
+// Health check
+app.get('/health', function(req, res) {
+  res.json({ status: 'ok', platform: process.platform });
 });
 
 // ══════════════════════════════════════════
@@ -2312,6 +2323,60 @@ io.on('connection', function(socket) {
       }
     });
   });
+});
+
+// ══════════════════════════════════════════
+// CHAT DE EQUIPO — una sola conversación grupal por cuenta (todos los perfiles de un
+// mismo user_id), no orientada a clientes. Reutiliza la room de socket.io 'user:'+userId
+// que ya usa la vista remota de soporte (io.on('connection') más arriba).
+// ══════════════════════════════════════════
+
+// Historial de mensajes de la cuenta (todos los perfiles comparten el mismo hilo)
+app.get('/api/team-messages', authMiddleware, function(req, res) {
+  db.query('SELECT * FROM team_messages WHERE user_id=$1 ORDER BY created_at ASC LIMIT 500', [req.userId])
+    .then(function(r) { res.json(r.rows); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Enviar mensaje: se guarda y se retransmite en vivo a todo el que esté conectado a esta cuenta
+app.post('/api/team-messages', authMiddleware, function(req, res) {
+  var content = (req.body.content || '').trim();
+  var profileId = req.body.profile_id;
+  if (!content) return res.status(400).json({ error: 'Mensaje vacío' });
+  if (!profileId) return res.status(400).json({ error: 'Falta profile_id' });
+  var msg = { id: crypto.randomUUID(), user_id: req.userId, profile_id: profileId, content: content, created_at: new Date().toISOString() };
+  db.query('INSERT INTO team_messages (id,user_id,profile_id,content,created_at) VALUES ($1,$2,$3,$4,$5)',
+    [msg.id, msg.user_id, msg.profile_id, msg.content, msg.created_at])
+    .then(function() {
+      io.to('user:' + req.userId).emit('team:message', msg);
+      res.json(msg);
+    })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Marca como leído el hilo para el perfil activo (se llama al abrir la sección de chat)
+app.post('/api/team-messages/read', authMiddleware, function(req, res) {
+  var profileId = req.body.profile_id;
+  if (!profileId) return res.status(400).json({ error: 'Falta profile_id' });
+  db.query(
+    'INSERT INTO team_chat_reads (user_id,profile_id,last_read_at) VALUES ($1,$2,NOW()) ' +
+    'ON CONFLICT (user_id,profile_id) DO UPDATE SET last_read_at=NOW()',
+    [req.userId, profileId]
+  ).then(function() { res.json({ ok: true }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Contador de no leídos para el perfil activo (usado para el badge del menú lateral)
+app.get('/api/team-messages/unread-count', authMiddleware, function(req, res) {
+  var profileId = req.query.profile_id;
+  if (!profileId) return res.status(400).json({ error: 'Falta profile_id' });
+  db.query('SELECT last_read_at FROM team_chat_reads WHERE user_id=$1 AND profile_id=$2', [req.userId, profileId])
+    .then(function(r) {
+      var since = r.rows[0] ? r.rows[0].last_read_at : new Date(0).toISOString();
+      return db.query('SELECT COUNT(*)::int AS n FROM team_messages WHERE user_id=$1 AND created_at > $2', [req.userId, since]);
+    })
+    .then(function(r) { res.json({ count: r.rows[0].n }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
 httpServer.listen(PORT, '0.0.0.0', function() {
