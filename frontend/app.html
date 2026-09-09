@@ -1580,6 +1580,122 @@ body:not(.concrete) .wp-wrap{background:var(--sunken);box-shadow:var(--sh-in)}
 body:not(.concrete) .fi:hover,
 body:not(.concrete) .cs-inp:hover{background:var(--sunken)}
 :focus-visible{outline:2px solid var(--vl);outline-offset:2px}
+
+/* ══ TEMA "AGUJA" - HOVER/PRESSED (regla 6 del prompt, solo Oscuro/Claro) ══
+   Los ~50 elementos clicables que ya tenían su propio :hover (heredan la paleta nueva solos,
+   no hacía falta tocarlos) se quedan fuera de aquí. Esto cubre los que no tenían ninguno, más
+   el estado "pressed" (pulsado) que no existía en casi ningún sitio - un solo box-shadow:
+   var(--sh-in) en :active para todos los clicables a la vez. */
+/* Grupo A: filas/pestañas/botones sobre fondo neutro - fondo var(--surface-2) al pasar el ratón */
+body:not(.concrete) .ua:hover,
+body:not(.concrete) .vt:hover,
+body:not(.concrete) .ymd:hover,
+body:not(.concrete) .rpt:hover,
+body:not(.concrete) .plan-upgrade-cancel:hover,
+body:not(.concrete) .cookie-cta:hover,
+body:not(.concrete) .adm-tab:hover,
+body:not(.concrete) .doc-card:hover,
+body:not(.concrete) .cb-row:hover,
+body:not(.concrete) .login-tab:hover,
+body:not(.concrete) .mb-menu-btn:hover,
+body:not(.concrete) .pwa-banner-close:hover,
+body:not(.concrete) #aiw-key-save:hover{background:var(--surface-2)}
+body:not(.concrete) .pj-del:hover{background:rgba(0,0,0,.7)}
+/* Grupo B: botones de relleno "tinta" sólida - la sombra ya existente se intensifica en vez
+   de cambiar el fondo (un fondo var(--surface-2) encima de --v no se vería bien) */
+body:not(.concrete) .plan-upgrade-go:hover{box-shadow:0 6px 20px var(--vg)}
+body:not(.concrete) .mb-new-btn:hover{box-shadow:0 6px 20px var(--vg)}
+/* Grupo C: enlaces de texto - el color ya distingue el enlace, el hover solo lo aclara/oscurece */
+body:not(.concrete) .cookie-link:hover,
+body:not(.concrete) .login-footer a:hover{filter:brightness(1.25)}
+/* Grupo D: chip de evento con color propio y el interruptor - brillo en vez de fondo fijo,
+   porque ya llevan su propio color (categoría del evento / estado on-off) */
+body:not(.concrete) .mev:hover,
+body:not(.concrete) .tog:hover{filter:brightness(1.15)}
+/* Grupo E: pantalla de bienvenida/planes (Nova earth-zoom) - usa su propia paleta fija en
+   rgba(255,255,255,X) independiente del tema (ver .ps-lang-toggle etc.), no var(--surface-2) */
+body:not(.concrete) .ps-lang-btn:hover,
+body:not(.concrete) .ps-bill-btn:hover{color:var(--t1)}
+/* Grupo F: selector de fecha/hora ya tratado como campo "hundido" (--sunken + --sh-in
+   permanente, ver bloque de sombras) - el hover solo resalta el borde */
+body:not(.concrete) .wp-wrap:hover{border-color:var(--bd3)}
+/* "Pressed": un solo box-shadow interior para todos los clicables a la vez. Excluidos: .wp-wrap
+   (ya lleva --sh-in permanente, duplicarlo en :active no aporta nada), .cp-dot (swatch de color
+   con su propio anillo de selección), #aiw-orb/#aiw-bubble (widget de Nova, identidad visual
+   propia con su glow radial, dejado fuera del reskin como el resto de esta sesión). */
+body:not(.concrete) .ni:active,
+body:not(.concrete) .mcal-btn:active,
+body:not(.concrete) .md:active,
+body:not(.concrete) .new-btn:active,
+body:not(.concrete) .ua:active,
+body:not(.concrete) .ua-av-upload:active,
+body:not(.concrete) .pp-item:active,
+body:not(.concrete) .pp-add:active,
+body:not(.concrete) .vt:active,
+body:not(.concrete) .arr:active,
+body:not(.concrete) .today-tag:active,
+body:not(.concrete) .yr-tag:active,
+body:not(.concrete) .srch-item:active,
+body:not(.concrete) .hcell:active,
+body:not(.concrete) .dslot:active,
+body:not(.concrete) .dab:active,
+body:not(.concrete) .mcell:active,
+body:not(.concrete) .mev:active,
+body:not(.concrete) .ymc:active,
+body:not(.concrete) .ymd:active,
+body:not(.concrete) .rpt:active,
+body:not(.concrete) .upi:active,
+body:not(.concrete) .addbtn:active,
+body:not(.concrete) .cc:active,
+body:not(.concrete) .cc-del:active,
+body:not(.concrete) .pj:active,
+body:not(.concrete) .pj-del:active,
+body:not(.concrete) .gal-img:active,
+body:not(.concrete) .gal-add:active,
+body:not(.concrete) .back-btn:active,
+body:not(.concrete) .exdel:active,
+body:not(.concrete) .sni:active,
+body:not(.concrete) .plan-card:active,
+body:not(.concrete) .plan-card-btn:active,
+body:not(.concrete) .plan-upgrade-go:active,
+body:not(.concrete) .plan-upgrade-cancel:active,
+body:not(.concrete) .ps-lang-toggle:active,
+body:not(.concrete) .ps-lang-btn:active,
+body:not(.concrete) .ps-bill-btn:active,
+body:not(.concrete) .ps-card:active,
+body:not(.concrete) .ps-cbtn:active,
+body:not(.concrete) .ps-continue-btn:active,
+body:not(.concrete) .th-opt:active,
+body:not(.concrete) .lang-opt:active,
+body:not(.concrete) .tog:active,
+body:not(.concrete) #ez-skip:active,
+body:not(.concrete) .mcl:active,
+body:not(.concrete) .bprim:active,
+body:not(.concrete) .bsec:active,
+body:not(.concrete) .drcl:active,
+body:not(.concrete) .cookie-cta:active,
+body:not(.concrete) .cookie-link:active,
+body:not(.concrete) .tour-skip:active,
+body:not(.concrete) .tour-next:active,
+body:not(.concrete) .lbox-cl:active,
+body:not(.concrete) .adm-tab:active,
+body:not(.concrete) .doc-card:active,
+body:not(.concrete) .doc-act-btn:active,
+body:not(.concrete) .cb-row:active,
+body:not(.concrete) .cb-row label:active,
+body:not(.concrete) .login-tab:active,
+body:not(.concrete) .magic-btn:active,
+body:not(.concrete) .login-footer a:active,
+body:not(.concrete) .wa-ci:active,
+body:not(.concrete) .wa-send-btn:active,
+body:not(.concrete) .wa-tpl-btn:active,
+body:not(.concrete) .bnav-item:active,
+body:not(.concrete) .mb-menu-btn:active,
+body:not(.concrete) .mb-new-btn:active,
+body:not(.concrete) .pwa-banner-close:active,
+body:not(.concrete) #aiw-close:active,
+body:not(.concrete) #aiw-key-save:active,
+body:not(.concrete) #aiw-send:active{box-shadow:var(--sh-in)}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/socket.io/socket.io.js"></script>
