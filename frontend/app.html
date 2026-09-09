@@ -129,33 +129,27 @@ body.concrete{
 .concrete .plan-upgrade-box,
 .concrete .drawer{box-shadow:var(--glass-shadow)}
 
-/* Regla "sin glass sobre glass": lo de aquí abajo tenía su propio blur pero vive ANIDADO
-   dentro de una de las superficies de arriba, que ya lleva el suyo - comprobado en el HTML,
-   no es hipotético:
-   - .prof-picker vive dentro de .sidebar
-   - .mb-menu-btn vive dentro de .mobile-topbar
-   - .srch-inp-box/.vtabs/.arr/.yr-tag/.srch-dd viven dentro de .topbar (dentro de
-     #cal-topbar-controls)
-   - .fi/.cs-inp/.wa-compose-input/.adm-note/.auto-card-tpl son campos de formulario que
-     aparecen casi siempre dentro de .modal/.drawer/.login-card
-   - .login-tab-row vive dentro de .login-card
-   Todos estos ya tienen su propio fondo sólido definido fuera de .concrete (var(--elevated)/
-   var(--surface) en su regla base) - no hace falta declarar nada nuevo, con NO estar en el
-   grupo de arriba ya caen de vuelta a ese fondo normal, sin blur. */
+/* Regla "sin glass sobre glass" - solo para CAMPOS DE FORMULARIO editables (el texto se lee
+   peor sobre un fondo translúcido con blur, y viven casi siempre dentro de .modal/.drawer/
+   .login-card, que ya tiene el suyo): .fi/.cs-inp/.wa-compose-input/.adm-note/.auto-card-tpl/
+   .login-tab-row. Todo lo demás que antes estaba aquí (buscador, selector de vista del
+   calendario, año, flechas, selector de perfil, botón de menú móvil, tarjetas del panel
+   lateral) se movió abajo a petición explícita: el usuario prefiere cristal de verdad ahí en
+   vez de una caja de color sólido, aunque vaya anidado dentro de otra superficie ya-glass
+   (.topbar/.sidebar/.rp) - preferencia estética de este tema por encima de la regla HIG de
+   "nunca glass sobre glass". */
 
 /* Corrección a petición explícita: lo de aquí abajo se había quitado en la auditoría Liquid
-   Glass (regla "capa correcta", HIG de Apple: nunca glass anidado dentro de otro glass) pero
-   esa regla se aplicó sin distinguir SI de verdad vivían anidados dentro de una superficie de
-   arriba - la mayoría no. Estas tarjetas de contenido (Finanzas, Clientes, Año del calendario,
-   Proyectos, Documentos, notificaciones/automatizaciones de Ajustes, panel de superadmin,
-   mensajes entrantes de WhatsApp) se pintan DIRECTAS sobre el fondo de hormigón (su contenedor,
-   .page/.pb, no tiene fondo propio) - igual que .modal o .login-card, no van anidadas dentro de
-   otro cristal, así que sí les toca su propio glass en este tema. Solo se excluyen de este
-   grupo las que SÍ viven dentro de una superficie ya-glass, comprobado en el HTML:
-   - .sc/.mnchart/.upi dentro de .rp (panel lateral del Calendario, ya tiene su glass)
-   - .consent-section/.wp-wrap dentro de .modal (formulario de consentimiento / rueda de fecha)
-   .sc se reutiliza también en el panel de superadmin (fuera de .rp) - ese caso sí se declara
-   abajo, con selector propio para no arrastrar el de dentro de .rp. */
+   Glass (regla "capa correcta", HIG de Apple: nunca glass anidado dentro de otro glass), pero
+   en este tema se prefiere cristal en todas partes, vaya o no anidado - ver nota de arriba.
+   Grupo 1: tarjetas de contenido que se pintan DIRECTAS sobre el fondo de hormigón (Finanzas,
+   Clientes, Año del calendario, Proyectos, Documentos, notificaciones/automatizaciones de
+   Ajustes, panel de superadmin, mensajes entrantes de WhatsApp).
+   Grupo 2: controles que SÍ viven anidados dentro de una superficie ya-glass, pero ahora
+   también llevan el suyo propio - buscador/selector de vista/año/flechas del calendario
+   (dentro de .topbar), selector de perfil (dentro de .sidebar), botón de menú móvil (dentro
+   de .mobile-topbar), y las tarjetas de estadísticas del panel lateral del Calendario
+   (dentro de .rp, .sc se reutiliza también en el panel de superadmin fuera de .rp). */
 .concrete .fc,
 .concrete .cc,
 .concrete .ymc,
@@ -170,11 +164,20 @@ body.concrete{
 .concrete .adm-user,
 .concrete .adm-ticket,
 .concrete .wa-msg.in,
-.concrete #page-admin .sc,
 .concrete .fin-table-box,
 .concrete .tpl-viewer-box,
 .concrete .wa-qr-box,
-.concrete .tk-card{
+.concrete .tk-card,
+.concrete .srch-inp-box,
+.concrete .vtabs,
+.concrete .arr,
+.concrete .yr-tag,
+.concrete .srch-dd,
+.concrete .prof-picker,
+.concrete .mb-menu-btn,
+.concrete .sc,
+.concrete .mnchart,
+.concrete .upi{
   background:var(--glass-bg);
   backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
   border-color:var(--glass-border);
