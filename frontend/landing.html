@@ -122,13 +122,12 @@ html.concrete{
    (el canvas de la página lo pinta <html> solo si <body> no tiene su propio background). */
 html.concrete body{
   background-color:#111;
-  /* TODO(rigo): bg-concrete.png pesa 3.7MB (1536x1024) — bastante para una imagen de fondo.
-     Si tienes tiempo, conviene pasarlo a .webp (bajaría a unos cientos de KB sin pérdida
-     visible) y volver a añadir aquí el <source>/image-set() con fallback, como se hizo con
-     el resto de capturas de la landing. De momento solo hay PNG, así que va directo. */
+  /* Antes bg-concrete.png (3.7MB) - convertida a .webp (~400KB, misma resolución, calidad
+     visualmente idéntica) igual que el resto de capturas de la landing. Sin fallback a PNG:
+     soporte de WebP prácticamente universal a estas alturas. */
   background-image:
     linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),
-    url('/assets/bg-concrete.png');
+    url('/assets/bg-concrete.webp');
   background-size:cover;background-position:center;background-repeat:no-repeat;
   background-attachment:fixed;
 }

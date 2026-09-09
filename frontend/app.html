@@ -89,11 +89,13 @@ input,textarea,[contenteditable]{user-select:text!important;-webkit-user-select:
 }
 body.concrete{
   background-color:#111;
-  /* TODO(rigo): mismo aviso que en landing.html — bg-concrete.png pesa 3.7MB, valdría la
-     pena pasarlo a .webp cuando haya tiempo. */
+  /* Antes bg-concrete.png (3.7MB) - convertida a .webp (~400KB, misma resolución 1536x1024,
+     calidad visualmente idéntica) igual que el resto de imágenes de landing.html, que ya
+     usaban .webp. Sin fallback a PNG: soporte de WebP es prácticamente universal a estas
+     alturas (todos los navegadores evergreen, iOS Safari desde la 14). */
   background-image:
     linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),
-    url('/assets/bg-concrete.png');
+    url('/assets/bg-concrete.webp');
   background-size:cover;background-position:center;background-repeat:no-repeat;
   background-attachment:fixed;
 }
@@ -708,7 +710,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 .th-preview{width:100%;height:50px;border-radius:var(--r2);margin-bottom:8px;overflow:hidden;display:flex}
 .th-dark-p{background:linear-gradient(135deg,#07070f,#13131f);flex:1}
 .th-light-p{background:linear-gradient(135deg,#f8f8fc,#e8e8f0);flex:1}
-.th-concrete-p{background:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),url('/assets/bg-concrete.png') center/cover;flex:1}
+.th-concrete-p{background:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),url('/assets/bg-concrete.webp') center/cover;flex:1}
 .th-nm{font-size:11px;font-weight:600;color:var(--t1)}
 .th-sub{font-size:10px;color:var(--t3);margin-top:2px}
 .th-check{width:16px;height:16px;border-radius:50%;border:2px solid var(--bd3);margin:8px auto 0;display:flex;align-items:center;justify-content:center;transition:all .2s var(--ease-out)}
