@@ -1967,6 +1967,20 @@ body:not(.concrete) #aiw-send:active{box-shadow:var(--sh-in)}
       </div>
       <!-- RESUMEN VIEW -->
       <div id="fin-summary-view">
+        <!-- Informe descargable en PNG: solo el dueño lo ve (mismo gate que "Artistas y
+             Comisiones"), se rellena/oculta desde renderFinance() -->
+        <div id="fin-report-bar" style="display:none;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:18px;padding:14px;background:var(--surface);border:1px solid var(--bd3);border-radius:var(--r3)">
+          <div class="fg" style="margin:0">
+            <label class="fl">Periodo</label>
+            <div class="adm-tabs" style="margin:0">
+              <button class="vt on" id="rpt-mode-week" onclick="setReportMode('week')">Semanal</button>
+              <button class="vt" id="rpt-mode-month" onclick="setReportMode('month')">Mensual</button>
+            </div>
+          </div>
+          <div class="fg" style="margin:0" id="rpt-week-fg"><label class="fl">Semana</label><input class="fi" type="week" id="rpt-week-val"></div>
+          <div class="fg" style="margin:0;display:none" id="rpt-month-fg"><label class="fl">Mes</label><input class="fi" type="month" id="rpt-month-val"></div>
+          <button class="bprim" id="rpt-download-btn" style="width:auto;padding:9px 20px" onclick="downloadFinanceReport()">Descargar informe</button>
+        </div>
         <div class="fin-grid" id="fin-grid"></div>
         <div class="bigchart">
           <div class="bc-hd">
@@ -3890,6 +3904,7 @@ function renderFinance(){
   monthlyData=computeMonthlyData();
   document.getElementById('fin-chart-title').textContent=t('income')+' vs '+t('expenses')+' — '+TODAY.getFullYear();
   const isOwner=activeIsAdmin();
+  initFinanceReportBar(isOwner);
   const yi=monthlyData.reduce((s,m)=>s+m.income,0);
   if(isOwner){
     const ti=appts.reduce((s,a)=>s+a.price,0),te=expenses.reduce((s,e)=>s+e.amount,0);
@@ -3960,6 +3975,340 @@ function renderArtistsFinance(){
       <div class="examt" style="color:var(--gr)">€${r.comision.toFixed(2)}</div>
     </div>`).join('') || '<div style="padding:20px 14px;color:var(--t3);font-size:12px;text-align:center">Sin artistas todavía.</div>';
 }
+// ==========================================
+// INFORME DE FINANZAS EN PNG (solo dueño, ver activeIsAdmin() en initFinanceReportBar)
+// Dibujado a mano en <canvas>, sin librerías nuevas (nada de html2canvas): el layout es una
+// sola columna de ancho fijo, no hay reflow complejo que justifique el coste de una dependencia
+// que además renderiza mal blur/gradientes/fuentes propias, que esta app usa por todas partes.
+// Paleta y tipografía fijas (no dependen del tema activo del usuario), igual que hace la
+// pantalla de login con sus tokens --login-*.
+// ==========================================
+let _finReportMode = 'week';
+function initFinanceReportBar(isOwner) {
+  const bar = document.getElementById('fin-report-bar');
+  if (!bar) return;
+  bar.style.display = isOwner ? 'flex' : 'none';
+  if (!isOwner) return;
+  const wkInp = document.getElementById('rpt-week-val');
+  const moInp = document.getElementById('rpt-month-val');
+  if (wkInp && !wkInp.value) wkInp.value = isoWeekString(TODAY);
+  if (moInp && !moInp.value) moInp.value = TODAY.getFullYear() + '-' + String(TODAY.getMonth() + 1).padStart(2, '0');
+}
+function setReportMode(mode) {
+  _finReportMode = mode;
+  document.getElementById('rpt-mode-week').classList.toggle('on', mode === 'week');
+  document.getElementById('rpt-mode-month').classList.toggle('on', mode === 'month');
+  document.getElementById('rpt-week-fg').style.display = mode === 'week' ? '' : 'none';
+  document.getElementById('rpt-month-fg').style.display = mode === 'month' ? '' : 'none';
+}
+// Formato nativo de <input type="week"> = "YYYY-Www" (semana ISO 8601, lunes-domingo).
+function isoWeekString(d) {
+  const dt = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dayNum = (dt.getDay() + 6) % 7;
+  dt.setDate(dt.getDate() - dayNum + 3);
+  const firstThursday = new Date(dt.getFullYear(), 0, 4);
+  const firstDayNum = (firstThursday.getDay() + 6) % 7;
+  firstThursday.setDate(firstThursday.getDate() - firstDayNum + 3);
+  const week = 1 + Math.round((dt - firstThursday) / (7 * 86400000));
+  return dt.getFullYear() + '-W' + String(week).padStart(2, '0');
+}
+function isoWeekToRange(weekStr) {
+  const [yStr, wStr] = weekStr.split('-W');
+  const y = parseInt(yStr, 10), w = parseInt(wStr, 10);
+  const jan4 = new Date(y, 0, 4);
+  const jan4Day = (jan4.getDay() + 6) % 7;
+  const week1Monday = new Date(jan4); week1Monday.setDate(jan4.getDate() - jan4Day);
+  const monday = new Date(week1Monday); monday.setDate(week1Monday.getDate() + (w - 1) * 7);
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+  return { from: monday, to: sunday };
+}
+function monthValToRange(monthStr) {
+  const [y, m] = monthStr.split('-').map(Number);
+  return { from: new Date(y, m - 1, 1), to: new Date(y, m, 0) };
+}
+function formatReportRangeLabel(from, to) {
+  const sameMonth = from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear();
+  if (sameMonth) return from.getDate() + '-' + to.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+  return from.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) + ' — ' + to.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Reúne los datos del periodo a partir de lo que ya hay cargado en memoria (appts/clients/
+// expenses/profiles ya vienen fusionados de todos los perfiles cuando quien mira es el dueño,
+// ver rebuildMergedStore()) - no hace falta ningún endpoint nuevo.
+function buildFinanceReportData(from, to) {
+  const inRange = function(dateStr) {
+    if (!dateStr) return false;
+    const d = parseDate(dateStr);
+    return d >= from && d <= to;
+  };
+  const rows = appts.filter(function(a) { return a.status === 'completed' && inRange(a.date); })
+    .map(function(a) {
+      const artist = profiles.find(function(p) { return p.id === a.artistId; }) || { name: '—', commissionPct: 50 };
+      const pct = typeof artist.commissionPct === 'number' ? artist.commissionPct : 50;
+      const price = a.price || 0;
+      const artistCut = price * pct / 100;
+      return { date: a.date, client: a.name || '—', style: a.type || a.workType || '—', artistName: artist.name || '—', price: price, pct: pct, artistCut: artistCut, studioCut: price - artistCut };
+    })
+    .sort(function(x, y) { return parseDate(x.date) - parseDate(y.date); });
+
+  const expTotal = expenses.filter(function(e) { return inRange(e.date); }).reduce(function(s, e) { return s + (e.amount || 0); }, 0);
+  const income = rows.reduce(function(s, r) { return s + r.price; }, 0);
+
+  // Cliente nuevo = su primera cita "completada" de SIEMPRE cae en este periodo (no hay fecha
+  // de alta fiable en la ficha del cliente - ver diagnóstico previo a implementar esto).
+  const firstApptByClient = new Map();
+  appts.filter(function(a) { return a.status === 'completed' && a.date; }).forEach(function(a) {
+    const key = (a.name || '').trim().toLowerCase();
+    if (!key) return;
+    const d = parseDate(a.date);
+    if (!firstApptByClient.has(key) || d < firstApptByClient.get(key)) firstApptByClient.set(key, d);
+  });
+  const newClients = new Set();
+  rows.forEach(function(r) {
+    const first = firstApptByClient.get(r.client.trim().toLowerCase());
+    if (first && first >= from && first <= to) newClients.add(r.client.trim().toLowerCase());
+  });
+
+  const byArtist = new Map();
+  rows.forEach(function(r) { byArtist.set(r.artistName, (byArtist.get(r.artistName) || 0) + r.price); });
+  let topArtist = null;
+  byArtist.forEach(function(amt, name) { if (!topArtist || amt > topArtist.amount) topArtist = { name: name, amount: amt }; });
+
+  return {
+    rows: rows, income: income, expTotal: expTotal, profit: income - expTotal, count: rows.length,
+    newClientsCount: newClients.size, topArtist: topArtist,
+    totalArtistCut: rows.reduce(function(s, r) { return s + r.artistCut; }, 0),
+    totalStudioCut: rows.reduce(function(s, r) { return s + r.studioCut; }, 0)
+  };
+}
+
+async function downloadFinanceReport() {
+  const btn = document.getElementById('rpt-download-btn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Generando…';
+  try {
+    let from, to, label, fileTag;
+    if (_finReportMode === 'week') {
+      const wk = document.getElementById('rpt-week-val').value;
+      if (!wk) { showToast('Elige una semana'); return; }
+      const r = isoWeekToRange(wk); from = r.from; to = r.to;
+      label = 'Informe semanal — ' + formatReportRangeLabel(from, to);
+      fileTag = wk;
+    } else {
+      const mo = document.getElementById('rpt-month-val').value;
+      if (!mo) { showToast('Elige un mes'); return; }
+      const r = monthValToRange(mo); from = r.from; to = r.to;
+      label = 'Informe mensual — ' + from.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+      fileTag = mo;
+    }
+    const data = buildFinanceReportData(from, to);
+    const adminProf = profiles.find(function(p) { return p.isAdminProfile; }) || profiles[0] || {};
+    const studioName = adminProf.studioName || adminProf.name || 'Tattoo OS';
+    const blob = await renderFinanceReportPNG({ data: data, label: label, studioName: studioName });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'informe-finanzas-' + fileTag + '.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function() { URL.revokeObjectURL(url); }, 2000);
+    showToast('Informe descargado');
+  } catch (e) {
+    showToast('Error al generar el informe: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = originalLabel;
+  }
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function fitText(ctx, text, x, y, maxW, align) {
+  ctx.textAlign = align || 'left';
+  let s = String(text);
+  if (ctx.measureText(s).width > maxW) {
+    while (s.length > 1 && ctx.measureText(s + '…').width > maxW) s = s.slice(0, -1);
+    s = s + '…';
+  }
+  ctx.fillText(s, x, y);
+}
+
+function renderFinanceReportPNG(opts) {
+  return document.fonts.ready.then(function() {
+    const data = opts.data, label = opts.label, studioName = opts.studioName;
+    const DPR = Math.max(1, window.devicePixelRatio || 1);
+    const W = 1200, M = 56, CW = W - M * 2;
+    const COL = {
+      bg: '#13161b', card: '#1c2028', card2: '#1a1e25', border: 'rgba(255,255,255,.09)',
+      text1: '#eef0f3', text2: '#9aa3ad', text3: '#6c7580',
+      accent: '#8B6FF5', green: '#10b981', red: '#f43f5e', amber: '#f59e0b'
+    };
+    const FHEAD = "'Manrope',system-ui,sans-serif", FBODY = "'Plus Jakarta Sans',system-ui,sans-serif";
+
+    // Bloques de altura - se usan las MISMAS constantes para calcular H total y para avanzar
+    // "y" al dibujar, así nunca se desincronizan (canvas cortado o con hueco de sobra al final).
+    const padTop = 44, wordmarkH = 40, titleH = 30, periodH = 24, dividerGap = 36, sectionLabelH = 20;
+    const cardGap = 14, cardCols = 3, cardRows = 2, cardH = 92;
+    const cardW = (CW - cardGap * (cardCols - 1)) / cardCols;
+    const cardsH = cardRows * cardH + (cardRows - 1) * cardGap;
+    const afterCardsGap = 40, tableLabelH = 22, tableHeadH = 40, rowH = 42;
+    const tableBoxH = tableHeadH + Math.max(data.rows.length, 1) * rowH;
+    const afterTableGap = 18, totalRowH = 56, afterTotalGap = 30, footerLineH = 20, bottomPad = 30;
+
+    const H = Math.round(padTop + wordmarkH + titleH + periodH + dividerGap + sectionLabelH + cardsH +
+      afterCardsGap + tableLabelH + tableBoxH + afterTableGap + totalRowH + afterTotalGap + footerLineH + bottomPad);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(DPR, DPR);
+
+    ctx.fillStyle = COL.bg; ctx.fillRect(0, 0, W, H);
+
+    let y = padTop;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = COL.text1; ctx.font = "700 20px " + FHEAD;
+    ctx.fillText('TOS', M, y);
+    ctx.fillStyle = COL.accent; ctx.font = "700 10px " + FBODY;
+    ctx.fillText('TATTOO OS', M + 52, y - 1);
+    ctx.textAlign = 'right'; ctx.fillStyle = COL.text3; ctx.font = "400 12px " + FBODY;
+    ctx.fillText('Generado el ' + new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) +
+      ' a las ' + new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }), W - M, y);
+    ctx.textAlign = 'left';
+
+    y += wordmarkH;
+    ctx.fillStyle = COL.text1; ctx.font = "700 30px " + FHEAD;
+    fitText(ctx, studioName, M, y, CW, 'left');
+
+    y += titleH;
+    ctx.fillStyle = COL.text2; ctx.font = "500 15px " + FBODY;
+    ctx.fillText(label, M, y);
+
+    y += periodH;
+    ctx.strokeStyle = COL.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(M, y); ctx.lineTo(W - M, y); ctx.stroke();
+
+    y += dividerGap;
+    ctx.fillStyle = COL.text3; ctx.font = "700 11px " + FBODY;
+    ctx.fillText('RESUMEN DEL PERIODO', M, y);
+
+    y += sectionLabelH;
+    const cardsTop = y;
+    const cards = [
+      { label: 'Ingresos totales', value: '€' + data.income.toLocaleString('es-ES'), color: COL.accent },
+      { label: 'Gastos totales', value: '€' + data.expTotal.toLocaleString('es-ES'), color: COL.red },
+      { label: 'Beneficio neto', value: '€' + data.profit.toLocaleString('es-ES'), color: data.profit >= 0 ? COL.green : COL.red },
+      { label: 'Tatuajes completados', value: String(data.count), color: COL.text1 },
+      { label: 'Clientes nuevos', value: String(data.newClientsCount), color: COL.text1 },
+      { label: 'Artista con más facturación', value: data.topArtist ? data.topArtist.name + ' · €' + data.topArtist.amount.toLocaleString('es-ES') : '—', color: COL.amber, small: true }
+    ];
+    cards.forEach(function(c, i) {
+      const col = i % cardCols, row = Math.floor(i / cardCols);
+      const cx = M + col * (cardW + cardGap), cy = cardsTop + row * (cardH + cardGap);
+      ctx.fillStyle = COL.card; roundRectPath(ctx, cx, cy, cardW, cardH, 12); ctx.fill();
+      ctx.strokeStyle = COL.border; roundRectPath(ctx, cx, cy, cardW, cardH, 12); ctx.stroke();
+      ctx.fillStyle = COL.text3; ctx.font = "600 10.5px " + FBODY;
+      fitText(ctx, c.label.toUpperCase(), cx + 16, cy + 24, cardW - 32, 'left');
+      ctx.fillStyle = c.color; ctx.font = (c.small ? "700 16px " : "700 24px ") + FHEAD;
+      fitText(ctx, c.value, cx + 16, cy + (c.small ? 52 : 56), cardW - 32, 'left');
+    });
+
+    y = cardsTop + cardsH + afterCardsGap;
+    ctx.fillStyle = COL.text3; ctx.font = "700 11px " + FBODY;
+    ctx.fillText('DETALLE DE TATUAJES COMPLETADOS', M, y);
+
+    y += tableLabelH;
+    const tableBoxTop = y;
+    ctx.fillStyle = COL.card2; roundRectPath(ctx, M, tableBoxTop, CW, tableBoxH, 12); ctx.fill();
+    ctx.strokeStyle = COL.border; roundRectPath(ctx, M, tableBoxTop, CW, tableBoxH, 12); ctx.stroke();
+
+    const cols = [
+      { key: 'client', label: 'Cliente', w: 220, align: 'left' },
+      { key: 'style', label: 'Estilo', w: 170, align: 'left' },
+      { key: 'artistName', label: 'Artista', w: 150, align: 'left' },
+      { key: 'price', label: 'Precio', w: 110, align: 'right' },
+      { key: 'pct', label: '% Com.', w: 80, align: 'right' },
+      { key: 'artistCut', label: 'Artista', w: 150, align: 'right' },
+      { key: 'studioCut', label: 'Estudio', w: 0, align: 'right' }
+    ];
+    cols[cols.length - 1].w = CW - cols.slice(0, -1).reduce(function(s, c) { return s + c.w; }, 0);
+
+    let hx = M + 16;
+    ctx.font = "700 10px " + FBODY; ctx.fillStyle = COL.text3;
+    cols.forEach(function(c) {
+      ctx.textAlign = c.align;
+      ctx.fillText(c.label.toUpperCase(), c.align === 'right' ? hx + c.w - 16 : hx, tableBoxTop + 25);
+      hx += c.w;
+    });
+    ctx.textAlign = 'left';
+    ctx.strokeStyle = COL.border;
+    ctx.beginPath(); ctx.moveTo(M, tableBoxTop + tableHeadH); ctx.lineTo(M + CW, tableBoxTop + tableHeadH); ctx.stroke();
+
+    if (!data.rows.length) {
+      ctx.fillStyle = COL.text3; ctx.font = "400 13px " + FBODY; ctx.textAlign = 'center';
+      ctx.fillText('Sin tatuajes completados en este periodo.', M + CW / 2, tableBoxTop + tableHeadH + 26);
+      ctx.textAlign = 'left';
+    } else {
+      data.rows.forEach(function(r, i) {
+        const ry = tableBoxTop + tableHeadH + i * rowH;
+        if (i % 2 === 1) { ctx.fillStyle = 'rgba(255,255,255,.025)'; ctx.fillRect(M, ry, CW, rowH); }
+        const cells = [
+          [r.client, COL.text1], [r.style, COL.text2], [r.artistName, COL.text2],
+          ['€' + r.price.toLocaleString('es-ES'), COL.text1], [r.pct + '%', COL.text2],
+          ['€' + r.artistCut.toFixed(2), COL.green], ['€' + r.studioCut.toFixed(2), COL.accent]
+        ];
+        let rx = M + 16;
+        ctx.font = "500 12.5px " + FBODY;
+        cols.forEach(function(c, ci) {
+          ctx.fillStyle = cells[ci][1];
+          const tx = c.align === 'right' ? rx + c.w - 16 : rx;
+          fitText(ctx, cells[ci][0], tx, ry + rowH / 2 + 4, c.w - 24, c.align);
+          rx += c.w;
+        });
+        if (i < data.rows.length - 1) {
+          ctx.strokeStyle = COL.border;
+          ctx.beginPath(); ctx.moveTo(M, ry + rowH); ctx.lineTo(M + CW, ry + rowH); ctx.stroke();
+        }
+      });
+    }
+
+    y = tableBoxTop + tableBoxH + afterTableGap;
+    const totalTop = y;
+    ctx.fillStyle = COL.card; roundRectPath(ctx, M, totalTop, CW, totalRowH, 12); ctx.fill();
+    ctx.strokeStyle = 'rgba(139,111,245,.35)'; roundRectPath(ctx, M, totalTop, CW, totalRowH, 12); ctx.stroke();
+
+    const totalCells = [
+      ['TOTAL', COL.text1, "700 13px " + FHEAD], ['', COL.text1, "500 12.5px " + FBODY], ['', COL.text1, "500 12.5px " + FBODY],
+      ['€' + data.income.toLocaleString('es-ES'), COL.text1, "700 13px " + FBODY], ['', COL.text1, "500 12.5px " + FBODY],
+      ['€' + data.totalArtistCut.toFixed(2), COL.green, "700 13px " + FBODY],
+      ['€' + data.totalStudioCut.toFixed(2), COL.accent, "700 13px " + FBODY]
+    ];
+    let tx2 = M + 16;
+    cols.forEach(function(c, ci) {
+      ctx.fillStyle = totalCells[ci][1]; ctx.font = totalCells[ci][2]; ctx.textAlign = c.align;
+      ctx.fillText(totalCells[ci][0], c.align === 'right' ? tx2 + c.w - 16 : tx2, totalTop + totalRowH / 2 + 5);
+      tx2 += c.w;
+    });
+    ctx.textAlign = 'left';
+
+    y = totalTop + totalRowH + afterTotalGap;
+    ctx.fillStyle = COL.text3; ctx.font = "400 11px " + FBODY; ctx.textAlign = 'center';
+    ctx.fillText('Generado con Tattoo OS', W / 2, y);
+    ctx.textAlign = 'left';
+
+    return new Promise(function(resolve, reject) {
+      canvas.toBlob(function(blob) {
+        if (blob) resolve(blob); else reject(new Error('No se pudo generar la imagen'));
+      }, 'image/png');
+    });
+  });
+}
+
 let currentArtistDetail=null;
 function openArtistDetail(profileId){
   const year=TODAY.getFullYear(), month=TODAY.getMonth();
