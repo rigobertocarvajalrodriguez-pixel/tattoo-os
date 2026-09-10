@@ -271,6 +271,20 @@ function buildPasswordResetEmailHtml(resetUrl, userName) {
   return emailShellHtml('Restablece tu contraseña', rows);
 }
 
+function buildArtistInviteEmailHtml(acceptUrl, studioName) {
+  var pStyle = 'margin:0 0 16px;font:400 15px/1.7 Arial,Helvetica,sans-serif;color:#c3c5d9;';
+  var button = '<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:8px;background:#b7b2ff;">' +
+    '<a href="' + escapeHtml(acceptUrl) + '" style="display:inline-block;padding:12px 22px;font:700 14px/1 Arial,Helvetica,sans-serif;color:#0b0d14;text-decoration:none;border-radius:8px;">Crear mi contraseña</a>' +
+    '</td></tr></table>';
+  var rows = emailHeaderHtml('INVITACIÓN') +
+    '<tr><td style="padding:28px 0 12px;"><div style="font:700 26px/1.3 Arial,Helvetica,sans-serif;color:#f4f4f8;">' + escapeHtml(studioName) + ' te ha invitado</div></td></tr>' +
+    '<tr><td><p style="' + pStyle + '">Te han invitado a unirte como tatuador/a en Tattoo OS, con tu propio acceso independiente. Pulsa el botón para crear tu contraseña y entrar directamente a tu perfil.</p></td></tr>' +
+    '<tr><td style="padding:4px 0 20px;">' + button + '</td></tr>' +
+    '<tr><td><p style="' + pStyle + '">Este enlace caduca en 7 días y solo funciona una vez. Si no esperabas esta invitación, puedes ignorar este correo.</p></td></tr>' +
+    emailFooterHtml('Tattoo OS &middot; Invitación de artista', 'Responde a este correo si algo falla');
+  return emailShellHtml('Te han invitado a ' + studioName, rows);
+}
+
 // Fase 1 de roles/planes: cuántos perfiles (dueño + artistas) caben en cada plan.
 // estudio_pro es "ilimitado" -> Infinity nunca se alcanza en la comprobación de abajo.
 var PLAN_PROFILE_LIMITS = { independiente: 1, estudio: 3, estudio_pro: Infinity };
@@ -482,6 +496,23 @@ Promise.all([
 }).then(function() {
   console.log('[DB] Migración de roles/planes (Fase 1) aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de roles/planes:', e.message); });
+
+// Login independiente por invitación (Fase 2): cada tatuador puede tener su propio email+
+// contraseña en vez de depender del email/PIN de la cuenta del estudio. email es único a nivel
+// de TODA la plataforma (no solo por cuenta) porque el login unificado lo busca sin saber de
+// antemano a qué estudio pertenece - ver /api/auth/login. Sin columna de "estado" separada: se
+// deriva (email IS NOT NULL AND password_hash IS NULL) = invitación pendiente,
+// (password_hash IS NOT NULL) = acceso activo, pendiente + invite_token_expires < NOW() = caducada.
+Promise.all([
+  db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email TEXT'),
+  db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS invited_at TIMESTAMPTZ'),
+  db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS invite_token_hash TEXT'),
+  db.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS invite_token_expires TIMESTAMPTZ'),
+]).then(function() {
+  return db.query('CREATE UNIQUE INDEX IF NOT EXISTS profiles_email_uniq ON profiles(email) WHERE email IS NOT NULL');
+}).then(function() {
+  console.log('[DB] Migración de invitación de artistas (Fase 2) aplicada');
+}).catch(function(e) { console.error('[DB] Error en migración de invitación de artistas:', e.message); });
 
 // Panel de superadmin de la plataforma (distinto de access_role='owner' de la Fase 1 - ese es
 // el dueño de UN estudio; is_admin/ADMIN_EMAIL es quien gestiona TODOS los estudios): activar/
@@ -817,13 +848,47 @@ function hashResetToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+// Login independiente de artistas invitados (Fase 2): se llama solo cuando el email NO
+// coincide con ninguna cuenta de estudio (users). Si coincide con un profiles.email con
+// password_hash ya fijado (invitación aceptada), autentica directo a ESE perfil - la sesión
+// lleva profileId/accessRole puestos desde el arranque, así el resto del backend (que ya
+// respeta req.user.profileId/accessRole en /api/profile/sync y /api/profile/:id/data) no
+// necesita ningún cambio adicional.
+function loginAsInvitedArtist(email, pass, res) {
+  db.query('SELECT * FROM profiles WHERE email=$1', [email]).then(function(r) {
+    if (!r.rows.length) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+    var profile = r.rows[0];
+    if (!profile.password_hash) {
+      return res.status(401).json({ error: 'Tienes una invitación pendiente. Revisa tu email para aceptarla antes de iniciar sesión.' });
+    }
+    return bcrypt.compare(pass, profile.password_hash).then(function(match) {
+      if (!match) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+      return db.query('SELECT active FROM users WHERE id=$1', [profile.user_id]).then(function(ur) {
+        if (ur.rows.length && ur.rows[0].active === false) {
+          return res.status(403).json({ error: 'Esta cuenta ha sido desactivada. Contacta con soporte.' });
+        }
+        var token = crypto.randomUUID();
+        authSessions[token] = {
+          userId: profile.user_id, email: profile.email, name: profile.name, isAdmin: false,
+          profileId: profile.id, accessRole: 'artist'
+        };
+        res.json({
+          token: token,
+          user: { id: profile.user_id, email: profile.email, name: profile.name, hasCompletedOnboarding: true },
+          profileId: profile.id, accessRole: 'artist'
+        });
+      });
+    });
+  }).catch(function(e) { res.status(500).json({ error: 'Error de base de datos' }); });
+}
+
 // ── AUTH ENDPOINTS ──
 app.post('/api/auth/login', loginRateLimiter, function(req, res) {
   var email = (req.body.email || '').trim().toLowerCase();
   var pass = req.body.password || '';
   db.query('SELECT * FROM users WHERE email=$1', [email])
     .then(function(r) {
-      if (!r.rows.length) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+      if (!r.rows.length) return loginAsInvitedArtist(email, pass, res);
       var user = r.rows[0];
       var stored = user.password || '';
       var check = BCRYPT_RE.test(stored) ? bcrypt.compare(pass, stored) : Promise.resolve(pass === stored);
@@ -845,7 +910,17 @@ app.post('/api/auth/register', loginRateLimiter, function(req, res) {
   var name = (req.body.name || email.split('@')[0]).trim();
   if (!email || !pass) return res.status(400).json({ error: 'Email y contraseña requeridos' });
   if (pass.length < 8) return res.status(400).json({ error: 'Contraseña mínimo 8 caracteres' });
-  bcrypt.hash(pass, 10).then(function(hash) {
+  // Un email no puede ser a la vez cuenta de estudio y perfil de artista invitado en otra parte
+  // (el login unificado busca por email sin saber de antemano cuál de los dos es) - se exige un
+  // email distinto para cada rol.
+  db.query('SELECT 1 FROM profiles WHERE email=$1', [email]).then(function(pr) {
+    if (pr.rows.length) {
+      var err = new Error('Ese email ya está en uso como perfil de artista en otro estudio. Usa un email distinto para tu propia cuenta.');
+      err.code = 'EMAIL_IS_PROFILE';
+      throw err;
+    }
+    return bcrypt.hash(pass, 10);
+  }).then(function(hash) {
     // notification_email arranca igual al email de la cuenta (auto-vinculado al registrarse,
     // ver migración "seguimiento por email" más arriba) - el dueño puede cambiarlo después.
     return db.query('INSERT INTO users (email, name, password, notification_email) VALUES ($1,$2,$3,$1) RETURNING *', [email, name, hash])
@@ -869,6 +944,7 @@ app.post('/api/auth/register', loginRateLimiter, function(req, res) {
         }
       });
   }).catch(function(e) {
+    if (e.code === 'EMAIL_IS_PROFILE') return res.status(400).json({ error: e.message });
     if (e.code === '23505') return res.status(400).json({ error: 'El email ya está registrado' });
     res.status(500).json({ error: 'Error de base de datos' });
   });
@@ -1824,6 +1900,209 @@ app.post('/api/profile/:id/auth', authMiddleware, function(req, res) {
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
+// ══════════════════════════════════════════
+// INVITACIÓN DE ARTISTAS (Fase 2): login independiente por email+contraseña propios, en vez de
+// depender del email/PIN de la cuenta del estudio. Ver loginAsInvitedArtist() más arriba para
+// la mitad del login unificado.
+// ══════════════════════════════════════════
+
+// Solo el dueño de la cuenta invita - un artista logueado de forma independiente ya lleva
+// accessRole:'artist' puesto desde el login (ver loginAsInvitedArtist), así que basta con
+// rechazar eso; cualquier otra sesión (dueño, o PIN dentro de su cuenta) pasa.
+function requireOwnerSession(req, res) {
+  if (req.user.accessRole === 'artist') {
+    res.status(403).json({ error: 'Solo el dueño del estudio puede hacer esto' });
+    return false;
+  }
+  return true;
+}
+
+app.post('/api/studio/invite-artist', authMiddleware, function(req, res) {
+  if (!requireOwnerSession(req, res)) return;
+  var email = (req.body.email || '').trim().toLowerCase();
+  var name = (req.body.name || email.split('@')[0] || 'Artista invitado').trim();
+  if (!email) return res.status(400).json({ error: 'Falta el email' });
+  var userId = req.userId;
+
+  db.query('SELECT plan FROM users WHERE id=$1', [userId]).then(function(ur) {
+    var plan = (ur.rows[0] && ur.rows[0].plan) || 'independiente';
+    var limit = PLAN_PROFILE_LIMITS[plan] != null ? PLAN_PROFILE_LIMITS[plan] : PLAN_PROFILE_LIMITS.independiente;
+    // Cuenta pendientes + activos por igual - una invitación pendiente ya reserva su hueco.
+    return db.query('SELECT COUNT(*) FROM profiles WHERE user_id=$1', [userId]).then(function(cr) {
+      var current = parseInt(cr.rows[0].count, 10);
+      if (current + 1 > limit) {
+        var limErr = new Error('Tu cuenta ya tiene ' + current + ' perfiles; el plan "' + plan + '" permite máximo ' + limit + '. Actualiza de plan para invitar a más artistas.');
+        limErr.code = 'PLAN_LIMIT';
+        throw limErr;
+      }
+    });
+  }).then(function() {
+    return db.query('SELECT 1 FROM users WHERE email=$1', [email]);
+  }).then(function(ur) {
+    if (ur.rows.length) {
+      var e1 = new Error('Ese email ya tiene su propia cuenta de estudio en Tattoo OS.');
+      e1.code = 'EMAIL_TAKEN';
+      throw e1;
+    }
+    return db.query('SELECT user_id FROM profiles WHERE email=$1', [email]);
+  }).then(function(pr) {
+    if (pr.rows.length) {
+      var sameAccount = pr.rows[0].user_id === userId;
+      var e2 = new Error(sameAccount ? 'Ese email ya está invitado en tu estudio.' : 'Ese email ya está invitado o activo en otro estudio.');
+      e2.code = 'EMAIL_TAKEN';
+      throw e2;
+    }
+    return db.query('SELECT studio_name FROM profiles WHERE user_id=$1 AND is_admin_profile=TRUE', [userId]);
+  }).then(function(studioRow) {
+    var studioName = (studioRow.rows[0] && studioRow.rows[0].studio_name) || 'un estudio en Tattoo OS';
+    return db.query('SELECT COALESCE(MAX(id),0)+1 AS next_id FROM profiles WHERE user_id=$1', [userId]).then(function(idRow) {
+      var newId = idRow.rows[0].next_id;
+      var rawToken = crypto.randomBytes(32).toString('hex');
+      var expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 días
+      return db.query(
+        'INSERT INTO profiles (id,user_id,name,role,color,access_role,is_admin_profile,email,invited_at,invite_token_hash,invite_token_expires) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,FALSE,$7,NOW(),$8,$9)',
+        [newId, userId, name, 'Artista', 'v', 'artist', email, hashResetToken(rawToken), expires]
+      ).then(function() {
+        res.json({ ok: true, profileId: newId, email: email, status: 'pending' });
+        if (mailEnabled) {
+          var acceptUrl = PROD_ORIGIN + '/app?acceptInvite=' + rawToken;
+          sendEmailViaSendGrid({
+            fromName: 'Tattoo OS',
+            replyTo: WELCOME_EMAIL_CONTACT,
+            to: email,
+            subject: studioName + ' te ha invitado a Tattoo OS',
+            text: studioName + ' te ha invitado a unirte como tatuador/a en Tattoo OS. Crea tu contraseña aquí (caduca en 7 días): ' + acceptUrl,
+            html: buildArtistInviteEmailHtml(acceptUrl, studioName),
+          }).catch(function() {});
+        }
+      });
+    });
+  }).catch(function(e) {
+    if (e.code === 'PLAN_LIMIT' || e.code === 'EMAIL_TAKEN') return res.status(400).json({ error: e.message, code: e.code });
+    res.status(500).json({ error: e.message });
+  });
+});
+
+// Público (sin auth) - el propio token es la credencial, para mostrar el nombre del estudio
+// antes de pedir que se cree la contraseña.
+app.get('/api/studio/invite-info', function(req, res) {
+  var token = (req.query.token || '').trim();
+  if (!token) return res.status(400).json({ error: 'Falta el token' });
+  db.query(
+    'SELECT p.name, p.email, p.invite_token_expires, s.studio_name FROM profiles p ' +
+    'LEFT JOIN profiles s ON s.user_id=p.user_id AND s.is_admin_profile=TRUE ' +
+    'WHERE p.invite_token_hash=$1 AND p.password_hash IS NULL',
+    [hashResetToken(token)]
+  ).then(function(r) {
+    if (!r.rows.length) return res.status(400).json({ error: 'Invitación no encontrada o ya usada' });
+    var row = r.rows[0];
+    if (new Date(row.invite_token_expires) < new Date()) {
+      return res.status(400).json({ error: 'Esta invitación ha caducado. Pide al dueño del estudio que te reenvíe una nueva.' });
+    }
+    res.json({ name: row.name, email: row.email, studioName: row.studio_name || 'tu estudio' });
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.post('/api/studio/accept-invite', function(req, res) {
+  var token = (req.body.token || '').trim();
+  var password = req.body.password || '';
+  if (!token) return res.status(400).json({ error: 'Enlace inválido' });
+  if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+  db.query(
+    'SELECT id, user_id, name, email FROM profiles WHERE invite_token_hash=$1 AND password_hash IS NULL AND invite_token_expires > NOW()',
+    [hashResetToken(token)]
+  ).then(function(r) {
+    if (!r.rows.length) return res.status(400).json({ error: 'El enlace no es válido o ha caducado. Pide que te reenvíen la invitación.' });
+    var profile = r.rows[0];
+    return bcrypt.hash(password, 10).then(function(hash) {
+      return db.query(
+        'UPDATE profiles SET password_hash=$1, invite_token_hash=NULL, invite_token_expires=NULL WHERE id=$2 AND user_id=$3',
+        [hash, profile.id, profile.user_id]
+      );
+    }).then(function() {
+      var sessToken = crypto.randomUUID();
+      authSessions[sessToken] = {
+        userId: profile.user_id, email: profile.email, name: profile.name, isAdmin: false,
+        profileId: profile.id, accessRole: 'artist'
+      };
+      res.json({
+        token: sessToken,
+        user: { id: profile.user_id, email: profile.email, name: profile.name, hasCompletedOnboarding: true },
+        profileId: profile.id, accessRole: 'artist'
+      });
+    });
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Estado de cada artista invitado, para el panel del dueño (Ajustes > Artistas).
+app.get('/api/studio/artists', authMiddleware, function(req, res) {
+  if (!requireOwnerSession(req, res)) return;
+  db.query(
+    "SELECT id, name, email, invited_at, invite_token_expires, (password_hash IS NOT NULL) AS active " +
+    'FROM profiles WHERE user_id=$1 AND email IS NOT NULL ORDER BY invited_at ASC',
+    [req.userId]
+  ).then(function(r) {
+    var now = new Date();
+    res.json(r.rows.map(function(p) {
+      var status = p.active ? 'active' : (p.invite_token_expires && new Date(p.invite_token_expires) < now ? 'expired' : 'pending');
+      return { profileId: p.id, name: p.name, email: p.email, status: status };
+    }));
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Reenvía la invitación (nuevo token, nueva expiración) - solo tiene sentido si sigue pendiente.
+app.post('/api/studio/artist/:profileId/resend-invite', authMiddleware, function(req, res) {
+  if (!requireOwnerSession(req, res)) return;
+  var profileId = parseInt(req.params.profileId, 10);
+  db.query('SELECT name, email, password_hash FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId]).then(function(r) {
+    if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
+    var profile = r.rows[0];
+    if (!profile.email) return res.status(400).json({ error: 'Este perfil no tiene invitación de email' });
+    if (profile.password_hash) return res.status(400).json({ error: 'Este artista ya aceptó su invitación' });
+    return db.query('SELECT studio_name FROM profiles WHERE user_id=$1 AND is_admin_profile=TRUE', [req.userId]).then(function(sr) {
+      var studioName = (sr.rows[0] && sr.rows[0].studio_name) || 'un estudio en Tattoo OS';
+      var rawToken = crypto.randomBytes(32).toString('hex');
+      var expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      return db.query('UPDATE profiles SET invite_token_hash=$1, invite_token_expires=$2, invited_at=NOW() WHERE id=$3 AND user_id=$4',
+        [hashResetToken(rawToken), expires, profileId, req.userId]).then(function() {
+        res.json({ ok: true });
+        if (mailEnabled) {
+          var acceptUrl = PROD_ORIGIN + '/app?acceptInvite=' + rawToken;
+          sendEmailViaSendGrid({
+            fromName: 'Tattoo OS', replyTo: WELCOME_EMAIL_CONTACT, to: profile.email,
+            subject: studioName + ' te ha invitado a Tattoo OS',
+            text: studioName + ' te ha invitado a unirte como tatuador/a en Tattoo OS. Crea tu contraseña aquí (caduca en 7 días): ' + acceptUrl,
+            html: buildArtistInviteEmailHtml(acceptUrl, studioName),
+          }).catch(function() {});
+        }
+      });
+    });
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Revoca el acceso independiente de un artista SIN borrar el perfil ni su histórico (citas,
+// clientes, comisiones siguen intactos y visibles para el dueño) - solo impide que ese email
+// vuelva a loguearse solo, e invalida cualquier sesión suya ya abierta. Borrar el perfil entero
+// sigue siendo DELETE /api/profile/:id, sin relación con esto.
+app.delete('/api/studio/artist/:profileId/access', authMiddleware, function(req, res) {
+  if (!requireOwnerSession(req, res)) return;
+  var profileId = parseInt(req.params.profileId, 10);
+  db.query('SELECT id FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId]).then(function(r) {
+    if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
+    return db.query(
+      'UPDATE profiles SET email=NULL, password_hash=NULL, password_plain=NULL, invite_token_hash=NULL, invite_token_expires=NULL, invited_at=NULL WHERE id=$1 AND user_id=$2',
+      [profileId, req.userId]
+    );
+  }).then(function() {
+    Object.keys(authSessions).forEach(function(t) {
+      var s = authSessions[t];
+      if (s.userId === req.userId && s.profileId === profileId) delete authSessions[t];
+    });
+    res.json({ ok: true });
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
 // Mapea las filas de Postgres (nombres de columna en snake_case) al formato que ya usa el
 // frontend (camelCase) para appts/expenses/consents/docTemplates/waMessages, así el navegador
 // no necesita dos formatos distintos según venga de localStorage o del servidor.
@@ -1862,8 +2141,12 @@ app.get('/api/profile/:id/data', authMiddleware, function(req, res) {
       if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
       var profile = r.rows[0];
       if (profile.user_id !== req.userId) return res.status(403).json({ error: 'No autorizado' });
-      var unlocked = req.user.unlockedProfiles && req.user.unlockedProfiles[profileId];
-      if (!unlocked) return res.status(403).json({ error: 'Perfil no desbloqueado en esta sesión' });
+      // "Desbloqueado" = pasó por el PIN de /api/profile/:id/auth (flujo de siempre) O el token
+      // ya nació con este profileId puesto porque el login fue directo (artista invitado, Fase 2
+      // - ver loginAsInvitedArtist/accept-invite, que nunca llaman a /api/profile/:id/auth).
+      var unlockedByPin = req.user.unlockedProfiles && req.user.unlockedProfiles[profileId];
+      var unlockedByDirectLogin = req.user.accessRole === 'artist' && req.user.profileId === profileId;
+      if (!unlockedByPin && !unlockedByDirectLogin) return res.status(403).json({ error: 'Perfil no desbloqueado en esta sesión' });
 
       return db.query('SELECT * FROM profiles WHERE user_id=$1 ORDER BY id ASC', [req.userId]).then(function(allProfiles) {
         var roster = allProfiles.rows.map(function(p) {

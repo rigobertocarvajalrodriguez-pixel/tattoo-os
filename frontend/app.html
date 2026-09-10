@@ -367,6 +367,9 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:999;ba
 /* PROFILE PICKER */
 .prof-picker{position:absolute;bottom:46px;left:8px;right:8px;background:var(--elevated);border:1px solid var(--bd3);border-radius:var(--r3);padding:8px;z-index:100;box-shadow:0 16px 48px rgba(0,0,0,.5);display:none}
 .prof-picker.open{display:block;animation:slideup .2s ease}
+/* Artista logueado de forma independiente (ver loginSuccessAsArtist): sin selector de perfiles */
+body.artist-locked .ua{cursor:default}
+body.artist-locked .ua svg{display:none}
 @keyframes slideup{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .pp-ttl{font-size:9px;text-transform:uppercase;letter-spacing:.9px;color:var(--t3);padding:2px 4px;margin-bottom:6px;font-weight:700}
 .pp-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:var(--r1);cursor:pointer;transition:background .12s var(--ease-out);margin-bottom:2px}
@@ -2268,6 +2271,17 @@ body:not(.concrete) #aiw-send:active{box-shadow:var(--sh-in)}
         <div class="fg"><label class="fl">Nueva contraseña</label><input class="fi" id="rp-pass1" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doResetPassword()"></div>
         <div class="fg"><label class="fl">Confirmar contraseña</label><input class="fi" id="rp-pass2" type="password" placeholder="Repite la contraseña" onkeydown="if(event.key==='Enter')doResetPassword()"></div>
         <button class="bprim" style="width:100%;margin-top:4px" id="reset-btn" onclick="doResetPassword()">Guardar contraseña →</button>
+      </div>
+    </div>
+    <!-- ACCEPT INVITE (llegando desde el enlace de invitación de artista) -->
+    <div id="lf-accept-invite" style="display:none">
+      <div class="login-form-title">Únete a <span id="invite-studio-name">tu estudio</span></div>
+      <div class="login-form-sub" id="invite-form-sub">Crea tu contraseña para acceder con tu propio usuario</div>
+      <div class="login-error" id="invite-accept-err"></div>
+      <div id="invite-accept-form">
+        <div class="fg"><label class="fl">Nueva contraseña</label><input class="fi" id="ai-pass1" type="password" placeholder="Mínimo 8 caracteres" onkeydown="if(event.key==='Enter')doAcceptInvite()"></div>
+        <div class="fg"><label class="fl">Confirmar contraseña</label><input class="fi" id="ai-pass2" type="password" placeholder="Repite la contraseña" onkeydown="if(event.key==='Enter')doAcceptInvite()"></div>
+        <button class="bprim" style="width:100%;margin-top:4px" id="invite-accept-btn" onclick="doAcceptInvite()">Crear mi cuenta →</button>
       </div>
     </div>
   </div>
@@ -4421,23 +4435,7 @@ function renderSettings(){
       </div>`;
     if(typeof _sp.studioLat==='number') renderStudioMinimap(_sp.studioLat,_sp.studioLon);
   } else if(activeSettingsPanel==='artists'){
-    b.innerHTML=`
-      <div class="set-section">
-        <div class="set-section-t">Artistas y Comisiones</div>
-        <div class="set-section-s">Define el % de comisión de cada artista sobre el precio de la cita, y la comisión de la pasarela de pago del estudio.</div>
-        ${profiles.map(p=>`
-          <div class="set-row">
-            <div class="set-row-l">
-              <div class="set-row-t">${esc(p.name)}</div>
-              <div class="set-row-s">${esc(p.role)}</div>
-            </div>
-            <input class="fi" type="number" min="0" max="100" step="1" style="width:90px;text-align:center;flex:none" id="artist-comm-${p.id}" value="${typeof p.commissionPct==='number'?p.commissionPct:50}">
-            ${!p.isAdminProfile&&profiles.length>1?`<button onclick="deleteProfile(${p.id})" title="Eliminar artista" aria-label="Eliminar artista" style="margin-left:8px;background:transparent;border:none;color:var(--t3);cursor:pointer;padding:4px 6px;border-radius:4px;flex:none">${iconTrash({size:16})}</button>`:''}
-          </div>`).join('')}
-        <div class="set-section-s" style="margin-top:4px">Los planes limitan cuántos perfiles caben en tu cuenta (Independiente: 1 · Estudio: 3 · Estudio Pro: sin límite). Eliminar un artista borra también sus citas, clientes, gastos y documentos.</div>
-        <div class="fg" style="margin-top:16px"><label class="fl">Comisión de pasarela (Stripe) % — ajuste del estudio</label><input class="fi" type="number" min="0" max="100" step="0.1" id="stripe-fee-pct" value="${parseFloat(lsGet('tos_stripe_fee_pct'))||1.5}"></div>
-        <button class="bprim" style="width:auto;padding:9px 20px;margin-top:4px" onclick="saveArtistCommissions()">${t('saveChanges')}</button>
-      </div>`;
+    renderArtistsSettings(b);
   } else if(activeSettingsPanel==='notifications'){
     b.innerHTML=`
       <div class="set-section">
@@ -4823,7 +4821,12 @@ function removeProfilePhoto(){
   if(prev){prev.style.backgroundImage='';prev.style.background=AVCOLS[p.color];prev.textContent=p.name.split(' ').map(n=>n[0]).join('').slice(0,2);}
   showToast('Foto eliminada');
 }
+// true cuando la sesión es de un artista logueado de forma independiente (invitación aceptada,
+// ver loginSuccessAsArtist) - a diferencia del PIN dentro de la cuenta del dueño, aquí no hay
+// "volver a elegir perfil": el selector se oculta del todo.
+var _artistLocked = false;
 function toggleProfilePicker(){
+  if(_artistLocked) return;
   const pp=document.getElementById('prof-picker');pp.classList.toggle('open');
   if(pp.classList.contains('open')) renderProfilePicker();
 }
@@ -6138,11 +6141,12 @@ function setLoginTab(tab) {
   document.getElementById('lf-magic').style.display = tab === 'magic' ? '' : 'none';
   document.getElementById('lf-forgot').style.display = tab === 'forgot' ? '' : 'none';
   document.getElementById('lf-reset').style.display = tab === 'reset' ? '' : 'none';
+  document.getElementById('lf-accept-invite').style.display = tab === 'accept-invite' ? '' : 'none';
   clearLoginErrors();
 }
 
 function clearLoginErrors() {
-  ['login-err','reg-err','reg-ok','forgot-ok','reset-err','reset-ok'].forEach(id => {
+  ['login-err','reg-err','reg-ok','forgot-ok','reset-err','reset-ok','invite-accept-err'].forEach(id => {
     const el = document.getElementById(id);
     if(el) { el.classList.remove('show'); el.textContent = ''; }
   });
@@ -6169,7 +6173,11 @@ function doLogin() {
       }
       _authToken = result.token;
       localStorage.setItem('tos_local_token', result.token);
-      loginSuccess(result.user);
+      if (result.accessRole === 'artist') {
+        loginSuccessAsArtist(result.user, result.profileId);
+      } else {
+        loginSuccess(result.user);
+      }
     })
     .catch(function(err) {
       errEl.style.color = 'var(--ro)';
@@ -6286,6 +6294,67 @@ function doResetPassword() {
       // Limpia el token de la URL para que no quede reutilizable desde el historial del navegador.
       history.replaceState(null, '', location.pathname);
       setTimeout(function() { setLoginTab('login'); }, 2000);
+    })
+    .catch(function(err) {
+      errEl.textContent = 'Error de conexión: ' + err.message;
+      errEl.classList.add('show');
+      btn.disabled = false;
+    });
+}
+
+// Token de invitación de artista, si se entró desde el enlace del email (?acceptInvite=...) -
+// mismo patrón que checkResetTokenFromUrl(), llamada una vez al arrancar la app. Antes de
+// mostrar el formulario se pide /api/studio/invite-info para enseñar a qué estudio se une y
+// para no dejar el formulario abierto si el enlace ya caducó.
+var _inviteToken = null;
+function checkAcceptInviteTokenFromUrl() {
+  var token = new URLSearchParams(location.search).get('acceptInvite');
+  if (!token) return;
+  _inviteToken = token;
+  setLoginTab('accept-invite');
+  var errEl = document.getElementById('invite-accept-err');
+  var formEl = document.getElementById('invite-accept-form');
+  fetch(API_BASE + '/api/studio/invite-info?token=' + encodeURIComponent(token))
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+    .then(function(res) {
+      if (!res.ok) {
+        formEl.style.display = 'none';
+        errEl.textContent = res.data.error || 'Invitación no válida';
+        errEl.classList.add('show');
+        return;
+      }
+      document.getElementById('invite-studio-name').textContent = res.data.studioName;
+      document.getElementById('invite-form-sub').textContent = 'Crea tu contraseña para acceder como ' + res.data.name;
+    })
+    .catch(function() {
+      formEl.style.display = 'none';
+      errEl.textContent = 'Error de conexión';
+      errEl.classList.add('show');
+    });
+}
+
+function doAcceptInvite() {
+  var pass1 = document.getElementById('ai-pass1').value || '';
+  var pass2 = document.getElementById('ai-pass2').value || '';
+  var errEl = document.getElementById('invite-accept-err');
+  errEl.classList.remove('show');
+  if (pass1.length < 8) { errEl.textContent = 'La contraseña debe tener al menos 8 caracteres'; errEl.classList.add('show'); return; }
+  if (pass1 !== pass2) { errEl.textContent = 'Las contraseñas no coinciden'; errEl.classList.add('show'); return; }
+  var btn = document.getElementById('invite-accept-btn');
+  btn.disabled = true;
+  fetch(API_BASE + '/api/studio/accept-invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: _inviteToken, password: pass1 }) })
+    .then(function(r) { return r.json(); })
+    .then(function(result) {
+      if (result.error) {
+        errEl.textContent = result.error;
+        errEl.classList.add('show');
+        btn.disabled = false;
+        return;
+      }
+      _authToken = result.token;
+      localStorage.setItem('tos_local_token', result.token);
+      history.replaceState(null, '', location.pathname);
+      loginSuccessAsArtist(result.user, result.profileId);
     })
     .catch(function(err) {
       errEl.textContent = 'Error de conexión: ' + err.message;
@@ -6650,6 +6719,100 @@ async function saveStudioSettings() {
   renderSettings();
 }
 
+function renderArtistsSettings(container) {
+  container.innerHTML = `
+    <div class="set-section">
+      <div class="set-section-t">Artistas y Comisiones</div>
+      <div class="set-section-s">Define el % de comisión de cada artista sobre el precio de la cita, y la comisión de la pasarela de pago del estudio.</div>
+      ${profiles.map(p=>`
+        <div class="set-row">
+          <div class="set-row-l">
+            <div class="set-row-t">${esc(p.name)}</div>
+            <div class="set-row-s">${esc(p.role)}</div>
+          </div>
+          <input class="fi" type="number" min="0" max="100" step="1" style="width:90px;text-align:center;flex:none" id="artist-comm-${p.id}" value="${typeof p.commissionPct==='number'?p.commissionPct:50}">
+          ${!p.isAdminProfile&&profiles.length>1?`<button onclick="deleteProfile(${p.id})" title="Eliminar artista" aria-label="Eliminar artista" style="margin-left:8px;background:transparent;border:none;color:var(--t3);cursor:pointer;padding:4px 6px;border-radius:4px;flex:none">${iconTrash({size:16})}</button>`:''}
+        </div>`).join('')}
+      <div class="set-section-s" style="margin-top:4px">Los planes limitan cuántos perfiles caben en tu cuenta (Independiente: 1 · Estudio: 3 · Estudio Pro: sin límite). Eliminar un artista borra también sus citas, clientes, gastos y documentos.</div>
+      <div class="fg" style="margin-top:16px"><label class="fl">Comisión de pasarela (Stripe) % — ajuste del estudio</label><input class="fi" type="number" min="0" max="100" step="0.1" id="stripe-fee-pct" value="${parseFloat(lsGet('tos_stripe_fee_pct'))||1.5}"></div>
+      <button class="bprim" style="width:auto;padding:9px 20px;margin-top:4px" onclick="saveArtistCommissions()">${t('saveChanges')}</button>
+    </div>
+    <div class="set-section">
+      <div class="set-section-t">Acceso independiente</div>
+      <div class="set-section-s">Invita a un tatuador por email para que entre con su propio usuario y contraseña, sin pasar por el PIN dentro de tu cuenta.</div>
+      <div style="display:flex;gap:8px;margin-bottom:4px">
+        <input class="fi" type="email" id="invite-artist-email" placeholder="email@delartista.com" style="flex:1" onkeydown="if(event.key==='Enter')inviteArtist()">
+        <button class="bprim" style="flex:none;padding:9px 18px" onclick="inviteArtist()">Invitar</button>
+      </div>
+      <div class="login-error" id="invite-artist-err" style="display:none;margin-top:8px"></div>
+      <div id="invited-artists-list" style="margin-top:12px"></div>
+    </div>`;
+  loadInvitedArtists();
+}
+
+function loadInvitedArtists() {
+  var el = document.getElementById('invited-artists-list');
+  if (!el || !_authToken) return;
+  el.innerHTML = '<div style="font-size:11px;color:var(--t3)">Cargando…</div>';
+  fetch(API_BASE+'/api/studio/artists', { headers: { 'Authorization': 'Bearer '+_authToken } })
+    .then(function(r){ return r.json(); })
+    .then(function(list){
+      el = document.getElementById('invited-artists-list');
+      if (!el || !Array.isArray(list)) return;
+      if (!list.length) { el.innerHTML = '<div style="font-size:11px;color:var(--t3)">Todavía no has invitado a ningún artista.</div>'; return; }
+      var labels = { active: ['Activo','var(--gr)','var(--grd)'], pending: ['Pendiente','var(--am)','var(--amd)'], expired: ['Caducada','var(--ro)','var(--rod)'] };
+      el.innerHTML = list.map(function(a){
+        var st = labels[a.status] || labels.pending;
+        return `<div class="set-row">
+          <div class="set-row-l">
+            <div class="set-row-t">${esc(a.name)}</div>
+            <div class="set-row-s">${esc(a.email)}</div>
+          </div>
+          <span style="font-size:10px;font-weight:700;color:${st[1]};background:${st[2]};padding:3px 9px;border-radius:10px;flex:none;margin-right:8px">${st[0]}</span>
+          ${a.status!=='active' ? `<button onclick="resendArtistInvite(${a.profileId})" style="background:var(--elevated);border:1px solid var(--bd3);border-radius:8px;padding:6px 10px;color:var(--t1);font-size:10px;cursor:pointer;flex:none;margin-right:6px">Reenviar</button>` : ''}
+          <button onclick="revokeArtistAccess(${a.profileId},${JSON.stringify(a.name)})" style="background:transparent;border:none;color:var(--ro);cursor:pointer;font-size:10px;flex:none">Quitar acceso</button>
+        </div>`;
+      }).join('');
+    }).catch(function(){ var e2 = document.getElementById('invited-artists-list'); if (e2) e2.innerHTML = '<div style="font-size:11px;color:var(--t3)">No se pudo cargar (servidor no disponible).</div>'; });
+}
+
+function inviteArtist() {
+  var inp = document.getElementById('invite-artist-email');
+  var errEl = document.getElementById('invite-artist-err');
+  var email = (inp.value||'').trim().toLowerCase();
+  errEl.style.display='none';
+  if (!email) return;
+  fetch(API_BASE+'/api/studio/invite-artist', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken}, body: JSON.stringify({email:email}) })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.error) { errEl.textContent = d.error; errEl.style.display='block'; return; }
+      inp.value = '';
+      showToast('Invitación enviada a ' + email);
+      loadInvitedArtists();
+    }).catch(function(){ errEl.textContent = 'Error de conexión'; errEl.style.display='block'; });
+}
+
+function resendArtistInvite(profileId) {
+  fetch(API_BASE+'/api/studio/artist/'+profileId+'/resend-invite', { method:'POST', headers:{'Authorization':'Bearer '+_authToken} })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.error) { showToast('Error: '+d.error); return; }
+      showToast('Invitación reenviada');
+      loadInvitedArtists();
+    }).catch(function(){ showToast('Error de conexión'); });
+}
+
+function revokeArtistAccess(profileId, name) {
+  if (!confirm('¿Quitar el acceso independiente de ' + name + '? Su perfil, citas y datos históricos se conservan; solo deja de poder loguearse por su cuenta.')) return;
+  fetch(API_BASE+'/api/studio/artist/'+profileId+'/access', { method:'DELETE', headers:{'Authorization':'Bearer '+_authToken} })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.error) { showToast('Error: '+d.error); return; }
+      showToast('Acceso independiente revocado');
+      loadInvitedArtists();
+    }).catch(function(){ showToast('Error de conexión'); });
+}
+
 function saveArtistCommissions(){
   profiles.forEach(function(p){
     const el=document.getElementById('artist-comm-'+p.id);
@@ -6761,6 +6924,69 @@ function loginSuccess(user) {
     fetch(API_BASE+'/api/profile/sync', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},
       body: JSON.stringify({ email: user.email, name: user.name }) }).catch(function(){});
   }
+}
+
+// Login independiente de un artista invitado (Fase 2 - ver loginAsInvitedArtist/accept-invite
+// en el backend): a diferencia de loginSuccess(), no hay selector de perfiles que cargar desde
+// localStorage (este dispositivo puede no haber visto nunca esta cuenta) - se siembra un perfil
+// mínimo con el id que ya vino en la respuesta del login y se hidrata con sus datos reales vía
+// /api/profile/:id/data (misma función que usa el PIN de siempre, refreshProfileFromServer).
+// Se salta todo lo que es solo del dueño: pantalla de plan, tour de bienvenida, sync del perfil
+// completo, animación de estudio (sin studioLat/studioLon en el perfil, no aplica igualmente).
+function loginSuccessAsArtist(user, profileId) {
+  currentUser = user;
+  _artistLocked = true;
+  document.body.classList.add('artist-locked');
+
+  profiles = [{
+    id: profileId, name: user.name, role: 'Artista', color: 'v', isAdminProfile: false,
+    appts: [], clients: [], expenses: [], projects: [], consents: [], docFiles: [],
+    waMessages: {}, waSettings: null, activityLog: []
+  }];
+  activeProfileId = profileId;
+  reseedIdCounters();
+  refreshProfileData();
+
+  var ls = document.getElementById('login-screen');
+  if (ls) { ls.style.display = 'none'; ls.classList.add('hidden'); }
+
+  var errs = [];
+  function safe(name, fn) { try { fn(); } catch(e3) { errs.push(name + ': ' + (e3.message || '')); } }
+  safe('miniCal',  function() { buildMiniCal(); });
+  safe('calView',  function() { buildCalView(); });
+  safe('rp',       function() { buildRP(); });
+  safe('topbar',   function() { updateTopbar(); });
+  safe('userArea', function() { renderUserArea(); });
+  safe('lang',     function() { applyLang(); });
+  safe('mobile',   function() {
+    var appEl = document.getElementById('app');
+    if (appEl) { appEl.style.display = 'flex'; appEl.style.visibility = 'visible'; }
+    if (window.innerWidth <= 640) {
+      updateMobileTopbar('cal');
+      var calBar = document.getElementById('mobile-cal-bar'); if (calBar) calBar.style.display = 'flex';
+      var bn = document.getElementById('bottom-nav'); if (bn) bn.style.display = 'block';
+      var mt = document.getElementById('mobile-topbar'); if (mt) mt.style.display = 'flex';
+      var tb = document.querySelector('.topbar'); if (tb) tb.style.display = 'none';
+    }
+  });
+  safe('navIndicator', function() { positionNavIndicator(true); });
+
+  if (errs.length) {
+    var dbg = document.createElement('div');
+    dbg.style.cssText = 'position:fixed;bottom:80px;left:8px;right:8px;background:#7c5cfc;color:#fff;padding:10px;border-radius:10px;font-size:10px;z-index:9999;font-family:monospace;white-space:pre-wrap;word-break:break-all';
+    dbg.textContent = 'Errors:\n' + errs.join('\n');
+    document.body.appendChild(dbg);
+    setTimeout(function() { if (dbg.parentNode) dbg.parentNode.removeChild(dbg); }, 12000);
+  }
+
+  showToast('Bienvenido, ' + user.name);
+  loadUserPlan();
+  if (window._initRemoteView) window._initRemoteView(user.id);
+  refreshTeamChatBadge();
+  // Perfil "desbloqueado" para esta sesión sin pasar por el PIN - el token de login ya nació
+  // con profileId/accessRole puestos (ver fix en /api/profile/:id/data), así que esta llamada
+  // no necesita el paso previo de /api/profile/:id/auth que sí hace falta en el flujo de PIN.
+  refreshProfileFromServer(profileId);
 }
 
 // ==========================================
@@ -6984,6 +7210,8 @@ function doLogout() {
   _authToken = null;
   clearSession();
   currentUser = null;
+  _artistLocked = false;
+  document.body.classList.remove('artist-locked');
   closeProfilePicker();
   var ls = document.getElementById('login-screen');
   if (ls) { ls.style.display = 'flex'; ls.classList.remove('hidden'); }
@@ -8685,6 +8913,8 @@ function initMobile() {
 
     _step = 'checkResetTokenFromUrl';
     try { checkResetTokenFromUrl(); } catch(eResetQ) {}
+    _step = 'checkAcceptInviteTokenFromUrl';
+    try { checkAcceptInviteTokenFromUrl(); } catch(eInviteQ) {}
 
   } catch(e) {
     console.error('Tattoo OS init error at step [' + _step + ']:', e);
