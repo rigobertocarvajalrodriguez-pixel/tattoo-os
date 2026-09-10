@@ -4319,7 +4319,10 @@ function setSettingsPanel(panel,el){
 }
 // Un artista (no Administrador) solo debe ver Apariencia, Idioma y Notificaciones -
 // el resto son ajustes del estudio completo, no de su propio perfil.
-var SETTINGS_ADMIN_ONLY=['studio','artists','email-notify','account','ia','plan'];
+// 'account' se quita de esta lista a propósito: la pestaña Cuenta la ve todo el mundo (dueño y
+// artistas), porque es donde vive "Eliminar cuenta" - cada usuario necesita poder verla, no solo
+// el dueño. renderAccountSettings() reduce su contenido según el rol dentro de la propia pestaña.
+var SETTINGS_ADMIN_ONLY=['studio','artists','email-notify','ia','plan'];
 function applySettingsNavAccess(){
   var admin=activeIsAdmin();
   SETTINGS_ADMIN_ONLY.forEach(function(sp){
@@ -8336,6 +8339,7 @@ async function submitSupportTicket() {
 
 function renderAccountSettings(container) {
   const user = currentUser || { name: 'Sin sesión', email: ' - ' };
+  const isOwner = activeIsAdmin();
   container.innerHTML = `
     <div class="set-section">
       <div class="set-section-t">Foto de perfil</div>
@@ -8379,6 +8383,13 @@ function renderAccountSettings(container) {
           <div style="font-size:11px;color:var(--t3)">Borra citas, clientes, gastos, proyectos y documentos</div>
         </div>
         <button class="bsec" style="color:var(--ro);border-color:rgba(244,63,94,.35);white-space:nowrap;flex-shrink:0" onclick="confirmDeleteProfileData()">Eliminar datos</button>
+      </div>
+      <div class="danger-box" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--t1);margin-bottom:2px">${isOwner ? 'Eliminar cuenta del estudio' : 'Eliminar mi cuenta'}</div>
+          <div style="font-size:11px;color:var(--t3)">${isOwner ? 'Borra tu cuenta, todos los perfiles de artistas y todos los datos del estudio, de inmediato' : 'Borra tu perfil y todo tu historial (citas, clientes, comisiones). Dejas de poder entrar'}</div>
+        </div>
+        <button class="bsec" style="color:var(--ro);border-color:rgba(244,63,94,.35);white-space:nowrap;flex-shrink:0" onclick="confirmDeleteAccount()">Eliminar cuenta</button>
       </div>
     </div>
     <div class="set-section">
@@ -8442,6 +8453,49 @@ function executeDeleteProfileData(){
   buildCalView();buildMiniCal();renderClients();renderFinance();renderExpenses();renderProjects();buildRP();
   closeModal();
   showToast('Datos del perfil eliminados');
+}
+
+// Autoeliminación de cuenta (distinto de "Eliminar datos del perfil" de arriba, que solo vacía
+// citas/clientes/gastos pero conserva el login): esto borra la cuenta/perfil de verdad, ver
+// DELETE /api/account en el backend. Dueño y artista ven el mismo botón, con texto y llamada
+// distintos según isOwner - un artista solo puede borrar su propio perfil, nunca la cuenta
+// entera del estudio (eso lo exige también el servidor, no solo esta pantalla).
+function confirmDeleteAccount(){
+  const isOwner = activeIsAdmin();
+  document.getElementById('mcontent').innerHTML = `
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="width:56px;height:56px;border-radius:50%;background:rgba(244,63,94,.12);border:2px solid rgba(244,63,94,.3);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:26px">⚠️</div>
+      <div class="mt" style="color:var(--ro)">${isOwner ? 'Eliminar la cuenta del estudio' : 'Eliminar tu cuenta'}</div>
+      <div class="ms">${isOwner
+        ? 'Se borra todo de inmediato: tu cuenta, todos los perfiles de artistas, citas, clientes, gastos, comisiones y chat de equipo. No hay vuelta atrás.'
+        : 'Se borra tu perfil y todo tu historial (citas, clientes, gastos, proyectos, comisiones). El dueño del estudio no podrá recuperarlo. No hay vuelta atrás.'}</div>
+    </div>
+    <div class="fg"><label class="fl">Confirma tu contraseña</label><input class="fi" type="password" id="del-acc-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')executeDeleteAccount()"></div>
+    <div class="login-error" id="del-acc-err" style="display:none;margin-top:4px"></div>
+    <div class="mac">
+      <button class="bsec" onclick="closeModal()">Cancelar</button>
+      <button style="flex:1;background:var(--ro);border:none;border-radius:var(--r2);padding:9px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font-body)" onclick="executeDeleteAccount()">Sí, eliminar ${isOwner ? 'la cuenta' : 'mi cuenta'} definitivamente</button>
+    </div>`;
+  openOverlay();
+}
+
+function executeDeleteAccount(){
+  const pass = document.getElementById('del-acc-pass').value || '';
+  const errEl = document.getElementById('del-acc-err');
+  errEl.style.display = 'none';
+  if (!pass) { errEl.textContent = 'Introduce tu contraseña'; errEl.style.display = 'block'; return; }
+  fetch(API_BASE+'/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken }, body: JSON.stringify({ password: pass }) })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.error) { errEl.textContent = d.error; errEl.style.display = 'block'; return; }
+      closeModal();
+      localStorage.removeItem('tos_local_token');
+      showToast('Cuenta eliminada');
+      // location.reload() en vez de intentar limpiar a mano currentUser/profiles/_authToken/
+      // teamMessages/etc uno por uno - la cuenta ya no existe en el servidor, lo más seguro es
+      // arrancar de cero como si nunca hubiera habido sesión.
+      setTimeout(function(){ location.reload(); }, 900);
+    }).catch(function(){ errEl.textContent = 'Error de conexión'; errEl.style.display = 'block'; });
 }
 
 // -- BULK WA MODAL --

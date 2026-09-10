@@ -2249,6 +2249,67 @@ app.post('/api/my-profiles/:id/reset-password', authMiddleware, function(req, re
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
+// Autoeliminación de cuenta - un usuario (dueño de estudio o tatuador con login propio) borra
+// su cuenta él mismo, sin que un dueño/admin tenga que hacerlo por él. Pide la contraseña de
+// nuevo como confirmación (mismo PIN/contraseña que usa para entrar). Comportamiento distinto
+// según quién la llama:
+app.delete('/api/account', authMiddleware, function(req, res) {
+  var password = req.body.password || '';
+  if (!password) return res.status(400).json({ error: 'Introduce tu contraseña para confirmar' });
+
+  if (req.user.accessRole === 'artist') {
+    // Tatuador: borra su perfil y TODO su historial propio (citas, clientes, gastos,
+    // proyectos, consentimientos, documentos - todo cuelga de su profile_id vía CASCADE).
+    // Verificado con datos reales: appointments.artist_id y commission_settlements.artist_id
+    // no cascadan solos (NO ACTION) - una cita en el libro de OTRO perfil pero asignada a este
+    // artista para comisión no es suya y no se borra, solo se desvincula (artist_id=NULL); sus
+    // propias liquidaciones de comisión sí se borran, tal como se pidió ("todo su historial").
+    var profileId = req.user.profileId;
+    if (profileId == null) return res.status(400).json({ error: 'No se pudo identificar tu perfil' });
+    db.query('SELECT password_hash FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId]).then(function(r) {
+      if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
+      var hash = r.rows[0].password_hash;
+      var check = hash ? bcrypt.compare(password, hash) : Promise.resolve(false);
+      return check.then(function(match) {
+        if (!match) return res.status(401).json({ error: 'Contraseña incorrecta' });
+        return db.query('UPDATE appointments SET artist_id=NULL WHERE artist_id=$1 AND user_id=$2', [profileId, req.userId])
+          .then(function() { return db.query('DELETE FROM commission_settlements WHERE artist_id=$1 AND user_id=$2', [profileId, req.userId]); })
+          .then(function() { return db.query('DELETE FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId]); })
+          .then(function() {
+            Object.keys(authSessions).forEach(function(t) {
+              var s = authSessions[t];
+              if (s.userId === req.userId && s.profileId === profileId) delete authSessions[t];
+            });
+            res.json({ ok: true });
+          });
+      });
+    }).catch(function(e) { res.status(500).json({ error: e.message }); });
+    return;
+  }
+
+  // Dueño del estudio: borra la cuenta entera de inmediato y sin vuelta atrás (todos los
+  // perfiles/artistas, citas, clientes, gastos, comisiones, chat de equipo...). Todo cuelga de
+  // users.id vía ON DELETE CASCADE - comprobado con datos reales que una sola sentencia DELETE
+  // FROM users cascada limpio sin chocar con la FK NO ACTION de artist_id (se borra en la misma
+  // operación, no queda ninguna fila huérfana que la viole).
+  db.query('SELECT password, is_admin FROM users WHERE id=$1', [req.userId]).then(function(r) {
+    if (!r.rows.length) return res.status(404).json({ error: 'Cuenta no encontrada' });
+    var user = r.rows[0];
+    if (user.is_admin) return res.status(400).json({ error: 'No puedes eliminar la cuenta de administrador' });
+    var stored = user.password || '';
+    var check = BCRYPT_RE.test(stored) ? bcrypt.compare(password, stored) : Promise.resolve(password === stored);
+    return check.then(function(match) {
+      if (!match) return res.status(401).json({ error: 'Contraseña incorrecta' });
+      return db.query('DELETE FROM users WHERE id=$1', [req.userId]).then(function() {
+        Object.keys(authSessions).forEach(function(t) {
+          if (authSessions[t].userId === req.userId) delete authSessions[t];
+        });
+        res.json({ ok: true });
+      });
+    });
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
 // ══════════════════════════════════════════
 // FINANZAS: reportes y liquidaciones por artista
 // ══════════════════════════════════════════
