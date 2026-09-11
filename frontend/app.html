@@ -1024,6 +1024,11 @@ body.artist-locked .ua svg{display:none}
 .login-success.show{display:block}
 .login-footer{text-align:center;font-size:10px;color:var(--t3);margin-top:16px}
 .login-footer a{color:var(--vl);cursor:pointer}
+/* Spinner de la pantalla post-registro (ver lf-post-register) - no había ningún indicador de
+   carga reutilizable en la app, este es nuevo pero solo usa tokens ya existentes (--v/--bd3). */
+.pr-spinner{width:38px;height:38px;margin:0 auto;border-radius:50%;border:3px solid var(--bd3);border-top-color:var(--v);animation:pr-spin .8s linear infinite}
+@keyframes pr-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.pr-spinner{animation-duration:2.4s}}
 .user-badge{display:inline-flex;align-items:center;gap:6px;background:var(--vd);border:1px solid rgba(var(--v-rgb),.2);border-radius:20px;padding:3px 10px 3px 3px;font-size:11px;color:var(--vl)}
 .user-badge-av{width:18px;height:18px;border-radius:50%;background:var(--v);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:var(--v-fg)}
 
@@ -2296,6 +2301,22 @@ body:not(.concrete) #aiw-send:active{box-shadow:var(--sh-in)}
         <div class="fg"><label class="fl">Nueva contraseña</label><input class="fi" id="ai-pass1" type="password" placeholder="Mínimo 8 caracteres" onkeydown="if(event.key==='Enter')doAcceptInvite()"></div>
         <div class="fg"><label class="fl">Confirmar contraseña</label><input class="fi" id="ai-pass2" type="password" placeholder="Repite la contraseña" onkeydown="if(event.key==='Enter')doAcceptInvite()"></div>
         <button class="bprim" style="width:100%;margin-top:4px" id="invite-accept-btn" onclick="doAcceptInvite()">Crear mi cuenta →</button>
+      </div>
+    </div>
+    <!-- POST-REGISTRO: pantalla de carga + recordatorio de email, entre "Crear cuenta" y volver
+         al login (ya no hay auto-login tras registrarse) -->
+    <div id="lf-post-register" style="display:none">
+      <div id="pr-loading" style="text-align:center;padding:30px 0 10px">
+        <div class="pr-spinner" aria-hidden="true"></div>
+        <div class="login-form-title" style="text-align:center;margin-top:22px">Estamos montando tu cuenta de estudio</div>
+        <div style="font-size:12px;color:var(--t3);margin-top:8px">Enseguida te llevaremos a la página de acceso.</div>
+      </div>
+      <div id="pr-email-reminder" style="display:none;text-align:center;padding:10px 0">
+        <svg width="34" height="34" fill="none" viewBox="0 0 24 24" stroke="var(--vl)" stroke-width="1.5" style="margin-bottom:12px"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg>
+        <div class="login-form-title" style="text-align:center">Recuerda que para entrar debes usar:</div>
+        <div style="font-size:15px;font-weight:700;color:var(--t1);margin-top:8px" id="pr-email-shown"></div>
+        <div style="font-size:12px;color:var(--t3);margin-top:8px">Y la contraseña que acabas de establecer.</div>
+        <button class="bprim" style="width:100%;margin-top:20px" onclick="goToLoginFromPostRegister()">Ir a iniciar sesión →</button>
       </div>
     </div>
   </div>
@@ -6489,6 +6510,7 @@ function setLoginTab(tab) {
   document.getElementById('lf-forgot').style.display = tab === 'forgot' ? '' : 'none';
   document.getElementById('lf-reset').style.display = tab === 'reset' ? '' : 'none';
   document.getElementById('lf-accept-invite').style.display = tab === 'accept-invite' ? '' : 'none';
+  document.getElementById('lf-post-register').style.display = tab === 'post-register' ? '' : 'none';
   clearLoginErrors();
 }
 
@@ -6532,37 +6554,72 @@ function doLogin() {
     });
 }
 
+// Tras crear la cuenta ya NO se hace auto-login (antes sí) - se muestra una pantalla de carga
+// seguida de un recordatorio del email con el que hay que entrar, y luego vuelve al login con
+// ese email ya rellenado. El token que devuelve /api/auth/register no se usa para nada aquí a
+// propósito (se descarta) - la primera entrada real pasa por /api/auth/login, como cualquier
+// otra vez después. Ver goToLoginFromPostRegister()/showPostRegisterEmailReminder() más abajo.
 function doRegister() {
   var name = (document.getElementById('r-name').value || '').trim();
   var email = (document.getElementById('r-email').value || '').trim().toLowerCase();
   var pass = document.getElementById('r-pass').value || '';
   var pass2 = document.getElementById('r-pass2').value || '';
   var errEl = document.getElementById('reg-err');
-  var okEl = document.getElementById('reg-ok');
   clearLoginErrors();
   if (!name || !email || !pass) { errEl.textContent = 'Rellena todos los campos'; errEl.classList.add('show'); return; }
   if (pass.length < 8) { errEl.textContent = 'Contrasena minimo 8 caracteres'; errEl.classList.add('show'); return; }
   if (pass !== pass2) { errEl.textContent = 'Las contrasenas no coinciden'; errEl.classList.add('show'); return; }
-  okEl.textContent = 'Creando cuenta...'; okEl.classList.add('show');
-  fetch(API_BASE+'/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email, password: pass, name: name }) })
-    .then(function(r) { return r.json(); })
-    .then(function(result) {
-      if (result.error) {
-        errEl.textContent = 'Error: ' + result.error;
-        errEl.classList.add('show');
-        okEl.classList.remove('show');
-        return;
-      }
-      _authToken = result.token;
-      localStorage.setItem('tos_local_token', result.token);
-      var user = result.user;
-      okEl.textContent = 'Cuenta creada! Entrando...';
-      setTimeout(function() { loginSuccess(user); }, 800);
-    })
-    .catch(function(err) {
-      errEl.textContent = 'Error: ' + err.message;
+
+  setLoginTab('post-register');
+  showPostRegisterLoading();
+  // Mínimo ~1.8s visible aunque el servidor responda al instante (para que no parpadee), pero
+  // sin mentir si tarda más - Promise.all espera al que tarde más de los dos, nunca menos.
+  var minDelay = new Promise(function(res) { setTimeout(res, 1800); });
+  var registerReq = fetch(API_BASE + '/api/auth/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email, password: pass, name: name })
+  }).then(function(r) { return r.json(); });
+
+  Promise.all([registerReq, minDelay]).then(function(results) {
+    var result = results[0];
+    if (result.error) {
+      setLoginTab('register');
+      errEl.textContent = 'Error: ' + result.error;
       errEl.classList.add('show');
-    });
+      return;
+    }
+    showPostRegisterEmailReminder(email);
+  }).catch(function(err) {
+    setLoginTab('register');
+    errEl.textContent = 'Error: ' + err.message;
+    errEl.classList.add('show');
+  });
+}
+
+function showPostRegisterLoading() {
+  document.getElementById('pr-loading').style.display = '';
+  document.getElementById('pr-email-reminder').style.display = 'none';
+}
+
+var _postRegisterEmail = null;
+function showPostRegisterEmailReminder(email) {
+  _postRegisterEmail = email;
+  document.getElementById('pr-loading').style.display = 'none';
+  document.getElementById('pr-email-reminder').style.display = '';
+  document.getElementById('pr-email-shown').textContent = email;
+  // Avance automático a los 5s, o antes si pulsa el botón - lo que llegue primero. El chequeo
+  // de display evita disparar el redirect dos veces si ya se fue por el botón.
+  setTimeout(function() {
+    if (document.getElementById('lf-post-register').style.display !== 'none') goToLoginFromPostRegister();
+  }, 5000);
+}
+
+function goToLoginFromPostRegister() {
+  setLoginTab('login');
+  var emailInp = document.getElementById('l-email');
+  if (emailInp && _postRegisterEmail) emailInp.value = _postRegisterEmail;
+  var passInp = document.getElementById('l-pass');
+  if (passInp) passInp.focus();
 }
 
 function doMagicLink() {
