@@ -278,7 +278,16 @@ body.concrete{
    finanzas...) — mismo problema: fondo sólido propio que tapa la foto por completo. */
 .concrete .main{background:rgba(0,0,0,.15)}
 html,body{height:100%;height:calc(var(--vh,1dvh)*100);overflow:hidden;background:var(--base);color:var(--t1);font-family:var(--font-body);font-size:13px;line-height:1.5;transition:background .3s var(--ease-out),color .3s var(--ease-out)}
-.app{display:flex;height:100%;height:calc(var(--vh,1dvh)*100);overflow:hidden;background:var(--base)}
+/* visibility:hidden (no display:none) a propósito: #app se sigue maquetando/midiendo con
+   normalidad durante el arranque (buildMiniCal/buildCalView/buildRP corren antes de que haya
+   login), solo no se pinta - si fuera display:none esas medidas devolverían 0 y podría romper
+   el primer render real tras loguearse. loginSuccess()/loginSuccessAsArtist() ya ponían
+   visibility:visible de forma defensiva (por si acaso) sin que hubiera un :hidden inicial que
+   revertir - con esto empieza a hacer algo real: evita que el dashboard con datos cacheados de
+   una sesión anterior se vea "por detrás" de la pantalla de login (bug reportado por el
+   usuario - especialmente visible en el tema Hormigón, cuyo login-screen es translúcido a
+   propósito para dejar ver la foto de fondo, no el dashboard).  */
+.app{display:flex;height:100%;height:calc(var(--vh,1dvh)*100);overflow:hidden;background:var(--base);visibility:hidden}
 /* En navegadores que soportan dvh nativo (iOS Safari 15.4+, Chrome Android 108+ — la
    inmensa mayoría hoy) se usa eso directamente en vez de depender del --vh calculado por
    JS: el propio navegador ajusta 100dvh en tiempo real según la barra de direcciones se
@@ -1002,7 +1011,10 @@ body.artist-locked .ua svg{display:none}
 }
 
 /* ── LOGIN SCREEN ── */
-.login-screen{position:fixed;inset:0;background:var(--void);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:var(--safe-top,12px) 12px 0px}
+/* visibility:visible explícito a propósito: #login-screen vive DENTRO del HTML de #app (no al
+   lado), así que hereda el visibility:hidden por defecto de .app (ver esa regla) si no se
+   corta aquí - sin esto, ocultar el dashboard antes de loguearse también ocultaría el login. */
+.login-screen{position:fixed;inset:0;background:var(--void);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:var(--safe-top,12px) 12px 0px;visibility:visible}
 .login-screen.hidden{display:none!important;pointer-events:none!important}
 .login-card{background:var(--elevated);border:1px solid var(--bd3);border-radius:var(--r4);padding:36px 32px;width:min(380px,calc(100vw - 24px));box-shadow:0 40px 100px rgba(0,0,0,.6),0 0 80px rgba(var(--v-rgb),.08);animation:mopen .3s cubic-bezier(.34,1.2,.64,1)}
 .login-logo{display:flex;align-items:center;gap:12px;margin-bottom:28px;justify-content:center}
@@ -7619,6 +7631,10 @@ function doLogout() {
   closeProfilePicker();
   var ls = document.getElementById('login-screen');
   if (ls) { ls.style.display = 'flex'; ls.classList.remove('hidden'); }
+  // Vuelve a ocultar el dashboard (ver visibility:hidden por defecto en .app) - si no, tras
+  // cerrar sesión se vería el dashboard de la cuenta anterior detrás del login otra vez.
+  var appEl = document.getElementById('app');
+  if (appEl) appEl.style.visibility = 'hidden';
   showToast('Sesion cerrada');
 }
 
