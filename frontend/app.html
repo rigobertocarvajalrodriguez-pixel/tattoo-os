@@ -4138,174 +4138,169 @@ function fitText(ctx, text, x, y, maxW, align) {
   ctx.fillText(s, x, y);
 }
 
+// Documento formal tipo hoja de cálculo impresa: fondo blanco, texto negro/gris, sin colores
+// llamativos ni branding visual de la app (ver corrección de diseño del usuario) - solo líneas
+// finas de cuadrícula tipo Excel. Fuente de sistema (Arial) en vez de Manrope/Plus Jakarta Sans
+// a propósito, para que no quede ningún rasgo tipográfico de marca en el documento.
 function renderFinanceReportPNG(opts) {
-  return document.fonts.ready.then(function() {
-    const data = opts.data, label = opts.label, studioName = opts.studioName;
-    const DPR = Math.max(1, window.devicePixelRatio || 1);
-    const W = 1200, M = 56, CW = W - M * 2;
-    const COL = {
-      bg: '#13161b', card: '#1c2028', card2: '#1a1e25', border: 'rgba(255,255,255,.09)',
-      text1: '#eef0f3', text2: '#9aa3ad', text3: '#6c7580',
-      accent: '#8B6FF5', green: '#10b981', red: '#f43f5e', amber: '#f59e0b'
-    };
-    const FHEAD = "'Manrope',system-ui,sans-serif", FBODY = "'Plus Jakarta Sans',system-ui,sans-serif";
+  const data = opts.data, label = opts.label, studioName = opts.studioName;
+  const DPR = Math.max(1, window.devicePixelRatio || 1);
+  const W = 1200, M = 56, CW = W - M * 2;
+  const COL = {
+    bg: '#ffffff', line: '#666666', lineLight: '#bbbbbb',
+    headFill: '#f0f0f0', totalFill: '#e9e9e9',
+    text1: '#1a1a1a', text2: '#4d4d4d', text3: '#777777'
+  };
+  const F = "Arial,Helvetica,sans-serif";
 
-    // Bloques de altura - se usan las MISMAS constantes para calcular H total y para avanzar
-    // "y" al dibujar, así nunca se desincronizan (canvas cortado o con hueco de sobra al final).
-    const padTop = 44, wordmarkH = 40, titleH = 30, periodH = 24, dividerGap = 36, sectionLabelH = 20;
-    const cardGap = 14, cardCols = 3, cardRows = 2, cardH = 92;
-    const cardW = (CW - cardGap * (cardCols - 1)) / cardCols;
-    const cardsH = cardRows * cardH + (cardRows - 1) * cardGap;
-    const afterCardsGap = 40, tableLabelH = 22, tableHeadH = 40, rowH = 42;
-    const tableBoxH = tableHeadH + Math.max(data.rows.length, 1) * rowH;
-    const afterTableGap = 18, totalRowH = 56, afterTotalGap = 30, footerLineH = 20, bottomPad = 30;
+  // Bloques de altura - se usan las MISMAS constantes para calcular H total y para avanzar "y"
+  // al dibujar, así nunca se desincronizan (canvas cortado o con hueco de sobra al final).
+  const padTop = 50, titleH = 28, periodH = 22, dividerGap = 24;
+  const summaryLabelH = 20, summaryRowH = 30, summaryRows = 6;
+  const summaryH = summaryRows * summaryRowH;
+  const afterSummaryGap = 36, tableLabelH = 20, tableHeadH = 32, rowH = 30;
+  const tableDataH = Math.max(data.rows.length, 1) * rowH;
+  const totalRowH = 34, afterTableGap = 30, footerLineH = 16, bottomPad = 30;
 
-    const H = Math.round(padTop + wordmarkH + titleH + periodH + dividerGap + sectionLabelH + cardsH +
-      afterCardsGap + tableLabelH + tableBoxH + afterTableGap + totalRowH + afterTotalGap + footerLineH + bottomPad);
+  const H = Math.round(padTop + titleH + periodH + dividerGap + summaryLabelH + summaryH +
+    afterSummaryGap + tableLabelH + tableHeadH + tableDataH + totalRowH + afterTableGap + footerLineH + bottomPad);
 
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
-    const ctx = canvas.getContext('2d');
-    ctx.scale(DPR, DPR);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(DPR, DPR);
 
-    ctx.fillStyle = COL.bg; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = COL.bg; ctx.fillRect(0, 0, W, H);
 
-    let y = padTop;
+  // Dibuja una rejilla tipo Excel: rectángulo exterior + líneas horizontales en cada límite de
+  // fila + líneas verticales en cada límite de columna, todo con el mismo trazo fino.
+  function drawGrid(top, colWidths, rowHeights) {
+    const totalW = colWidths.reduce(function(s, w) { return s + w; }, 0);
+    const totalH = rowHeights.reduce(function(s, h) { return s + h; }, 0);
+    ctx.strokeStyle = COL.line; ctx.lineWidth = 1;
+    let ry = top;
+    ctx.beginPath();
+    rowHeights.forEach(function(h) { ctx.moveTo(M, ry); ctx.lineTo(M + totalW, ry); ry += h; });
+    ctx.moveTo(M, ry); ctx.lineTo(M + totalW, ry);
+    let cx = M;
+    colWidths.forEach(function(w) { ctx.moveTo(cx, top); ctx.lineTo(cx, top + totalH); cx += w; });
+    ctx.moveTo(cx, top); ctx.lineTo(cx, top + totalH);
+    ctx.stroke();
+  }
+
+  let y = padTop;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = COL.text1; ctx.font = "bold 22px " + F;
+  fitText(ctx, studioName, M, y, CW, 'left');
+  ctx.textAlign = 'right'; ctx.fillStyle = COL.text3; ctx.font = "11px " + F;
+  ctx.fillText('Generado el ' + new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) +
+    ' a las ' + new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }), W - M, y - 6);
+  ctx.textAlign = 'left';
+
+  y += titleH;
+  ctx.fillStyle = COL.text2; ctx.font = "14px " + F;
+  ctx.fillText(label, M, y);
+
+  y += periodH;
+  ctx.strokeStyle = COL.line; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(M, y); ctx.lineTo(W - M, y); ctx.stroke();
+
+  y += dividerGap;
+  ctx.fillStyle = COL.text3; ctx.font = "bold 11px " + F;
+  ctx.fillText('RESUMEN DEL PERIODO', M, y);
+
+  y += summaryLabelH;
+  const summaryTop = y;
+  const summaryLabelW = 380, summaryValueW = CW - summaryLabelW;
+  drawGrid(summaryTop, [summaryLabelW, summaryValueW], new Array(summaryRows).fill(summaryRowH));
+  const summaryRowsData = [
+    ['Ingresos totales', '€' + data.income.toLocaleString('es-ES')],
+    ['Gastos totales', '€' + data.expTotal.toLocaleString('es-ES')],
+    ['Beneficio neto', '€' + data.profit.toLocaleString('es-ES')],
+    ['Tatuajes completados', String(data.count)],
+    ['Clientes nuevos', String(data.newClientsCount)],
+    ['Artista con más facturación', data.topArtist ? data.topArtist.name + ' · €' + data.topArtist.amount.toLocaleString('es-ES') : '—']
+  ];
+  summaryRowsData.forEach(function(r, i) {
+    const ry = summaryTop + i * summaryRowH;
+    ctx.fillStyle = COL.text2; ctx.font = "12px " + F;
+    fitText(ctx, r[0], M + 12, ry + summaryRowH / 2 + 4, summaryLabelW - 24, 'left');
+    ctx.fillStyle = COL.text1; ctx.font = "bold 12px " + F;
+    fitText(ctx, r[1], M + summaryLabelW + summaryValueW - 12, ry + summaryRowH / 2 + 4, summaryValueW - 24, 'right');
+  });
+
+  y = summaryTop + summaryH + afterSummaryGap;
+  ctx.fillStyle = COL.text3; ctx.font = "bold 11px " + F;
+  ctx.fillText('DETALLE DE TATUAJES COMPLETADOS', M, y);
+
+  y += tableLabelH;
+  const tableTop = y;
+  const cols = [
+    { label: 'Cliente', w: 220, align: 'left' },
+    { label: 'Estilo/Diseño', w: 170, align: 'left' },
+    { label: 'Artista', w: 150, align: 'left' },
+    { label: 'Precio total', w: 110, align: 'right' },
+    { label: '% Comisión', w: 90, align: 'right' },
+    { label: 'Ganancia artista', w: 150, align: 'right' },
+    { label: 'Ganancia estudio', w: 0, align: 'right' }
+  ];
+  cols[cols.length - 1].w = CW - cols.slice(0, -1).reduce(function(s, c) { return s + c.w; }, 0);
+  const colWidths = cols.map(function(c) { return c.w; });
+  const dataRowCount = Math.max(data.rows.length, 1);
+  drawGrid(tableTop, colWidths, [tableHeadH].concat(new Array(dataRowCount).fill(rowH)).concat([totalRowH]));
+
+  // Cabecera con relleno gris claro (como la fila de cabecera de una hoja de cálculo)
+  ctx.fillStyle = COL.headFill; ctx.fillRect(M + 1, tableTop + 1, CW - 2, tableHeadH - 2);
+  let hx = M;
+  ctx.font = "bold 10.5px " + F; ctx.fillStyle = COL.text2;
+  cols.forEach(function(c) {
+    ctx.textAlign = c.align;
+    ctx.fillText(c.label, c.align === 'right' ? hx + c.w - 12 : hx + 12, tableTop + tableHeadH / 2 + 4);
+    hx += c.w;
+  });
+  ctx.textAlign = 'left';
+
+  if (!data.rows.length) {
+    ctx.fillStyle = COL.text3; ctx.font = "13px " + F; ctx.textAlign = 'center';
+    ctx.fillText('Sin tatuajes completados en este periodo.', M + CW / 2, tableTop + tableHeadH + rowH / 2 + 4);
     ctx.textAlign = 'left';
-    ctx.fillStyle = COL.text1; ctx.font = "700 20px " + FHEAD;
-    ctx.fillText('TOS', M, y);
-    ctx.fillStyle = COL.accent; ctx.font = "700 10px " + FBODY;
-    ctx.fillText('TATTOO OS', M + 52, y - 1);
-    ctx.textAlign = 'right'; ctx.fillStyle = COL.text3; ctx.font = "400 12px " + FBODY;
-    ctx.fillText('Generado el ' + new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) +
-      ' a las ' + new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }), W - M, y);
-    ctx.textAlign = 'left';
-
-    y += wordmarkH;
-    ctx.fillStyle = COL.text1; ctx.font = "700 30px " + FHEAD;
-    fitText(ctx, studioName, M, y, CW, 'left');
-
-    y += titleH;
-    ctx.fillStyle = COL.text2; ctx.font = "500 15px " + FBODY;
-    ctx.fillText(label, M, y);
-
-    y += periodH;
-    ctx.strokeStyle = COL.border; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(M, y); ctx.lineTo(W - M, y); ctx.stroke();
-
-    y += dividerGap;
-    ctx.fillStyle = COL.text3; ctx.font = "700 11px " + FBODY;
-    ctx.fillText('RESUMEN DEL PERIODO', M, y);
-
-    y += sectionLabelH;
-    const cardsTop = y;
-    const cards = [
-      { label: 'Ingresos totales', value: '€' + data.income.toLocaleString('es-ES'), color: COL.accent },
-      { label: 'Gastos totales', value: '€' + data.expTotal.toLocaleString('es-ES'), color: COL.red },
-      { label: 'Beneficio neto', value: '€' + data.profit.toLocaleString('es-ES'), color: data.profit >= 0 ? COL.green : COL.red },
-      { label: 'Tatuajes completados', value: String(data.count), color: COL.text1 },
-      { label: 'Clientes nuevos', value: String(data.newClientsCount), color: COL.text1 },
-      { label: 'Artista con más facturación', value: data.topArtist ? data.topArtist.name + ' · €' + data.topArtist.amount.toLocaleString('es-ES') : '—', color: COL.amber, small: true }
-    ];
-    cards.forEach(function(c, i) {
-      const col = i % cardCols, row = Math.floor(i / cardCols);
-      const cx = M + col * (cardW + cardGap), cy = cardsTop + row * (cardH + cardGap);
-      ctx.fillStyle = COL.card; roundRectPath(ctx, cx, cy, cardW, cardH, 12); ctx.fill();
-      ctx.strokeStyle = COL.border; roundRectPath(ctx, cx, cy, cardW, cardH, 12); ctx.stroke();
-      ctx.fillStyle = COL.text3; ctx.font = "600 10.5px " + FBODY;
-      fitText(ctx, c.label.toUpperCase(), cx + 16, cy + 24, cardW - 32, 'left');
-      ctx.fillStyle = c.color; ctx.font = (c.small ? "700 16px " : "700 24px ") + FHEAD;
-      fitText(ctx, c.value, cx + 16, cy + (c.small ? 52 : 56), cardW - 32, 'left');
-    });
-
-    y = cardsTop + cardsH + afterCardsGap;
-    ctx.fillStyle = COL.text3; ctx.font = "700 11px " + FBODY;
-    ctx.fillText('DETALLE DE TATUAJES COMPLETADOS', M, y);
-
-    y += tableLabelH;
-    const tableBoxTop = y;
-    ctx.fillStyle = COL.card2; roundRectPath(ctx, M, tableBoxTop, CW, tableBoxH, 12); ctx.fill();
-    ctx.strokeStyle = COL.border; roundRectPath(ctx, M, tableBoxTop, CW, tableBoxH, 12); ctx.stroke();
-
-    const cols = [
-      { key: 'client', label: 'Cliente', w: 220, align: 'left' },
-      { key: 'style', label: 'Estilo', w: 170, align: 'left' },
-      { key: 'artistName', label: 'Artista', w: 150, align: 'left' },
-      { key: 'price', label: 'Precio', w: 110, align: 'right' },
-      { key: 'pct', label: '% Com.', w: 80, align: 'right' },
-      { key: 'artistCut', label: 'Artista', w: 150, align: 'right' },
-      { key: 'studioCut', label: 'Estudio', w: 0, align: 'right' }
-    ];
-    cols[cols.length - 1].w = CW - cols.slice(0, -1).reduce(function(s, c) { return s + c.w; }, 0);
-
-    let hx = M + 16;
-    ctx.font = "700 10px " + FBODY; ctx.fillStyle = COL.text3;
-    cols.forEach(function(c) {
-      ctx.textAlign = c.align;
-      ctx.fillText(c.label.toUpperCase(), c.align === 'right' ? hx + c.w - 16 : hx, tableBoxTop + 25);
-      hx += c.w;
-    });
-    ctx.textAlign = 'left';
-    ctx.strokeStyle = COL.border;
-    ctx.beginPath(); ctx.moveTo(M, tableBoxTop + tableHeadH); ctx.lineTo(M + CW, tableBoxTop + tableHeadH); ctx.stroke();
-
-    if (!data.rows.length) {
-      ctx.fillStyle = COL.text3; ctx.font = "400 13px " + FBODY; ctx.textAlign = 'center';
-      ctx.fillText('Sin tatuajes completados en este periodo.', M + CW / 2, tableBoxTop + tableHeadH + 26);
-      ctx.textAlign = 'left';
-    } else {
-      data.rows.forEach(function(r, i) {
-        const ry = tableBoxTop + tableHeadH + i * rowH;
-        if (i % 2 === 1) { ctx.fillStyle = 'rgba(255,255,255,.025)'; ctx.fillRect(M, ry, CW, rowH); }
-        const cells = [
-          [r.client, COL.text1], [r.style, COL.text2], [r.artistName, COL.text2],
-          ['€' + r.price.toLocaleString('es-ES'), COL.text1], [r.pct + '%', COL.text2],
-          ['€' + r.artistCut.toFixed(2), COL.green], ['€' + r.studioCut.toFixed(2), COL.accent]
-        ];
-        let rx = M + 16;
-        ctx.font = "500 12.5px " + FBODY;
-        cols.forEach(function(c, ci) {
-          ctx.fillStyle = cells[ci][1];
-          const tx = c.align === 'right' ? rx + c.w - 16 : rx;
-          fitText(ctx, cells[ci][0], tx, ry + rowH / 2 + 4, c.w - 24, c.align);
-          rx += c.w;
-        });
-        if (i < data.rows.length - 1) {
-          ctx.strokeStyle = COL.border;
-          ctx.beginPath(); ctx.moveTo(M, ry + rowH); ctx.lineTo(M + CW, ry + rowH); ctx.stroke();
-        }
+  } else {
+    data.rows.forEach(function(r, i) {
+      const ry = tableTop + tableHeadH + i * rowH;
+      const cells = [r.client, r.style, r.artistName, '€' + r.price.toLocaleString('es-ES'), r.pct + '%',
+        '€' + r.artistCut.toFixed(2), '€' + r.studioCut.toFixed(2)];
+      let rx = M;
+      ctx.font = "12px " + F; ctx.fillStyle = COL.text1;
+      cols.forEach(function(c, ci) {
+        const tx = c.align === 'right' ? rx + c.w - 12 : rx + 12;
+        fitText(ctx, cells[ci], tx, ry + rowH / 2 + 4, c.w - 24, c.align);
+        rx += c.w;
       });
-    }
-
-    y = tableBoxTop + tableBoxH + afterTableGap;
-    const totalTop = y;
-    ctx.fillStyle = COL.card; roundRectPath(ctx, M, totalTop, CW, totalRowH, 12); ctx.fill();
-    ctx.strokeStyle = 'rgba(139,111,245,.35)'; roundRectPath(ctx, M, totalTop, CW, totalRowH, 12); ctx.stroke();
-
-    const totalCells = [
-      ['TOTAL', COL.text1, "700 13px " + FHEAD], ['', COL.text1, "500 12.5px " + FBODY], ['', COL.text1, "500 12.5px " + FBODY],
-      ['€' + data.income.toLocaleString('es-ES'), COL.text1, "700 13px " + FBODY], ['', COL.text1, "500 12.5px " + FBODY],
-      ['€' + data.totalArtistCut.toFixed(2), COL.green, "700 13px " + FBODY],
-      ['€' + data.totalStudioCut.toFixed(2), COL.accent, "700 13px " + FBODY]
-    ];
-    let tx2 = M + 16;
-    cols.forEach(function(c, ci) {
-      ctx.fillStyle = totalCells[ci][1]; ctx.font = totalCells[ci][2]; ctx.textAlign = c.align;
-      ctx.fillText(totalCells[ci][0], c.align === 'right' ? tx2 + c.w - 16 : tx2, totalTop + totalRowH / 2 + 5);
-      tx2 += c.w;
     });
-    ctx.textAlign = 'left';
+  }
 
-    y = totalTop + totalRowH + afterTotalGap;
-    ctx.fillStyle = COL.text3; ctx.font = "400 11px " + FBODY; ctx.textAlign = 'center';
-    ctx.fillText('Generado con Tattoo OS', W / 2, y);
-    ctx.textAlign = 'left';
+  const totalTop = tableTop + tableHeadH + dataRowCount * rowH;
+  ctx.fillStyle = COL.totalFill; ctx.fillRect(M + 1, totalTop + 1, CW - 2, totalRowH - 2);
+  const totalCells = ['TOTAL', '', '', '€' + data.income.toLocaleString('es-ES'), '',
+    '€' + data.totalArtistCut.toFixed(2), '€' + data.totalStudioCut.toFixed(2)];
+  let tx2 = M;
+  ctx.font = "bold 12px " + F; ctx.fillStyle = COL.text1;
+  cols.forEach(function(c, ci) {
+    ctx.textAlign = c.align;
+    ctx.fillText(totalCells[ci], c.align === 'right' ? tx2 + c.w - 12 : tx2 + 12, totalTop + totalRowH / 2 + 4);
+    tx2 += c.w;
+  });
+  ctx.textAlign = 'left';
 
-    return new Promise(function(resolve, reject) {
-      canvas.toBlob(function(blob) {
-        if (blob) resolve(blob); else reject(new Error('No se pudo generar la imagen'));
-      }, 'image/png');
-    });
+  y = totalTop + totalRowH + afterTableGap;
+  ctx.fillStyle = COL.text3; ctx.font = "11px " + F; ctx.textAlign = 'center';
+  ctx.fillText('Generado con Tattoo OS', W / 2, y);
+  ctx.textAlign = 'left';
+
+  return new Promise(function(resolve, reject) {
+    canvas.toBlob(function(blob) {
+      if (blob) resolve(blob); else reject(new Error('No se pudo generar la imagen'));
+    }, 'image/png');
   });
 }
 
