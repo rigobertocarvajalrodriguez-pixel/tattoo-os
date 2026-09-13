@@ -1788,10 +1788,8 @@ body:not(.concrete) #aiw-send:active{box-shadow:var(--sh-in)}
       <span>WhatsApp</span>
       <div class="bnav-badge" id="bnav-wa-badge" style="display:none">0</div>
     </div>
-    <div class="bnav-item" data-bpage="tienda" onclick="bnavTo('tienda',this)" style="flex:0 0 auto">
-      <div class="bnav-circle"><svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg></div>
-      <span>Tienda</span>
-    </div>
+    <!-- Tienda quitada a petición del usuario - ver también el nav lateral, la página
+         page-tienda y las referencias a 'tienda' en planes/navTo, todo comentado igual -->
     <div class="bnav-item" data-bpage="settings" onclick="bnavTo('settings',this)" style="flex:0 0 auto">
       <div class="bnav-circle"><svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
       <span>Ajustes</span>
@@ -1843,10 +1841,6 @@ body:not(.concrete) #aiw-send:active{box-shadow:var(--sh-in)}
     </div>
     <div class="ng">
       <div class="ng-lbl" data-i="navStudio">Studio</div>
-      <div class="ni" tabindex="0" data-page="tienda" onclick="navTo('tienda',this)">
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
-        <span>Tienda</span>
-      </div>
       <div class="ni" tabindex="0" data-page="settings" onclick="navTo('settings',this)">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
         <span data-i="navSettings">Ajustes</span>
@@ -2206,9 +2200,9 @@ body:not(.concrete) #aiw-send:active{box-shadow:var(--sh-in)}
     <div class="pb" id="admin-pb"></div>
   </div>
 
-  <div class="page" id="page-tienda" style="padding:0">
-    <iframe id="tienda-frame" src="" style="width:100%;flex:1;border:none;display:block" allowfullscreen></iframe>
-  </div>
+  <!-- Tienda quitada a petición del usuario (page-tienda + tienda-frame, cargaba tienda.html en
+       un iframe) - el archivo frontend/tienda.html se deja intacto sin enlazar, por si se
+       retoma más adelante. -->
 
 </div><!-- /main -->
 
@@ -2250,6 +2244,10 @@ body:not(.concrete) #aiw-send:active{box-shadow:var(--sh-in)}
       </div>
       <button class="bprim" style="width:100%;margin-top:4px" onclick="doLogin()">Entrar →</button>
       <div class="login-divider"><span>o accede con</span></div>
+      <a class="magic-btn" href="" id="google-login-link" style="text-decoration:none;box-sizing:border-box;margin-bottom:8px">
+        <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.63h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.57-5.17 3.57-8.81z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.95-2.92l-3.88-3c-1.07.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54v-3.1H1.27a12 12 0 0 0 0 10.74z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.27 6.63l4 3.1C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
+        Continuar con Google
+      </a>
       <button class="magic-btn" onclick="doMagicLink()">
         <span>✨</span> Magic Link por email
       </button>
@@ -2262,6 +2260,11 @@ body:not(.concrete) #aiw-send:active{box-shadow:var(--sh-in)}
       <div class="login-form-sub">Empieza a gestionar tu estudio profesional</div>
       <div class="login-error" id="reg-err"></div>
       <div class="login-success" id="reg-ok"></div>
+      <a class="magic-btn" href="" id="google-register-link" style="text-decoration:none;box-sizing:border-box;margin-bottom:14px">
+        <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.63h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.57-5.17 3.57-8.81z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.95-2.92l-3.88-3c-1.07.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54v-3.1H1.27a12 12 0 0 0 0 10.74z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.27 6.63l4 3.1C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
+        Continuar con Google
+      </a>
+      <div class="login-divider"><span>o con tu email</span></div>
       <div class="fg"><label class="fl">Nombre artístico / Estudio</label><input class="fi" id="r-name" type="text" placeholder="Ej: Marco Reyes Tattoo"></div>
       <div class="fg"><label class="fl">Email</label><input class="fi" id="r-email" type="email" placeholder="tu@email.com"></div>
       <div class="fg"><label class="fl">Contraseña</label>
@@ -2554,16 +2557,16 @@ let activeSettingsPanel='appearance';
 const PLANS={
   independiente:{id:'independiente',name:'Independiente',price:'Gratis',period:'',desc:'Para artistas que trabajan solos',color:'#9090a8',
     feats:['Agenda','Clientes','Finanzas','Gastos','Proyectos','Documentos','Emails automáticos'],
-    locked:['Tienda'],
+    locked:[],
     modules:['cal','clients','finance','expenses','projects','docs'],profileLimit:1},
   estudio:{id:'estudio',name:'Estudio',price:'€29',period:'/mes',desc:'Para estudios con varios tatuadores',color:'#7c5cfc',
     feats:['Todo Independiente','Hasta 3 perfiles (dueño + 2 tatuadores)'],
-    locked:['Tienda'],
+    locked:[],
     modules:['cal','clients','finance','expenses','projects','docs'],profileLimit:3},
   estudio_pro:{id:'estudio_pro',name:'Estudio Pro',price:'€59',period:'/mes',desc:'Para estudios profesionales',color:'#f59e0b',
-    feats:['Todo Estudio','Tienda','Perfiles ilimitados'],
+    feats:['Todo Estudio','Perfiles ilimitados'],
     locked:[],
-    modules:['cal','clients','finance','expenses','projects','docs','tienda'],profileLimit:Infinity,badge:'Popular'}
+    modules:['cal','clients','finance','expenses','projects','docs'],profileLimit:Infinity,badge:'Popular'}
 };
 // Valor real se carga desde el backend en loadUserPlan() (login) - este es solo el arranque
 // hasta que llegue la respuesta, nunca la fuente de verdad (antes vivía en localStorage).
@@ -2594,7 +2597,10 @@ async function setPlan(id){
   }catch(e){ showToast('Error de conexión al cambiar de plan'); }
 }
 function updateNavLocks(){
-  ['tienda'].forEach(mod=>{
+  // Tienda era el único módulo gateado por plan aquí; al quitarla no queda ningún nav-item que
+  // bloquear, pero se deja el bucle vacío (en vez de borrar la función) por si vuelve a haber
+  // algo que gatear por plan más adelante.
+  [].forEach(mod=>{
     const ni=document.querySelector('.ni[data-page="'+mod+'"]');
     if(!ni)return;
     let lk=ni.querySelector('.ni-lock');
@@ -2639,7 +2645,6 @@ const PS_PLANS=[
     groups:[{head:{es:'Todo lo de Starter, y además',en:'Everything in Starter, plus'},items:[
       {es:'WhatsApp integrado',en:'WhatsApp integration'},
       {es:'Recordatorios automáticos de citas',en:'Automatic appointment reminders'},
-      {es:'Tienda online',en:'Online store'},
     ]}]},
   {id:'studio',name:'Studio Pro',
     tagline:{es:'Para estudios con equipo y varias sedes',en:'For studios with teams & locations'},
@@ -3444,22 +3449,8 @@ function navTo(page,el){
   // Señal de enganche para el prompt de instalación de PWA (ver maybeShowPWABanner)
   _pwaNavCount++;
   maybeShowPWABanner();
-  // Comprobar acceso según plan (whatsapp y tienda)
-  if((page==='whatsapp'||page==='tienda')&&!canAccess(page)){showUpgradeModal(page);return;}
-  // Si salimos de tienda, restaurar estado previo
-  const _curPg=document.querySelector('.page.on');
-  if(_curPg&&_curPg.id==='page-tienda'&&page!=='tienda'){
-    document.body.classList.toggle('light',theme==='light');
-    document.body.classList.toggle('concrete',theme==='concrete');
-    document.body.style.background = theme==='concrete' ? '' : (theme==='light'?'#f0f0f5':'#04040a');
-    document.getElementById('app').classList.toggle('light',theme==='light');
-    document.getElementById('app').classList.toggle('concrete',theme==='concrete');
-    if(theme==='concrete') applyGlassOpacity(getGlassOpacity());
-    const _sbR=document.querySelector('.sidebar');
-    if(_sbR&&!IS_MOBILE()){sidebarMini=window._tiendaPrevMini||false;_sbR.classList.toggle('sidebar-mini',sidebarMini);}
-    const _tbR=document.querySelector('.topbar');
-    if(_tbR)_tbR.style.display='';
-  }
+  // Comprobar acceso según plan (whatsapp - tienda se quitó, ver más abajo)
+  if(page==='whatsapp'&&!canAccess(page)){showUpgradeModal(page);return;}
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('on'));
   if(el) el.classList.add('on');
   // also highlight by data-page
@@ -3493,17 +3484,9 @@ function navTo(page,el){
   if(page==='docs'){renderDocs();setDocsTab('consents',document.getElementById('dtab-consents'))}
   if(page==='whatsapp'){renderWaPage()}
   if(page==='admin' && isAdmin()){adminRefresh()}
-  if(page==='tienda'){
-    const f=document.getElementById('tienda-frame');
-    if(!f.src||f.src===location.href)f.src='tienda.html';
-    document.getElementById('app').classList.add('light');
-    document.body.style.background='#f0f0f5';
-    window._tiendaPrevMini=sidebarMini;
-    const _sbT=document.querySelector('.sidebar');
-    if(_sbT&&!IS_MOBILE())_sbT.classList.add('sidebar-mini');
-    const _tbT=document.querySelector('.topbar');
-    if(_tbT)_tbT.style.display='none';
-  }
+  // Tienda quitada a petición del usuario - cargaba tienda.html en un iframe (page-tienda) y
+  // forzaba tema claro + sidebar colapsado mientras se veía. El archivo tienda.html se deja tal
+  // cual, sin enlazar desde ningún sitio.
   // sync mobile bottom nav
   if(typeof mobileNavSync==='function') mobileNavSync(page);
   // cerrar sidebar en móvil al navegar
@@ -6749,6 +6732,49 @@ function checkAcceptInviteTokenFromUrl() {
     });
 }
 
+// Login con Google: /api/auth/google/callback es una navegación real del servidor (no un
+// fetch), así que el resultado vuelve como parámetros en la URL en vez de JSON - mismo patrón
+// que ?resetToken=/?acceptInvite=, comprobado una vez al arrancar la app.
+function checkGoogleAuthFromUrl() {
+  var params = new URLSearchParams(location.search);
+  var token = params.get('googleToken');
+  var authError = params.get('authError');
+  if (!token && !authError) return;
+  history.replaceState(null, '', location.pathname);
+
+  if (authError) {
+    var messages = {
+      google_cancelled: 'Inicio de sesión con Google cancelado.',
+      google_disabled: 'El login con Google no está disponible ahora mismo.',
+      account_disabled: 'Esta cuenta ha sido desactivada. Contacta con soporte.',
+      email_is_profile: 'Ese email de Google ya está en uso como perfil de artista en otro estudio.',
+      google_failed: 'No se pudo iniciar sesión con Google. Inténtalo de nuevo.'
+    };
+    var errEl = document.getElementById('login-err');
+    errEl.style.color = 'var(--ro)';
+    errEl.textContent = messages[authError] || 'No se pudo iniciar sesión con Google.';
+    errEl.classList.add('show');
+    return;
+  }
+
+  _authToken = token;
+  localStorage.setItem('tos_local_token', token);
+  fetch(API_BASE + '/api/auth/me', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.user) throw new Error('sin usuario');
+      loginSuccess(data.user);
+    })
+    .catch(function() {
+      _authToken = null;
+      localStorage.removeItem('tos_local_token');
+      var errEl = document.getElementById('login-err');
+      errEl.style.color = 'var(--ro)';
+      errEl.textContent = 'No se pudo completar el inicio de sesión con Google.';
+      errEl.classList.add('show');
+    });
+}
+
 function doAcceptInvite() {
   var pass1 = document.getElementById('ai-pass1').value || '';
   var pass2 = document.getElementById('ai-pass2').value || '';
@@ -9386,6 +9412,17 @@ function initMobile() {
     try { checkResetTokenFromUrl(); } catch(eResetQ) {}
     _step = 'checkAcceptInviteTokenFromUrl';
     try { checkAcceptInviteTokenFromUrl(); } catch(eInviteQ) {}
+
+    _step = 'googleLoginLinks';
+    try {
+      var _glLogin = document.getElementById('google-login-link');
+      var _glReg = document.getElementById('google-register-link');
+      if (_glLogin) _glLogin.href = API_BASE + '/api/auth/google';
+      if (_glReg) _glReg.href = API_BASE + '/api/auth/google';
+    } catch(eGoogleLinks) {}
+
+    _step = 'checkGoogleAuthFromUrl';
+    try { checkGoogleAuthFromUrl(); } catch(eGoogleQ) {}
 
   } catch(e) {
     console.error('Tattoo OS init error at step [' + _step + ']:', e);

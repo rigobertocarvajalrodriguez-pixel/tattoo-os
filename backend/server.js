@@ -18,6 +18,7 @@ const crypto = require('crypto');
 // const qrcode = require('qrcode');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
+const { OAuth2Client } = require('google-auth-library');
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'rigobertocarvajalrodriguez@gmail.com';
@@ -514,6 +515,17 @@ Promise.all([
   console.log('[DB] Migración de invitación de artistas (Fase 2) aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de invitación de artistas:', e.message); });
 
+// Login con Google (dueños de estudio, users.google_id). Único a nivel de plataforma igual que
+// el email - dos cuentas nunca pueden compartir el mismo google_id. Las cuentas creadas por
+// Google no tienen contraseña utilizable de verdad (ver /api/auth/google/callback: se guarda un
+// hash aleatorio que nadie puede adivinar) porque users.password es NOT NULL y no vale la pena
+// tocar esa restricción solo por esto.
+db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT').then(function() {
+  return db.query('CREATE UNIQUE INDEX IF NOT EXISTS users_google_id_uniq ON users(google_id) WHERE google_id IS NOT NULL');
+}).then(function() {
+  console.log('[DB] Migración de login con Google aplicada');
+}).catch(function(e) { console.error('[DB] Error en migración de login con Google:', e.message); });
+
 // Panel de superadmin de la plataforma (distinto de access_role='owner' de la Fase 1 - ese es
 // el dueño de UN estudio; is_admin/ADMIN_EMAIL es quien gestiona TODOS los estudios): activar/
 // desactivar cuentas, última actividad y un log de auditoría simple de cada vez que el admin
@@ -699,6 +711,19 @@ app.use(cors(process.env.NODE_ENV === 'production' ? {
     callback(new Error('Origen no permitido por CORS'));
   }
 } : {}));
+// Login con Google - redirect_uri distinta en local vs producción porque Google exige que
+// coincida EXACTAMENTE con una de las dadas de alta en el cliente OAuth (las 3 ya están
+// registradas ahí: prod, Render, local - ver credenciales guardadas fuera del repo).
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REDIRECT_URI = process.env.NODE_ENV === 'production'
+  ? (process.env.GOOGLE_REDIRECT_URI_PROD || PROD_ORIGIN + '/api/auth/google/callback')
+  : (process.env.GOOGLE_REDIRECT_URI_LOCAL || 'http://localhost:' + (process.env.PORT || 3000) + '/api/auth/google/callback');
+const googleClient = (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET)
+  ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
+  : null;
+if (!googleClient) console.warn('[GOOGLE] GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET no configurados - login con Google deshabilitado.');
+
 // Cabeceras de seguridad básicas. Deliberadamente sin Content-Security-Policy todavía: el
 // frontend es un único HTML con mucho <script>/<style> inline y onclick="", una CSP por defecto
 // lo rompería - queda pendiente para cuando se audite ese código con más calma.
@@ -958,6 +983,73 @@ app.post('/api/auth/register', loginRateLimiter, function(req, res) {
     if (e.code === 'EMAIL_IS_PROFILE') return res.status(400).json({ error: e.message });
     if (e.code === '23505') return res.status(400).json({ error: 'El email ya está registrado' });
     res.status(500).json({ error: 'Error de base de datos' });
+  });
+});
+
+// Login con Google (Fase 1 - solo cuentas de estudio/users; los tatuadores con login
+// independiente por invitación siguen entrando con su email+contraseña propios, sin Google por
+// ahora). Flujo estándar de "redirect": /api/auth/google manda al consentimiento de Google,
+// que vuelve a /api/auth/google/callback con un código de un solo uso.
+app.get('/api/auth/google', function(req, res) {
+  if (!googleClient) return res.status(503).send('Login con Google no disponible en este momento.');
+  res.redirect(googleClient.generateAuthUrl({
+    access_type: 'online',
+    scope: ['openid', 'email', 'profile'],
+    prompt: 'select_account'
+  }));
+});
+
+// Es una navegación real del navegador (no un fetch), así que responde siempre con un redirect
+// a /app - nunca JSON - tanto si sale bien como si falla, con el resultado en la query string.
+// El frontend lee ?googleToken= o ?authError= al arrancar (mismo patrón que ?resetToken=).
+app.get('/api/auth/google/callback', function(req, res) {
+  if (!googleClient) return res.redirect('/app?authError=google_disabled');
+  var code = req.query.code;
+  if (!code) return res.redirect('/app?authError=google_cancelled');
+
+  googleClient.getToken(code).then(function(tokenResp) {
+    return googleClient.verifyIdToken({ idToken: tokenResp.tokens.id_token, audience: GOOGLE_CLIENT_ID });
+  }).then(function(ticket) {
+    var payload = ticket.getPayload();
+    var email = (payload.email || '').trim().toLowerCase();
+    var name = payload.name || email.split('@')[0];
+    var googleId = payload.sub;
+    if (!email) throw new Error('Google no devolvió un email');
+    if (!payload.email_verified) throw new Error('El email de Google no está verificado');
+
+    return db.query('SELECT * FROM users WHERE google_id=$1 OR email=$2', [googleId, email]).then(function(r) {
+      if (r.rows.length) {
+        var user = r.rows[0];
+        if (user.google_id) return user;
+        // Cuenta ya existía con email+contraseña normal - se vincula, no se duplica.
+        return db.query('UPDATE users SET google_id=$1 WHERE id=$2 RETURNING *', [googleId, user.id])
+          .then(function(ur) { return ur.rows[0]; });
+      }
+      // Mismo criterio que el registro manual: un email no puede ser a la vez cuenta de estudio
+      // y perfil de artista invitado en otro estudio (el login unificado no sabría distinguirlos).
+      return db.query('SELECT 1 FROM profiles WHERE email=$1', [email]).then(function(pr) {
+        if (pr.rows.length) throw new Error('EMAIL_IS_PROFILE');
+        // Contraseña inutilizable a propósito (hash aleatorio que nadie conoce) - users.password
+        // es NOT NULL y no vale la pena tocar esa restricción solo por esto. Esta cuenta nunca
+        // podrá entrar por email+contraseña, solo por Google.
+        return bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10).then(function(randomHash) {
+          return db.query(
+            'INSERT INTO users (email, name, password, google_id, notification_email) VALUES ($1,$2,$3,$4,$1) RETURNING *',
+            [email, name, randomHash, googleId]
+          ).then(function(ir) { return ir.rows[0]; });
+        });
+      });
+    });
+  }).then(function(user) {
+    if (user.active === false) return res.redirect('/app?authError=account_disabled');
+    var token = crypto.randomUUID();
+    authSessions[token] = { userId: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin };
+    db.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]).catch(function() {});
+    res.redirect('/app?googleToken=' + token);
+  }).catch(function(e) {
+    console.error('[GOOGLE] Error en callback:', e.message);
+    var code = e.message === 'EMAIL_IS_PROFILE' ? 'email_is_profile' : 'google_failed';
+    res.redirect('/app?authError=' + code);
   });
 });
 
