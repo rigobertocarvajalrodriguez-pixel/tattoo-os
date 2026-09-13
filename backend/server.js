@@ -684,10 +684,21 @@ const app = express();
 app.set('trust proxy', 1);
 // CORS abierto solo fuera de producción (desarrollo local / pruebas por LAN con el móvil, donde
 // el frontend se sirve desde otro origen pero API_BASE sigue apuntando a Render). En producción
-// los usuarios reales siempre acceden a la API desde el mismo origen (misma URL de Render), así
-// que restringir aquí no les afecta y sí bloquea a cualquier otra web que intente llamar a la API.
-const PROD_ORIGIN = 'https://tattoo-os-pdbp.onrender.com';
-app.use(cors(process.env.NODE_ENV === 'production' ? { origin: PROD_ORIGIN } : {}));
+// se restringe a los orígenes reales desde los que puede llegar un usuario: el dominio propio
+// (tattoo-os.es, con y sin www) y la URL de Render que sigue siendo accesible directamente -
+// dejar solo una string fija aquí fue lo que rompió el login al conectar el dominio: la app ya
+// se servía bien desde tattoo-os.es (proxy/CDN de Hostinger delante de Render), pero el fetch a
+// la API se bloqueaba por CORS al no coincidir con el único origen permitido.
+const PROD_ORIGIN = 'https://tattoo-os.es';
+const ALLOWED_ORIGINS = ['https://tattoo-os.es', 'https://www.tattoo-os.es', 'https://tattoo-os-pdbp.onrender.com'];
+app.use(cors(process.env.NODE_ENV === 'production' ? {
+  origin: function(origin, callback) {
+    // Peticiones sin header Origin (curl, apps móviles nativas, salud del propio Render) no
+    // llevan origin en absoluto - no es un caso CORS real, se dejan pasar.
+    if (!origin || ALLOWED_ORIGINS.indexOf(origin) !== -1) return callback(null, true);
+    callback(new Error('Origen no permitido por CORS'));
+  }
+} : {}));
 // Cabeceras de seguridad básicas. Deliberadamente sin Content-Security-Policy todavía: el
 // frontend es un único HTML con mucho <script>/<style> inline y onclick="", una CSP por defecto
 // lo rompería - queda pendiente para cuando se audite ese código con más calma.
@@ -2592,7 +2603,7 @@ if (process.env.NODE_ENV === 'production' && process.env.RENDER_URL) {
 const http = require('http');
 const { Server } = require('socket.io');
 const httpServer = http.createServer(app);
-const io = new Server(httpServer, { cors: { origin: process.env.NODE_ENV === 'production' ? PROD_ORIGIN : '*' } });
+const io = new Server(httpServer, { cors: { origin: process.env.NODE_ENV === 'production' ? ALLOWED_ORIGINS : '*' } });
 
 // rooms: { roomId: { admin: socketId, user: socketId, userId: string } }
 const rooms = {};
