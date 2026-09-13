@@ -526,6 +526,48 @@ db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT').then(funct
   console.log('[DB] Migración de login con Google aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de login con Google:', e.message); });
 
+// Sincronización con Google Calendar (Fase 2a). google_calendar_connections: una conexión por
+// PERFIL (no por cuenta) - cada tatuador conecta su propio Google y tiene su propio calendario
+// dedicado "Tattoo OS", nunca el personal. appointment_google_links: mapeo cita<->evento; a
+// propósito SIN "ON DELETE CASCADE" desde appointments - cuando se borra una cita, este link debe
+// sobrevivir un ciclo más para que el sincronizador sepa qué evento de Google borrar también (ver
+// syncProfileOutbound). updated_at en appointments: única forma de saber "qué cambió desde el
+// último sync" sin comparar citas enteras.
+Promise.all([
+  db.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()'),
+  db.query(`CREATE TABLE IF NOT EXISTS google_calendar_connections (
+    user_id              UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_id           INTEGER NOT NULL,
+    google_calendar_id   TEXT NOT NULL,
+    refresh_token_enc    TEXT NOT NULL,
+    access_token_enc     TEXT,
+    access_token_expires TIMESTAMPTZ,
+    sync_token           TEXT,
+    connected_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_synced_at       TIMESTAMPTZ,
+    PRIMARY KEY (user_id, profile_id)
+  )`),
+  db.query(`CREATE TABLE IF NOT EXISTS appointment_google_links (
+    user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    appointment_id    TEXT NOT NULL,
+    profile_id        INTEGER NOT NULL,
+    google_event_id   TEXT NOT NULL,
+    last_synced_hash  TEXT,
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, appointment_id)
+  )`),
+]).then(function() {
+  // profiles ya tiene PK compuesta (user_id, id) desde migrateToPerAccountKeys() - esta FK tiene
+  // que esperar a que esa migración haya corrido, por eso va en un .then() aparte y no en el
+  // Promise.all de arriba (que crea la tabla).
+  return db.query(
+    'ALTER TABLE google_calendar_connections ADD CONSTRAINT google_calendar_connections_profile_fkey ' +
+    'FOREIGN KEY (user_id, profile_id) REFERENCES profiles(user_id, id) ON DELETE CASCADE'
+  ).catch(function() {}); // ya existe si el servidor se reinició
+}).then(function() {
+  console.log('[DB] Migración de sincronización con Google Calendar aplicada');
+}).catch(function(e) { console.error('[DB] Error en migración de Google Calendar:', e.message); });
+
 // Panel de superadmin de la plataforma (distinto de access_role='owner' de la Fase 1 - ese es
 // el dueño de UN estudio; is_admin/ADMIN_EMAIL es quien gestiona TODOS los estudios): activar/
 // desactivar cuentas, última actividad y un log de auditoría simple de cada vez que el admin
@@ -723,6 +765,56 @@ const googleClient = (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET)
   ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
   : null;
 if (!googleClient) console.warn('[GOOGLE] GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET no configurados - login con Google deshabilitado.');
+
+// Sincronización con Google Calendar (Fase 2a - solo salida: Tattoo OS -> Google). Mismo
+// cliente/credenciales OAuth que el login, pero con un redirect_uri PROPIO porque pide un scope
+// distinto (Calendar en vez de solo login) - Google exige que cada redirect_uri esté dado de
+// alta tal cual en el cliente OAuth, así que estas 3 URIs (prod, Render, local) hay que añadirlas
+// en Google Cloud Console junto a las 3 que ya tiene el login.
+const GOOGLE_CALENDAR_REDIRECT_URI = process.env.NODE_ENV === 'production'
+  ? (process.env.GOOGLE_CALENDAR_REDIRECT_URI_PROD || PROD_ORIGIN + '/api/calendar/google/callback')
+  : (process.env.GOOGLE_CALENDAR_REDIRECT_URI_LOCAL || 'http://localhost:' + (process.env.PORT || 3000) + '/api/calendar/google/callback');
+
+// Clave de cifrado (AES-256-GCM) para los refresh_token de Calendar guardados en BD - 32 bytes
+// en hex, SEPARADA del client secret de Google (si algún día rotamos el cliente OAuth no hace
+// falta re-cifrar todo lo ya guardado, y viceversa). También se reutiliza para firmar el "state"
+// del flujo OAuth de conexión (ver signCalendarState/verifyCalendarState).
+const TOKEN_ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY ? Buffer.from(process.env.TOKEN_ENCRYPTION_KEY, 'hex') : null;
+if (!TOKEN_ENCRYPTION_KEY) console.warn('[GOOGLE CALENDAR] TOKEN_ENCRYPTION_KEY no configurada - sincronización con Calendar deshabilitada.');
+
+function encryptToken(text) {
+  var iv = crypto.randomBytes(12);
+  var cipher = crypto.createCipheriv('aes-256-gcm', TOKEN_ENCRYPTION_KEY, iv);
+  var enc = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  return iv.toString('base64') + ':' + cipher.getAuthTag().toString('base64') + ':' + enc.toString('base64');
+}
+function decryptToken(payload) {
+  var parts = String(payload).split(':');
+  var decipher = crypto.createDecipheriv('aes-256-gcm', TOKEN_ENCRYPTION_KEY, Buffer.from(parts[0], 'base64'));
+  decipher.setAuthTag(Buffer.from(parts[1], 'base64'));
+  return Buffer.concat([decipher.update(Buffer.from(parts[2], 'base64')), decipher.final()]).toString('utf8');
+}
+// El "state" del OAuth de conexión viaja por una navegación real (no un fetch con header
+// Authorization), así que necesita llevar el userId/profileId firmados - si no, cualquiera podría
+// fabricar un ?state= y conectar el calendario de otra cuenta.
+function signCalendarState(payload) {
+  var b64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  var sig = crypto.createHmac('sha256', TOKEN_ENCRYPTION_KEY).update(b64).digest('base64url');
+  return b64 + '.' + sig;
+}
+function verifyCalendarState(state) {
+  var parts = String(state || '').split('.');
+  if (parts.length !== 2) return null;
+  var expected = crypto.createHmac('sha256', TOKEN_ENCRYPTION_KEY).update(parts[0]).digest('base64url');
+  if (expected !== parts[1]) return null;
+  try { return JSON.parse(Buffer.from(parts[0], 'base64url').toString()); } catch (e) { return null; }
+}
+// Un artista con login independiente (Fase 2 de invitaciones) solo puede conectar/gestionar SU
+// propio calendario; el dueño del estudio puede gestionar el de cualquier perfil suyo.
+function canManageProfileCalendar(req, profileId) {
+  if (req.user.accessRole === 'artist') return req.user.profileId === profileId;
+  return true;
+}
 
 // Cabeceras de seguridad básicas. Deliberadamente sin Content-Security-Policy todavía: el
 // frontend es un único HTML con mucho <script>/<style> inline y onclick="", una CSP por defecto
@@ -1052,6 +1144,236 @@ app.get('/api/auth/google/callback', function(req, res) {
     res.redirect('/app?authError=' + code);
   });
 });
+
+// ===== Sincronización con Google Calendar (Fase 2a - solo salida) =====
+// Un calendario dedicado "Tattoo OS" por perfil (nunca el personal del tatuador), sondeado cada
+// pocos minutos (no watch()/webhooks todavía - ver setInterval más abajo). 2a es solo
+// Tattoo OS -> Google; la entrada (Google -> Tattoo OS) y la resolución de conflictos quedan
+// para la Fase 2b.
+
+function decHourToHHMM(h) {
+  var hh = Math.floor(h);
+  var mm = Math.round((h - hh) * 60);
+  if (mm === 60) { mm = 0; hh += 1; }
+  return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm + ':00';
+}
+function buildGoogleEventBody(a) {
+  var start = Number(a.start) || 0;
+  var dur = Number(a.dur) || 1;
+  var descParts = [];
+  if (a.notes) descParts.push(a.notes);
+  descParts.push('Precio: ' + (Number(a.price) || 0) + '€');
+  descParts.push('Estado: ' + (a.status || 'pending'));
+  descParts.push('— Sincronizado automáticamente desde Tattoo OS');
+  return {
+    summary: a.name + (a.work_type ? ' — ' + a.work_type : ''),
+    description: descParts.join('\n'),
+    start: { dateTime: a.date + 'T' + decHourToHHMM(start), timeZone: 'Europe/Madrid' },
+    end: { dateTime: a.date + 'T' + decHourToHHMM(start + dur), timeZone: 'Europe/Madrid' },
+  };
+}
+function googleCalFetch(method, accessToken, path, body) {
+  return fetch('https://www.googleapis.com/calendar/v3/' + path, {
+    method: method,
+    headers: Object.assign({ 'Authorization': 'Bearer ' + accessToken }, body ? { 'Content-Type': 'application/json' } : {}),
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(function(r) {
+    if (r.ok) return r.status === 204 ? null : r.json();
+    // 404/410: el evento/calendario ya no existe en Google (borrado a mano) - no es un fallo real
+    // para nuestro propósito, se trata como éxito silencioso.
+    if (r.status === 404 || r.status === 410) return null;
+    return r.text().then(function(t) { throw new Error('Google Calendar API (' + method + ' ' + path + '): ' + r.status + ' ' + t); });
+  });
+}
+function findOrCreateTattooOsCalendar(accessToken) {
+  return googleCalFetch('GET', accessToken, 'users/me/calendarList').then(function(list) {
+    var existing = (list && list.items || []).find(function(c) { return c.summary === 'Tattoo OS'; });
+    if (existing) return existing.id;
+    return googleCalFetch('POST', accessToken, 'calendars', {
+      summary: 'Tattoo OS',
+      description: 'Citas gestionadas desde Tattoo OS (sincronización automática) - no lo borres si quieres seguir recibiendo tu agenda aquí.',
+    }).then(function(cal) { return cal.id; });
+  });
+}
+// Devuelve un access_token válido para esta conexión, refrescándolo con el refresh_token cifrado
+// si el que tenemos guardado ya caducó (o no hay ninguno todavía).
+function getValidAccessToken(conn) {
+  var margin = 60 * 1000;
+  if (conn.access_token_enc && conn.access_token_expires && new Date(conn.access_token_expires).getTime() - margin > Date.now()) {
+    return Promise.resolve(decryptToken(conn.access_token_enc));
+  }
+  var refreshToken = decryptToken(conn.refresh_token_enc);
+  var client = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
+  client.setCredentials({ refresh_token: refreshToken });
+  return client.getAccessToken().then(function(resp) {
+    var accessToken = resp.token;
+    var expires = new Date(Date.now() + 55 * 60 * 1000); // los access_token de Google duran ~1h
+    return db.query(
+      'UPDATE google_calendar_connections SET access_token_enc=$1, access_token_expires=$2 WHERE user_id=$3 AND profile_id=$4',
+      [encryptToken(accessToken), expires, conn.user_id, conn.profile_id]
+    ).then(function() { return accessToken; });
+  });
+}
+// Sincroniza UN perfil: crea/actualiza en Google las citas nuevas o cambiadas desde el último
+// sync, y borra en Google las que ya no existen en Tattoo OS (comparando contra los links
+// guardados - ver comentario de appointment_google_links en la migración).
+function syncProfileOutbound(userId, profileId) {
+  return db.query('SELECT * FROM google_calendar_connections WHERE user_id=$1 AND profile_id=$2', [userId, profileId]).then(function(connRes) {
+    if (!connRes.rows.length) return;
+    var conn = connRes.rows[0];
+    return getValidAccessToken(conn).then(function(accessToken) {
+      var calendarId = conn.google_calendar_id;
+      return Promise.all([
+        db.query('SELECT * FROM appointments WHERE user_id=$1 AND profile_id=$2', [userId, profileId]),
+        db.query('SELECT * FROM appointment_google_links WHERE user_id=$1 AND profile_id=$2', [userId, profileId]),
+      ]).then(function(results) {
+        var appts = results[0].rows;
+        var links = results[1].rows;
+        var apptIdSet = {};
+        appts.forEach(function(a) { apptIdSet[String(a.id)] = true; });
+        var linkByApptId = {};
+        links.forEach(function(l) { linkByApptId[l.appointment_id] = l; });
+
+        var deleteOps = links.filter(function(l) { return !apptIdSet[l.appointment_id]; }).map(function(l) {
+          return googleCalFetch('DELETE', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events/' + encodeURIComponent(l.google_event_id))
+            .catch(function() {})
+            .then(function() { return db.query('DELETE FROM appointment_google_links WHERE user_id=$1 AND appointment_id=$2', [userId, l.appointment_id]); });
+        });
+
+        var since = conn.last_synced_at ? new Date(conn.last_synced_at).getTime() : 0;
+        var upsertOps = appts.filter(function(a) { return new Date(a.updated_at).getTime() > since; }).map(function(a) {
+          var link = linkByApptId[String(a.id)];
+          var body = buildGoogleEventBody(a);
+          if (link) {
+            return googleCalFetch('PATCH', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events/' + encodeURIComponent(link.google_event_id), body).catch(function() {});
+          }
+          return googleCalFetch('POST', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events', body).then(function(ev) {
+            if (!ev) return;
+            return db.query(
+              'INSERT INTO appointment_google_links (user_id,appointment_id,profile_id,google_event_id) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, appointment_id) DO UPDATE SET google_event_id=$4,profile_id=$3,updated_at=NOW()',
+              [userId, String(a.id), profileId, ev.id]
+            );
+          }).catch(function() {});
+        });
+
+        return Promise.all(deleteOps.concat(upsertOps));
+      });
+    }).then(function() {
+      return db.query('UPDATE google_calendar_connections SET last_synced_at=NOW() WHERE user_id=$1 AND profile_id=$2', [userId, profileId]);
+    });
+  });
+}
+
+// Conectar Google Calendar para UN perfil (dueño del estudio o el propio artista, ver
+// canManageProfileCalendar). A diferencia del login, esto NO es un <a href> de navegación
+// directa: la SPA no persiste sesión entre recargas completas (ver checkSession(), que borra el
+// token en cada arranque - el login solo sobrevive una navegación real porque el token vuelve
+// en la propia URL, vía ?googleToken=). Una conexión de Calendar puede tardar bastante (el
+// usuario elige cuenta, revisa permisos...) y no tiene sentido tirar toda la sesión de trabajo
+// por eso, así que aquí se abre en una ventana emergente: esta ruta solo devuelve la URL de
+// Google (pide auth por header, como cualquier fetch normal), y el callback de abajo cierra el
+// popup avisando a la ventana principal por postMessage en vez de redirigir - la sesión de la
+// SPA nunca se toca. access_type=offline + prompt=consent: necesitamos un refresh_token para
+// poder sincronizar en segundo plano sin que el usuario esté delante - "consent" fuerza a Google
+// a reemitirlo aunque ya se hubiera concedido antes.
+app.get('/api/calendar/google/connect-url', authMiddleware, function(req, res) {
+  if (!googleClient || !TOKEN_ENCRYPTION_KEY) return res.status(503).json({ error: 'Sincronización con Google Calendar no disponible en este momento.' });
+  var profileId = parseInt(req.query.profileId, 10);
+  if (!profileId) return res.status(400).json({ error: 'Falta profileId' });
+  if (!canManageProfileCalendar(req, profileId)) return res.status(403).json({ error: 'No autorizado para gestionar este perfil' });
+  db.query('SELECT id FROM profiles WHERE id=$1 AND user_id=$2', [profileId, req.userId]).then(function(r) {
+    if (!r.rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
+    res.json({ url: googleClient.generateAuthUrl({
+      access_type: 'offline',
+      prompt: 'consent',
+      scope: ['https://www.googleapis.com/auth/calendar'],
+      state: signCalendarState({ userId: req.userId, profileId: profileId }),
+      redirect_uri: GOOGLE_CALENDAR_REDIRECT_URI,
+    }) });
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Google redirige aquí DENTRO del popup (nunca vuelve a /app). Responde con una página mínima
+// que avisa a la ventana que la abrió (window.opener) y se cierra sola - la ventana principal
+// (ver connectGoogleCalendar en el frontend) solo necesita refrescar el estado del panel, no
+// recargar ni reautenticar nada.
+function calendarPopupResultPage(ok, errorCode) {
+  var msg = JSON.stringify({ source: 'tattoo-os-calendar', ok: !!ok, error: errorCode || null });
+  return '<!doctype html><html><body style="font-family:sans-serif;padding:24px;color:#333">' +
+    (ok ? 'Google Calendar conectado. Puedes cerrar esta ventana.' : 'No se pudo conectar Google Calendar. Puedes cerrar esta ventana e intentarlo de nuevo.') +
+    '<script>if(window.opener){window.opener.postMessage(' + msg + ', "*");}window.close();</script></body></html>';
+}
+app.get('/api/calendar/google/callback', function(req, res) {
+  if (!googleClient || !TOKEN_ENCRYPTION_KEY) return res.send(calendarPopupResultPage(false, 'disabled'));
+  var code = req.query.code;
+  var state = verifyCalendarState(req.query.state);
+  if (!code || !state) return res.send(calendarPopupResultPage(false, 'invalid_state'));
+
+  googleClient.getToken({ code: code, redirect_uri: GOOGLE_CALENDAR_REDIRECT_URI }).then(function(tokenResp) {
+    var tokens = tokenResp.tokens;
+    if (!tokens.refresh_token) throw new Error('NO_REFRESH_TOKEN');
+    var accessToken = tokens.access_token;
+    return findOrCreateTattooOsCalendar(accessToken).then(function(calendarId) {
+      var expires = new Date(tokens.expiry_date || (Date.now() + 55 * 60 * 1000));
+      return db.query(
+        'INSERT INTO google_calendar_connections (user_id,profile_id,google_calendar_id,refresh_token_enc,access_token_enc,access_token_expires) VALUES ($1,$2,$3,$4,$5,$6) ' +
+        'ON CONFLICT (user_id, profile_id) DO UPDATE SET google_calendar_id=$3,refresh_token_enc=$4,access_token_enc=$5,access_token_expires=$6,connected_at=NOW()',
+        [state.userId, state.profileId, calendarId, encryptToken(tokens.refresh_token), encryptToken(accessToken), expires]
+      );
+    });
+  }).then(function() {
+    res.send(calendarPopupResultPage(true));
+  }).catch(function(e) {
+    console.error('[GOOGLE CALENDAR] Error en callback:', e.message);
+    res.send(calendarPopupResultPage(false, e.message === 'NO_REFRESH_TOKEN' ? 'no_refresh_token' : 'failed'));
+  });
+});
+
+app.post('/api/calendar/google/disconnect', authMiddleware, function(req, res) {
+  var profileId = parseInt(req.body.profileId, 10);
+  if (!canManageProfileCalendar(req, profileId)) return res.status(403).json({ error: 'No autorizado' });
+  // Solo se borra la conexión guardada aquí - el calendario "Tattoo OS" y sus eventos se dejan
+  // intactos en el Google del tatuador, por si quiere conservarlos o reconectar más adelante.
+  db.query('DELETE FROM google_calendar_connections WHERE user_id=$1 AND profile_id=$2', [req.userId, profileId])
+    .then(function() { res.json({ ok: true }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.get('/api/calendar/google/status', authMiddleware, function(req, res) {
+  var q = req.user.accessRole === 'artist' && req.user.profileId != null
+    ? db.query('SELECT profile_id, connected_at, last_synced_at FROM google_calendar_connections WHERE user_id=$1 AND profile_id=$2', [req.userId, req.user.profileId])
+    : db.query('SELECT profile_id, connected_at, last_synced_at FROM google_calendar_connections WHERE user_id=$1', [req.userId]);
+  q.then(function(r) {
+    res.json(r.rows.map(function(row) { return { profileId: row.profile_id, connectedAt: row.connected_at, lastSyncedAt: row.last_synced_at }; }));
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+app.post('/api/calendar/google/sync-now', authMiddleware, function(req, res) {
+  var profileId = parseInt(req.body.profileId, 10);
+  if (!canManageProfileCalendar(req, profileId)) return res.status(403).json({ error: 'No autorizado' });
+  db.query('SELECT 1 FROM google_calendar_connections WHERE user_id=$1 AND profile_id=$2', [req.userId, profileId]).then(function(r) {
+    if (!r.rows.length) return res.status(404).json({ error: 'Este perfil no tiene Google Calendar conectado' });
+    return syncProfileOutbound(req.userId, profileId).then(function() { res.json({ ok: true }); });
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Sondeo periódico (cada 7 min, confirmado con el dueño en vez de watch()/webhooks) de TODAS las
+// conexiones activas. Deliberadamente simple, sin colas ni locks entre ciclos: si algún día el
+// volumen de citas/estudios lo justifica, se revisa - el upsert de eventos es idempotente aunque
+// dos ciclos se llegaran a solapar.
+if (TOKEN_ENCRYPTION_KEY) {
+  setInterval(function() {
+    db.query('SELECT user_id, profile_id FROM google_calendar_connections').then(function(r) {
+      return r.rows.reduce(function(p, row) {
+        return p.then(function() {
+          return syncProfileOutbound(row.user_id, row.profile_id).catch(function(e) {
+            console.error('[GOOGLE CALENDAR] Error sincronizando perfil', row.profile_id, ':', e.message);
+          });
+        });
+      }, Promise.resolve());
+    }).catch(function(e) { console.error('[GOOGLE CALENDAR] Error listando conexiones:', e.message); });
+  }, 7 * 60 * 1000);
+}
 
 // Recuperar contraseña: respuesta siempre idéntica exista o no la cuenta (no revelar qué
 // emails están registrados) - ver checkResetTokenFromUrl()/sendForgot() en el frontend. El
@@ -1417,10 +1739,18 @@ app.put('/api/appointments/:id', authMiddleware, function(req, res) {
   writeJSON('appointments.json', all);
   res.json(all[idx]);
 });
+// Antes borraba de un archivo JSON (appointments.json) que ya no se usa - las citas viven en
+// Postgres desde hace tiempo (ver /api/profile/sync más abajo), pero nunca hubo una ruta que las
+// borrara ahí de verdad: al eliminar una cita en el navegador solo desaparecía del array local
+// (ver removeAppt en el frontend) y la fila quedaba huérfana en la BD para siempre - el upsert de
+// /api/profile/sync es puramente aditivo, nunca borra. No se notaba porque casi nada releía citas
+// del servidor, pero la sincronización con Google Calendar (Fase 2a) sí necesita un borrado real
+// para saber qué evento de Google eliminar también (ver syncProfileOutbound), así que esta ruta
+// pasa a ser real y el frontend la llama en cuanto se borra una cita.
 app.delete('/api/appointments/:id', authMiddleware, function(req, res) {
-  var all = readJSON('appointments.json');
-  writeJSON('appointments.json', all.filter(function(a) { return !(a.id === req.params.id && a.user_id === req.userId); }));
-  res.json({ success: true });
+  db.query('DELETE FROM appointments WHERE id=$1 AND user_id=$2', [req.params.id, req.userId])
+    .then(function() { res.json({ ok: true }); })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
 // Expenses API
@@ -1854,7 +2184,12 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
           return db.query('SELECT status FROM appointments WHERE id=$1 AND user_id=$2', [apptId, userId]).then(function(prev) {
             var oldStatus = prev.rows.length ? prev.rows[0].status : null;
             return db.query(
-              'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT (user_id, id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18',
+              // updated_at=NOW() en ambas ramas (Fase 2a, sync con Google Calendar): es la única
+              // forma de saber qué citas cambiaron desde el último sync sin comparar filas
+              // enteras. Se pone incondicionalmente en cada upsert, cambie o no el contenido -
+              // en el peor caso el sincronizador reenvía una cita sin cambios reales de más, que
+              // es un PATCH idempotente y barato, no un problema de corrección.
+              'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()) ON CONFLICT (user_id, id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18,updated_at=NOW()',
               [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
             ).then(function() {
               // El seguimiento se dispara al pasar a 'completed' (decisión final del dueño: usa
