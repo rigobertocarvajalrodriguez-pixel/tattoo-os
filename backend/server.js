@@ -1095,6 +1095,12 @@ app.get('/api/auth/google', function(req, res) {
 // a /app - nunca JSON - tanto si sale bien como si falla, con el resultado en la query string.
 // El frontend lee ?googleToken= o ?authError= al arrancar (mismo patrón que ?resetToken=).
 app.get('/api/auth/google/callback', function(req, res) {
+  // Cache-Control: no-store - Hostinger (CDN/proxy delante de tattoo-os.es) cacheaba esta ruta
+  // por PATH, ignorando la query string (code=/state= distintos daban la MISMA respuesta cacheada
+  // de la primera vez que se pidió) - un fallo real y confirmado en /api/calendar/google/callback
+  // (ver ahí el comentario completo). Esta ruta tiene exactamente el mismo riesgo aunque no se
+  // haya notado todavía, así que se protege igual por precaución.
+  res.set('Cache-Control', 'no-store');
   if (!googleClient) return res.redirect('/app?authError=google_disabled');
   var code = req.query.code;
   if (!code) return res.redirect('/app?authError=google_cancelled');
@@ -1277,6 +1283,7 @@ function syncProfileOutbound(userId, profileId) {
 // poder sincronizar en segundo plano sin que el usuario esté delante - "consent" fuerza a Google
 // a reemitirlo aunque ya se hubiera concedido antes.
 app.get('/api/calendar/google/connect-url', authMiddleware, function(req, res) {
+  res.set('Cache-Control', 'no-store'); // ver comentario en /api/calendar/google/callback más abajo
   if (!googleClient || !TOKEN_ENCRYPTION_KEY) return res.status(503).json({ error: 'Sincronización con Google Calendar no disponible en este momento.' });
   var profileId = parseInt(req.query.profileId, 10);
   if (!profileId) return res.status(400).json({ error: 'Falta profileId' });
@@ -1304,6 +1311,15 @@ function calendarPopupResultPage(ok, errorCode) {
     '<script>if(window.opener){window.opener.postMessage(' + msg + ', "*");}window.close();</script></body></html>';
 }
 app.get('/api/calendar/google/callback', function(req, res) {
+  // Cache-Control: no-store - CONFIRMADO en producción: Hostinger (CDN/proxy delante de
+  // tattoo-os.es) estaba cacheando esta respuesta por PATH, ignorando la query string por
+  // completo - ?code=X&state=Y y ?code=Z&state=W devolvían la MISMA respuesta ya cacheada de la
+  // primera vez que alguien pidió esta URL (verificado con curl: distinta respuesta pidiendo
+  // directo a Render, idéntica pidiendo por tattoo-os.es con querys distintas). Catastrófico para
+  // una ruta de callback OAuth, donde cada visita es de un usuario/intento distinto - sin esto,
+  // el segundo intento de cualquiera recibiría el resultado (éxito o error) del primero. Sin
+  // Cache-Control aquí no hay forma de que Hostinger sepa que no debe guardar esto.
+  res.set('Cache-Control', 'no-store');
   if (!googleClient || !TOKEN_ENCRYPTION_KEY) return res.send(calendarPopupResultPage(false, 'disabled'));
   var code = req.query.code;
   var state = verifyCalendarState(req.query.state);
