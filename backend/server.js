@@ -1220,9 +1220,21 @@ function getValidAccessToken(conn) {
     ).then(function() { return accessToken; });
   });
 }
-// Sincroniza UN perfil: crea/actualiza en Google las citas nuevas o cambiadas desde el último
-// sync, y borra en Google las que ya no existen en Tattoo OS (comparando contra los links
-// guardados - ver comentario de appointment_google_links en la migración).
+// Sincroniza UN perfil: crea/actualiza en Google las citas nuevas o cambiadas, y borra en Google
+// las que ya no existen en Tattoo OS (comparando contra los links guardados - ver comentario de
+// appointment_google_links en la migración).
+//
+// "Pendiente de sincronizar" se decide POR CITA (¿tiene link ya? ¿su updated_at es más nuevo que
+// el updated_at del link?) - NO comparando contra un único reloj global (last_synced_at de la
+// conexión), que es como estaba antes y escondía un bug real ya visto en producción: si el POST a
+// Google fallaba para una cita (por lo que sea - cuota, red, lo que sea), el catch silencioso lo
+// tragaba pero last_synced_at avanzaba igual en el siguiente .then(), así que esa cita concreta
+// quedaba "perdida" para siempre - nunca más volvía a cumplir la condición "cambiada desde el
+// último sync" aunque jamás hubiera llegado a crearse en Google. Con el criterio por cita, una
+// que falla simplemente no actualiza su link.updated_at, así que el siguiente ciclo (cada 7 min,
+// o "Sincronizar ahora") la vuelve a intentar sola, sin tocar las que ya sí se sincronizaron bien.
+// last_synced_at en la conexión pasa a ser solo informativo (para el "última sincronización" que
+// se ve en Ajustes), no participa en la lógica de qué se sincroniza.
 function syncProfileOutbound(userId, profileId) {
   return db.query('SELECT * FROM google_calendar_connections WHERE user_id=$1 AND profile_id=$2', [userId, profileId]).then(function(connRes) {
     if (!connRes.rows.length) return;
@@ -1242,30 +1254,37 @@ function syncProfileOutbound(userId, profileId) {
 
         var deleteOps = links.filter(function(l) { return !apptIdSet[l.appointment_id]; }).map(function(l) {
           return googleCalFetch('DELETE', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events/' + encodeURIComponent(l.google_event_id))
-            .catch(function() {})
+            .catch(function(e) { console.error('[GOOGLE CALENDAR] Error borrando evento de la cita', l.appointment_id, ':', e.message); })
             .then(function() { return db.query('DELETE FROM appointment_google_links WHERE user_id=$1 AND appointment_id=$2', [userId, l.appointment_id]); });
         });
 
-        var since = conn.last_synced_at ? new Date(conn.last_synced_at).getTime() : 0;
-        var upsertOps = appts.filter(function(a) { return new Date(a.updated_at).getTime() > since; }).map(function(a) {
+        var pending = appts.filter(function(a) {
+          var link = linkByApptId[String(a.id)];
+          if (!link) return true;
+          return new Date(a.updated_at).getTime() > new Date(link.updated_at).getTime();
+        });
+        var upsertOps = pending.map(function(a) {
           var link = linkByApptId[String(a.id)];
           var body = buildGoogleEventBody(a);
-          if (link) {
-            return googleCalFetch('PATCH', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events/' + encodeURIComponent(link.google_event_id), body).catch(function() {});
-          }
-          return googleCalFetch('POST', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events', body).then(function(ev) {
-            if (!ev) return;
-            return db.query(
-              'INSERT INTO appointment_google_links (user_id,appointment_id,profile_id,google_event_id) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, appointment_id) DO UPDATE SET google_event_id=$4,profile_id=$3,updated_at=NOW()',
-              [userId, String(a.id), profileId, ev.id]
-            );
-          }).catch(function() {});
+          var op = link
+            ? googleCalFetch('PATCH', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events/' + encodeURIComponent(link.google_event_id), body)
+                .then(function() { return db.query('UPDATE appointment_google_links SET updated_at=NOW() WHERE user_id=$1 AND appointment_id=$2', [userId, String(a.id)]); })
+            : googleCalFetch('POST', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events', body).then(function(ev) {
+                if (!ev) return;
+                return db.query(
+                  'INSERT INTO appointment_google_links (user_id,appointment_id,profile_id,google_event_id) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, appointment_id) DO UPDATE SET google_event_id=$4,profile_id=$3,updated_at=NOW()',
+                  [userId, String(a.id), profileId, ev.id]
+                );
+              });
+          return op.catch(function(e) { console.error('[GOOGLE CALENDAR] Error sincronizando cita', a.id, ':', e.message); });
         });
 
         return Promise.all(deleteOps.concat(upsertOps));
       });
     }).then(function() {
       return db.query('UPDATE google_calendar_connections SET last_synced_at=NOW() WHERE user_id=$1 AND profile_id=$2', [userId, profileId]);
+    }).catch(function(e) {
+      console.error('[GOOGLE CALENDAR] Error obteniendo access token para perfil', profileId, ':', e.message);
     });
   });
 }
