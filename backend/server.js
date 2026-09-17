@@ -1178,6 +1178,47 @@ function buildGoogleEventBody(a) {
     end: { dateTime: a.date + 'T' + decHourToHHMM(start + dur), timeZone: 'Europe/Madrid' },
   };
 }
+// Fase 2b (entrada Google -> Tattoo OS): convierte un evento de Google de vuelta a los campos de
+// una cita. Solo se traen name/work_type (deshaciendo el " — " que junta ambos al salir, ver
+// buildGoogleEventBody) y date/start/dur - a propósito NO se toca precio/estado/depósito/notas
+// desde aquí: esos son de gestión del estudio y sacarlos de la descripción libre de un evento de
+// Google sería frágil y arriesgaría corromper datos reales (pagos, etc.) por un texto mal editado
+// a mano. Si el usuario quiere cambiar esos campos, lo hace en Tattoo OS.
+function isoToMadridDateHour(iso) {
+  // Google devuelve dateTime normalizado a UTC (sufijo Z) al leerlo, aunque se haya creado con
+  // timeZone:'Europe/Madrid' - hay que reconvertir a hora local de Madrid (con DST correcto vía
+  // Intl, sin dependencias nuevas) en vez de leer los dígitos HH:MM tal cual, que darían la hora
+  // equivocada.
+  var d = new Date(iso);
+  var fmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  var map = {};
+  fmt.formatToParts(d).forEach(function(p) { map[p.type] = p.value; });
+  return { date: map.year + '-' + map.month + '-' + map.day, hour: parseInt(map.hour, 10) + parseInt(map.minute, 10) / 60 };
+}
+function parseGoogleEventBody(ev) {
+  var summary = ev.summary || '';
+  var idx = summary.indexOf(' — ');
+  var name = (idx === -1 ? summary : summary.slice(0, idx)).trim();
+  var workType = (idx === -1 ? '' : summary.slice(idx + 3)).trim();
+  var startIso = ev.start && ev.start.dateTime;
+  var endIso = ev.end && ev.end.dateTime;
+  if (!startIso || !endIso) return null; // eventos de día completo (start.date, sin hora) - no soportados, se dejan tal cual
+  var startInfo = isoToMadridDateHour(startIso);
+  var endInfo = isoToMadridDateHour(endIso);
+  var dur = endInfo.hour - startInfo.hour + (endInfo.date !== startInfo.date ? 24 : 0);
+  if (!(dur > 0)) dur = 1;
+  return { name: name || '(sin título)', workType: workType, date: startInfo.date, start: startInfo.hour, dur: dur };
+}
+function pullGoogleEventIntoAppointment(userId, appointmentId, ev) {
+  var parsed = parseGoogleEventBody(ev);
+  if (!parsed) return Promise.resolve();
+  return db.query(
+    'UPDATE appointments SET name=$1, work_type=$2, date=$3, start=$4, dur=$5, updated_at=NOW() WHERE user_id=$6 AND id=$7',
+    [parsed.name, parsed.workType, parsed.date, parsed.start, parsed.dur, userId, appointmentId]
+  ).then(function() {
+    return db.query('UPDATE appointment_google_links SET updated_at=NOW() WHERE user_id=$1 AND appointment_id=$2', [userId, appointmentId]);
+  });
+}
 function googleCalFetch(method, accessToken, path, body) {
   return fetch('https://www.googleapis.com/calendar/v3/' + path, {
     method: method,
@@ -1220,21 +1261,25 @@ function getValidAccessToken(conn) {
     ).then(function() { return accessToken; });
   });
 }
-// Sincroniza UN perfil: crea/actualiza en Google las citas nuevas o cambiadas, y borra en Google
-// las que ya no existen en Tattoo OS (comparando contra los links guardados - ver comentario de
-// appointment_google_links en la migración).
+// Sincroniza UN perfil en las DOS direcciones (Fase 2b):
+// - Citas de Tattoo OS sin link todavía -> se crean en Google (igual que la Fase 2a).
+// - Por cada link ya existente, se lee el evento real en Google y se compara CADA LADO contra
+//   link.updated_at (el instante del último sync con éxito de esa cita en concreto):
+//     · Solo cambió Tattoo OS  -> se empuja a Google (PATCH).
+//     · Solo cambió Google     -> se trae a Tattoo OS (pullGoogleEventIntoAppointment).
+//     · Cambiaron los dos      -> gana el más reciente ("last write wins", confirmado con el
+//       dueño) - se compara appointments.updated_at contra el `updated` que reporta la propia
+//       API de Google para ese evento.
+//     · El evento ya no existe en Google (404/410) o está cancelado -> se borra también la cita
+//       en Tattoo OS (confirmado con el dueño - antes solo se hacía en el sentido contrario).
+//     · La cita ya no existe en Tattoo OS pero el link seguía ahí -> se borra el evento en Google
+//       si aún existe (Fase 2a) y se limpia el link.
 //
-// "Pendiente de sincronizar" se decide POR CITA (¿tiene link ya? ¿su updated_at es más nuevo que
-// el updated_at del link?) - NO comparando contra un único reloj global (last_synced_at de la
-// conexión), que es como estaba antes y escondía un bug real ya visto en producción: si el POST a
-// Google fallaba para una cita (por lo que sea - cuota, red, lo que sea), el catch silencioso lo
-// tragaba pero last_synced_at avanzaba igual en el siguiente .then(), así que esa cita concreta
-// quedaba "perdida" para siempre - nunca más volvía a cumplir la condición "cambiada desde el
-// último sync" aunque jamás hubiera llegado a crearse en Google. Con el criterio por cita, una
-// que falla simplemente no actualiza su link.updated_at, así que el siguiente ciclo (cada 7 min,
-// o "Sincronizar ahora") la vuelve a intentar sola, sin tocar las que ya sí se sincronizaron bien.
-// last_synced_at en la conexión pasa a ser solo informativo (para el "última sincronización" que
-// se ve en Ajustes), no participa en la lógica de qué se sincroniza.
+// "Pendiente de sincronizar" se decide POR CITA, nunca con un reloj global único (bug real ya
+// visto en producción: un fallo puntual en una cita quedaba "perdida" para siempre si el reloj
+// global avanzaba igual). Una cita que falla simplemente no actualiza su link.updated_at, así que
+// el siguiente ciclo la reintenta sola. last_synced_at en la conexión es solo informativo (el
+// "última sincronización" que se ve en Ajustes), no participa en la lógica de qué se sincroniza.
 function syncProfileOutbound(userId, profileId) {
   return db.query('SELECT * FROM google_calendar_connections WHERE user_id=$1 AND profile_id=$2', [userId, profileId]).then(function(connRes) {
     if (!connRes.rows.length) return;
@@ -1247,39 +1292,65 @@ function syncProfileOutbound(userId, profileId) {
       ]).then(function(results) {
         var appts = results[0].rows;
         var links = results[1].rows;
-        var apptIdSet = {};
-        appts.forEach(function(a) { apptIdSet[String(a.id)] = true; });
+        var apptById = {};
+        appts.forEach(function(a) { apptById[String(a.id)] = a; });
         var linkByApptId = {};
         links.forEach(function(l) { linkByApptId[l.appointment_id] = l; });
 
-        var deleteOps = links.filter(function(l) { return !apptIdSet[l.appointment_id]; }).map(function(l) {
-          return googleCalFetch('DELETE', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events/' + encodeURIComponent(l.google_event_id))
-            .catch(function(e) { console.error('[GOOGLE CALENDAR] Error borrando evento de la cita', l.appointment_id, ':', e.message); })
-            .then(function() { return db.query('DELETE FROM appointment_google_links WHERE user_id=$1 AND appointment_id=$2', [userId, l.appointment_id]); });
+        // Un GET por link ya existente - se necesita de todas formas para saber si cambió en
+        // Google (no hay otra forma de enterarse sin webhooks/watch(), descartados por ahora).
+        var linkOps = links.map(function(l) {
+          var a = apptById[l.appointment_id];
+          return googleCalFetch('GET', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events/' + encodeURIComponent(l.google_event_id))
+            .then(function(ev) {
+              var goneInGoogle = !ev || ev.status === 'cancelled';
+
+              if (!a) {
+                // La cita ya no existe en Tattoo OS - si el evento sigue en Google, se borra ahí
+                // también (Fase 2a); si ya no está en ninguno de los dos lados, solo se limpia el link.
+                var cleanup = goneInGoogle
+                  ? Promise.resolve()
+                  : googleCalFetch('DELETE', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events/' + encodeURIComponent(l.google_event_id));
+                return cleanup.then(function() { return db.query('DELETE FROM appointment_google_links WHERE user_id=$1 AND appointment_id=$2', [userId, l.appointment_id]); });
+              }
+
+              if (goneInGoogle) {
+                // Se borró (o canceló) en Google -> se borra también en Tattoo OS.
+                return db.query('DELETE FROM appointments WHERE user_id=$1 AND id=$2', [userId, l.appointment_id])
+                  .then(function() { return db.query('DELETE FROM appointment_google_links WHERE user_id=$1 AND appointment_id=$2', [userId, l.appointment_id]); });
+              }
+
+              var localChanged = new Date(a.updated_at).getTime() > new Date(l.updated_at).getTime();
+              var googleChanged = new Date(ev.updated).getTime() > new Date(l.updated_at).getTime();
+              var pushToGoogle = function() {
+                return googleCalFetch('PATCH', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events/' + encodeURIComponent(l.google_event_id), buildGoogleEventBody(a))
+                  .then(function() { return db.query('UPDATE appointment_google_links SET updated_at=NOW() WHERE user_id=$1 AND appointment_id=$2', [userId, l.appointment_id]); });
+              };
+              var pullFromGoogle = function() { return pullGoogleEventIntoAppointment(userId, l.appointment_id, ev); };
+
+              if (localChanged && googleChanged) {
+                // Cambiaron los dos desde el último sync - gana el más reciente.
+                return (new Date(a.updated_at).getTime() >= new Date(ev.updated).getTime() ? pushToGoogle() : pullFromGoogle());
+              }
+              if (localChanged) return pushToGoogle();
+              if (googleChanged) return pullFromGoogle();
+              return null; // nada cambió por ningún lado
+            })
+            .catch(function(e) { console.error('[GOOGLE CALENDAR] Error sincronizando cita', l.appointment_id, ':', e.message); });
         });
 
-        var pending = appts.filter(function(a) {
-          var link = linkByApptId[String(a.id)];
-          if (!link) return true;
-          return new Date(a.updated_at).getTime() > new Date(link.updated_at).getTime();
-        });
-        var upsertOps = pending.map(function(a) {
-          var link = linkByApptId[String(a.id)];
-          var body = buildGoogleEventBody(a);
-          var op = link
-            ? googleCalFetch('PATCH', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events/' + encodeURIComponent(link.google_event_id), body)
-                .then(function() { return db.query('UPDATE appointment_google_links SET updated_at=NOW() WHERE user_id=$1 AND appointment_id=$2', [userId, String(a.id)]); })
-            : googleCalFetch('POST', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events', body).then(function(ev) {
-                if (!ev) return;
-                return db.query(
-                  'INSERT INTO appointment_google_links (user_id,appointment_id,profile_id,google_event_id) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, appointment_id) DO UPDATE SET google_event_id=$4,profile_id=$3,updated_at=NOW()',
-                  [userId, String(a.id), profileId, ev.id]
-                );
-              });
-          return op.catch(function(e) { console.error('[GOOGLE CALENDAR] Error sincronizando cita', a.id, ':', e.message); });
+        // Citas nuevas en Tattoo OS que todavía no tienen link -> crear en Google.
+        var createOps = appts.filter(function(a) { return !linkByApptId[String(a.id)]; }).map(function(a) {
+          return googleCalFetch('POST', accessToken, 'calendars/' + encodeURIComponent(calendarId) + '/events', buildGoogleEventBody(a)).then(function(ev) {
+            if (!ev) return;
+            return db.query(
+              'INSERT INTO appointment_google_links (user_id,appointment_id,profile_id,google_event_id) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, appointment_id) DO UPDATE SET google_event_id=$4,profile_id=$3,updated_at=NOW()',
+              [userId, String(a.id), profileId, ev.id]
+            );
+          }).catch(function(e) { console.error('[GOOGLE CALENDAR] Error creando evento para cita', a.id, ':', e.message); });
         });
 
-        return Promise.all(deleteOps.concat(upsertOps));
+        return Promise.all(linkOps.concat(createOps));
       });
     }).then(function() {
       return db.query('UPDATE google_calendar_connections SET last_synced_at=NOW() WHERE user_id=$1 AND profile_id=$2', [userId, profileId]);
