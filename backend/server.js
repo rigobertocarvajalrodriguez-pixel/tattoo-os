@@ -2290,12 +2290,22 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
           return db.query('SELECT status FROM appointments WHERE id=$1 AND user_id=$2', [apptId, userId]).then(function(prev) {
             var oldStatus = prev.rows.length ? prev.rows[0].status : null;
             return db.query(
-              // updated_at=NOW() en ambas ramas (Fase 2a, sync con Google Calendar): es la única
-              // forma de saber qué citas cambiaron desde el último sync sin comparar filas
-              // enteras. Se pone incondicionalmente en cada upsert, cambie o no el contenido -
-              // en el peor caso el sincronizador reenvía una cita sin cambios reales de más, que
-              // es un PATCH idempotente y barato, no un problema de corrección.
-              'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()) ON CONFLICT (user_id, id) DO UPDATE SET name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18,updated_at=NOW()',
+              // updated_at (Fase 2a/2b, sync con Google Calendar) es la única forma de saber qué
+              // citas cambiaron desde el último sync sin comparar filas enteras a mano - pero
+              // NO puede ponerse incondicionalmente en cada upsert como se hizo al principio: el
+              // autoguardado del frontend llama a este mismo endpoint cada 30s mientras la app
+              // está abierta (ver el setInterval de saveUserProfiles), así que "incondicional"
+              // significaba en la práctica "casi todo el rato" - eso rompía de verdad la Fase 2b
+              // (comprobado en producción): una edición hecha directamente en Google Calendar se
+              // sobrescribía sola en el siguiente ciclo porque Tattoo OS SIEMPRE parecía "más
+              // reciente" aunque nadie hubiera tocado nada. Con IS DISTINCT FROM (comparación
+              // NULL-safe de toda la fila vieja contra la nueva) solo avanza si algo cambió de
+              // verdad - un autoguardado sin cambios reales dentro de esos 30s ya no cuenta.
+              'INSERT INTO appointments (id,profile_id,user_id,name,date,start,dur,color,status,price,deposit,work_type,notes,artist_id,deposit_method,balance_method,balance_paid,balance_paid_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()) ON CONFLICT (user_id, id) DO UPDATE SET ' +
+              'name=$4,date=$5,start=$6,dur=$7,color=$8,status=$9,price=$10,deposit=$11,work_type=$12,notes=$13,artist_id=$14,deposit_method=$15,balance_method=$16,balance_paid=$17,balance_paid_at=$18,' +
+              'updated_at = CASE WHEN (appointments.name,appointments.date,appointments.start,appointments.dur,appointments.color,appointments.status,appointments.price,appointments.deposit,appointments.work_type,appointments.notes,appointments.artist_id,appointments.deposit_method,appointments.balance_method,appointments.balance_paid,appointments.balance_paid_at) ' +
+              'IS DISTINCT FROM (EXCLUDED.name,EXCLUDED.date,EXCLUDED.start,EXCLUDED.dur,EXCLUDED.color,EXCLUDED.status,EXCLUDED.price,EXCLUDED.deposit,EXCLUDED.work_type,EXCLUDED.notes,EXCLUDED.artist_id,EXCLUDED.deposit_method,EXCLUDED.balance_method,EXCLUDED.balance_paid,EXCLUDED.balance_paid_at) ' +
+              'THEN NOW() ELSE appointments.updated_at END',
               [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
             ).then(function() {
               // El seguimiento se dispara al pasar a 'completed' (decisión final del dueño: usa
