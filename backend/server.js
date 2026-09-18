@@ -862,6 +862,11 @@ app.get('/app', function(req, res) {
 // login/registro vive dentro de app.html (pestañas), esto solo abre en la pestaña correcta.
 app.get('/login', function(req, res) { res.redirect('/app'); });
 app.get('/register', function(req, res) { res.redirect('/app?auth=register'); });
+// URL limpia para la Política de Privacidad (frontend/privacy.html, servido también tal cual por
+// express.static) - necesaria como enlace público antes de poder verificar la app ante Google.
+app.get('/privacidad', function(req, res) {
+  res.sendFile(path.join(__dirname, '..', 'frontend', 'privacy.html'));
+});
 
 // Iconos PWA generados server-side como SVG → PNG equivalente
 app.get('/icon-:size.png', function(req, res) {
