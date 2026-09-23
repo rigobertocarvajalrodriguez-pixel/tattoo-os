@@ -3280,7 +3280,11 @@ app.get('/api/team-messages', authMiddleware, function(req, res) {
 // Enviar mensaje: se guarda y se retransmite en vivo a todo el que esté conectado a esta cuenta
 app.post('/api/team-messages', authMiddleware, function(req, res) {
   var content = (req.body.content || '').trim();
-  var profileId = req.body.profile_id;
+  // Menor que los demás hallazgos de esta revisión (no hay fuga de datos, solo suplantación
+  // dentro del propio chat del estudio) pero mismo patrón: profile_id venía del payload sin
+  // comprobar que fuera realmente el del que llama - un artista podía mandar un mensaje
+  // firmado como si fuera otro perfil. En sesión de artista se fuerza a su propio profileId.
+  var profileId = (req.user.accessRole === 'artist' && req.user.profileId != null) ? req.user.profileId : req.body.profile_id;
   if (!content) return res.status(400).json({ error: 'Mensaje vacío' });
   if (!profileId) return res.status(400).json({ error: 'Falta profile_id' });
   var msg = { id: crypto.randomUUID(), user_id: req.userId, profile_id: profileId, content: content, created_at: new Date().toISOString() };
