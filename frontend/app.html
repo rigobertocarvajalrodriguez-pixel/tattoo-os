@@ -3934,14 +3934,33 @@ function renderFinance(){
   initFinanceReportBar(isOwner);
   const yi=monthlyData.reduce((s,m)=>s+m.income,0);
   if(isOwner){
-    const ti=appts.reduce((s,a)=>s+a.price,0),te=expenses.reduce((s,e)=>s+e.amount,0);
+    // Antes esta tarjeta calculaba "ingresos/gastos mensuales" sumando TODOS los appts/expenses
+    // sin filtrar por mes ni por estado (contaba como ingreso hasta una cita pendiente sin
+    // cobrar), con deltas "+12%/+3%/+18%" escritos a mano que nunca reflejaron nada real, y
+    // "Completadas" con un +47 de relleno de cuando la cuenta estaba vacía en desarrollo -
+    // encontrado en la revisión pre-lanzamiento, antes de que el dueño empezara a usar cifras
+    // reales para decisiones de negocio. Ahora reutiliza monthlyData (ya filtrado por
+    // status==='completed' y por mes/año, es la misma fuente que alimenta la tabla de abajo y
+    // el informe descargable) y calcula el delta de verdad contra el mes anterior.
+    const isThisMonth=d=>d&&(()=>{const dt=parseDate(d);return dt.getFullYear()===TODAY.getFullYear()&&dt.getMonth()===TODAY.getMonth()})();
+    const curM=monthlyData[TODAY.getMonth()]||{income:0,exp:0};
+    const prevM=TODAY.getMonth()>0?monthlyData[TODAY.getMonth()-1]:null;
+    const ti=curM.income, te=curM.exp;
+    const pctDelta=(curr,prev)=>prev>0?Math.round((curr-prev)/prev*100):(curr>0?100:0);
+    const deltaHtml=(curr,prev)=>{
+      if(prev===null) return '';
+      const d=pctDelta(curr,prev);
+      return `<div class="fdelta ${d>=0?'fp':'fn'}">${d>=0?'+':''}${d}% vs mes anterior</div>`;
+    };
+    const completedThisMonth=appts.filter(a=>a.status==='completed'&&isThisMonth(a.date));
+    const depositsThisMonth=appts.filter(a=>isThisMonth(a.date)).reduce((s,a)=>s+(a.deposit||0),0);
     document.getElementById('fin-grid').innerHTML=`
-      <div class="fc fv"><div class="flbl">${t('income')} mensual</div><div class="fval">€${ti.toLocaleString()}</div><div class="fdelta fp"> +12%</div></div>
-      <div class="fc fr"><div class="flbl">${t('expenses')} mensual</div><div class="fval">€${te.toLocaleString()}</div><div class="fdelta fn">+3%</div></div>
-      <div class="fc fcy"><div class="flbl">Beneficio neto</div><div class="fval">€${(ti-te).toLocaleString()}</div><div class="fdelta fp"> +18%</div></div>
-      <div class="fc fg"><div class="flbl">Señales</div><div class="fval">€${appts.reduce((s,a)=>s+a.deposit,0)}</div></div>
+      <div class="fc fv"><div class="flbl">${t('income')} mensual</div><div class="fval">€${ti.toLocaleString()}</div>${deltaHtml(ti,prevM?prevM.income:null)}</div>
+      <div class="fc fr"><div class="flbl">${t('expenses')} mensual</div><div class="fval">€${te.toLocaleString()}</div>${deltaHtml(te,prevM?prevM.exp:null)}</div>
+      <div class="fc fcy"><div class="flbl">Beneficio neto</div><div class="fval">€${(ti-te).toLocaleString()}</div>${deltaHtml(ti-te,prevM?(prevM.income-prevM.exp):null)}</div>
+      <div class="fc fg"><div class="flbl">Señales este mes</div><div class="fval">€${depositsThisMonth.toLocaleString()}</div></div>
       <div class="fc fa"><div class="flbl">Ingresos anuales</div><div class="fval">€${yi.toLocaleString()}</div><div class="fdelta fp"> proyección</div></div>
-      <div class="fc fg"><div class="flbl">Completadas</div><div class="fval">${appts.filter(a=>a.status==='completed').length+47}</div></div>`;
+      <div class="fc fg"><div class="flbl">Completadas este mes</div><div class="fval">${completedThisMonth.length}</div></div>`;
   } else {
     // Fase 3 - finanzas por rol: nada de "beneficio neto" de estudio ni facturación bruta
     // disfrazada de ingreso propio - a un artista le importa cuánto ha facturado y cuánto le
