@@ -2261,7 +2261,8 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
   // frontend ya se autolimita (saveUserProfiles solo manda su propio perfil cuando el activo
   // no es owner), pero eso es convención de cliente, no seguridad real - el servidor filtra
   // aquí de nuevo por si el payload trajera algo más.
-  if (req.user.accessRole === 'artist' && req.user.profileId != null) {
+  var isOwnerSession = !(req.user.accessRole === 'artist' && req.user.profileId != null);
+  if (!isOwnerSession) {
     profilesData = profilesData.filter(function(p) { return p.id === req.user.profileId; });
     if (!profilesData.length) return res.json({ ok: true });
   }
@@ -2291,10 +2292,28 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
 
     var ops = profilesData.map(function(p) {
       return db.query(
-        'INSERT INTO profiles (id,user_id,name,role,color,commission_pct,is_admin_profile,wa_settings,studio_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (user_id, id) DO UPDATE SET name=$3,role=$4,color=$5,commission_pct=$6,is_admin_profile=$7,wa_settings=$8,studio_name=$9',
-        [p.id, userId, p.name||'', p.role||'', p.color||'v', typeof p.commissionPct==='number'?p.commissionPct:50, p.id === adminId, p.waSettings ? JSON.stringify(p.waSettings) : null, p.studioName||'']
+        // commission_pct es el % que ESE perfil se lleva de cada tatuaje suyo - una cifra de
+        // negocio que decide el dueño, no el propio artista. Encontrado en la revisión: como un
+        // artista SÍ puede sincronizar su propio perfil (para nombre/color/ajustes de WhatsApp),
+        // y este único UPSERT escribía commission_pct sin mirar quién llamaba, un artista podía
+        // subirse su propia comisión al 100% con una petición manual - la UI ya lo impide (el
+        // campo de comisión solo es editable para el dueño en Ajustes) pero el servidor no lo
+        // exigía de verdad. Con el CASE, en una sesión de artista se ignora lo que venga en el
+        // payload y se conserva el valor que ya hubiera en la BD; solo el dueño puede cambiarlo.
+        'INSERT INTO profiles (id,user_id,name,role,color,commission_pct,is_admin_profile,wa_settings,studio_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (user_id, id) DO UPDATE SET name=$3,role=$4,color=$5,is_admin_profile=$7,wa_settings=$8,studio_name=$9,' +
+        'commission_pct = CASE WHEN $10 THEN $6 ELSE profiles.commission_pct END',
+        [p.id, userId, p.name||'', p.role||'', p.color||'v', typeof p.commissionPct==='number'?p.commissionPct:50, p.id === adminId, p.waSettings ? JSON.stringify(p.waSettings) : null, p.studioName||'', isOwnerSession]
       ).then(function() {
         var apptOps = (p.appts||[]).map(function(a) {
+          // Mismo hueco que el de los PINs (ver /api/my-profiles/passwords más abajo), aplicado
+          // aquí también: el filtro de arriba (profilesData.filter) ya impide que un artista
+          // escriba en el LIBRO de otro perfil, pero no impedía que, dentro de su propio libro,
+          // mandara un artist_id ajeno - eso decide a quién se le atribuye la comisión
+          // (renderArtistsFinance/finance/reports/settlements), así que sin este filtro un
+          // artista podía inflar o desviar la comisión de otro con una petición manual (la UI ya
+          // no lo permite - el selector de artista solo aparece para el dueño - pero el servidor
+          // no lo estaba exigiendo de verdad).
+          var forcedArtistId = (req.user.accessRole === 'artist' && req.user.profileId != null) ? req.user.profileId : (a.artistId || p.id);
           var apptId = a.id !== undefined && a.id !== null ? String(a.id) : crypto.randomUUID();
           return db.query('SELECT status FROM appointments WHERE id=$1 AND user_id=$2', [apptId, userId]).then(function(prev) {
             var oldStatus = prev.rows.length ? prev.rows[0].status : null;
@@ -2315,7 +2334,7 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
               'updated_at = CASE WHEN (appointments.name,appointments.date,appointments.start,appointments.dur,appointments.color,appointments.status,appointments.price,appointments.deposit,appointments.work_type,appointments.notes,appointments.artist_id,appointments.deposit_method,appointments.balance_method,appointments.balance_paid,appointments.balance_paid_at) ' +
               'IS DISTINCT FROM (EXCLUDED.name,EXCLUDED.date,EXCLUDED.start,EXCLUDED.dur,EXCLUDED.color,EXCLUDED.status,EXCLUDED.price,EXCLUDED.deposit,EXCLUDED.work_type,EXCLUDED.notes,EXCLUDED.artist_id,EXCLUDED.deposit_method,EXCLUDED.balance_method,EXCLUDED.balance_paid,EXCLUDED.balance_paid_at) ' +
               'THEN NOW() ELSE appointments.updated_at END',
-              [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', a.artistId||p.id, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
+              [apptId, p.id, userId, a.name||'', a.date||'', a.start||10, a.dur||2, a.color||'v', a.status||'pending', a.price||0, a.deposit||0, a.workType||a.type||'', a.notes||a.note||'', forcedArtistId, a.depositMethod||'', a.balanceMethod||'', !!a.balancePaid, a.balancePaidDate||null]
             ).then(function() {
               // El seguimiento se dispara al pasar a 'completed' (decisión final del dueño: usa
               // "Completada" específicamente para marcar la sesión terminada - se probó también
