@@ -1562,6 +1562,10 @@ app.get('/api/auth/me', function(req, res) {
 // Cambio de plan (Fase 1: sin cobro real todavía, igual que el selector cosmético anterior,
 // pero ahora el valor queda en BD y de verdad limita cuántos perfiles caben - ver /api/profile/sync).
 app.post('/api/user/plan', authMiddleware, function(req, res) {
+  // Encontrado en la misma revisión: cambiar el plan de la cuenta es una decisión del estudio
+  // (afecta a cuántos perfiles caben, y es donde vivirá la facturación real el día que la haya),
+  // no algo que un artista deba poder tocar sobre la cuenta de su dueño.
+  if (!requireOwnerSession(req, res)) return;
   var plan = req.body.plan;
   if (['independiente', 'estudio', 'estudio_pro'].indexOf(plan) === -1) {
     return res.status(400).json({ error: 'Plan inválido' });
@@ -2752,6 +2756,14 @@ app.get('/api/profile/:id/data', authMiddleware, function(req, res) {
 // separado del panel de super-admin de la plataforma (adminMiddleware) - esto solo expone
 // los perfiles de la propia cuenta autenticada, nunca los de otras cuentas/estudios.
 app.get('/api/my-profiles/passwords', authMiddleware, function(req, res) {
+  // Fallo real de seguridad encontrado en revisión pre-lanzamiento: esta ruta filtraba solo por
+  // user_id (la cuenta del estudio, compartida por todos sus perfiles/artistas) sin comprobar el
+  // rol de la sesión - cualquier artista (perfil desbloqueado por PIN, o con login independiente
+  // por invitación) podía llamarla directamente y recibir el PIN en texto plano de TODOS los
+  // demás perfiles del estudio, dueño incluido. El comentario de arriba ya decía "a pedido
+  // explícito del dueño" - la intención siempre fue que fuera solo para él, solo faltaba
+  // aplicarlo de verdad (mismo guard que ya usa /api/studio/artists).
+  if (!requireOwnerSession(req, res)) return;
   db.query('SELECT id, name, role, password_hash, password_plain, is_admin_profile FROM profiles WHERE user_id=$1 ORDER BY id ASC', [req.userId])
     .then(function(r) {
       res.json({ profiles: r.rows.map(function(p) {
@@ -2792,6 +2804,11 @@ app.delete('/api/profile/:id', authMiddleware, function(req, res) {
 });
 
 app.post('/api/my-profiles/:id/reset-password', authMiddleware, function(req, res) {
+  // Mismo fallo de seguridad que /api/my-profiles/passwords (ver comentario ahí, encontrado en
+  // la misma revisión) pero más grave por ser de escritura: sin este guard, CUALQUIER artista
+  // del estudio podía resetear el PIN de CUALQUIER otro perfil - incluido el del dueño - y con
+  // eso entrar como Administrador y ver/hacer todo. Solo el dueño puede resetear PINs ajenos.
+  if (!requireOwnerSession(req, res)) return;
   var profileId = parseInt(req.params.id, 10);
   var newPassword = req.body.newPassword || '';
   if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
