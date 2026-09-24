@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07070f">
+<meta name="robots" content="noindex">
+<title>Página no encontrada — Tattoo OS</title>
+<link rel="icon" href="/assets/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,700&display=swap" rel="stylesheet">
+<style>
+:root{--base:#07070f;--t1:#ededf5;--t2:#9c9cb2;--vl:#a78bfa;--vd:rgba(124,92,252,.12);--cta:#6b46f0;--cta-hover:#5b37e0}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;
+  background:radial-gradient(560px 320px at 50% 0%,var(--vd),transparent 60%),var(--base);
+  color:var(--t1);font-family:'DM Sans',-apple-system,sans-serif;padding:24px;
+  -webkit-font-smoothing:antialiased;
+}
+.code{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(64px,16vw,112px);line-height:1;color:var(--vl)}
+h1{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(22px,5vw,30px);margin:14px 0 10px;letter-spacing:-.02em}
+p{color:var(--t2);font-size:16px;line-height:1.6;max-width:42ch;margin:0 auto 28px}
+.row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+a.btn{display:inline-flex;align-items:center;border-radius:999px;padding:12px 22px;font-weight:700;font-size:14.5px;text-decoration:none}
+a.primary{background:var(--cta);color:#fff}
+a.primary:hover{background:var(--cta-hover)}
+a.ghost{color:var(--t1);border:1px solid rgba(255,255,255,.35)}
+a:focus-visible{outline:3px solid var(--vl);outline-offset:3px}
+</style>
+</head>
+<body>
+<main>
+  <div class="code">404</div>
+  <h1>Esta página no existe</h1>
+  <p>Puede que el enlace esté mal escrito o que la página se haya movido.</p>
+  <div class="row">
+    <a class="btn primary" href="/">Ir al inicio</a>
+    <a class="btn ghost" href="/app">Abrir la app</a>
+  </div>
+</main>
+</body>
+</html>

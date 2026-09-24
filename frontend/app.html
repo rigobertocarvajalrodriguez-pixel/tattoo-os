@@ -2252,9 +2252,6 @@ body:not(.concrete) #aiw-send:active{box-shadow:var(--sh-in)}
         <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.63h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.57-5.17 3.57-8.81z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.95-2.92l-3.88-3c-1.07.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54v-3.1H1.27a12 12 0 0 0 0 10.74z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.27 6.63l4 3.1C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
         Continuar con Google
       </a>
-      <button class="magic-btn" onclick="doMagicLink()">
-        <span>✨</span> Magic Link por email
-      </button>
       <div class="login-footer">¿No tienes cuenta? <a onclick="setLoginTab('register')">Regístrate gratis</a></div>
       <div class="login-footer" style="margin-top:6px"><a onclick="doForgotPassword()">¿Olvidaste tu contraseña?</a></div>
       <div class="login-footer" style="margin-top:6px"><a href="/privacidad" target="_blank" rel="noopener">Política de Privacidad</a></div>
@@ -2991,12 +2988,18 @@ function removeAppt(id){
   // próxima vez que haya red, pero nunca "revive" la cita porque el sync normal no la reinserta.
   if(_authToken) fetch(API_BASE+'/api/appointments/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+_authToken}}).catch(function(){});
 }
+// Borrado real en el servidor para todo lo que no son citas (mismo motivo que removeAppt):
+// /api/my-data recarga desde la BD al iniciar sesión, así que sin esto lo borrado reaparecería.
+function deleteOnServer(kind,id){
+  if(_authToken && !_supportSession) fetch(API_BASE+'/api/data/'+kind+'/'+encodeURIComponent(id),{method:'DELETE',headers:{'Authorization':'Bearer '+_authToken}}).catch(function(){});
+}
 function addClient(c){ ap().clients.push(c); clients.push(c); clientOwner.set(c.id, ap()); }
 function removeClient(id){
   const owner=clientOwner.get(id);
   if(owner) owner.clients=owner.clients.filter(function(x){return x.id!==id});
   clients=clients.filter(function(x){return x.id!==id});
   clientOwner.delete(id);
+  deleteOnServer('clients',id);
 }
 function addExpense(e){ ap().expenses.push(e); expenses.push(e); expenseOwner.set(e.id, ap()); }
 function removeExpense(id){
@@ -3004,6 +3007,7 @@ function removeExpense(id){
   if(owner) owner.expenses=owner.expenses.filter(function(x){return x.id!==id});
   expenses=expenses.filter(function(x){return x.id!==id});
   expenseOwner.delete(id);
+  deleteOnServer('expenses',id);
 }
 function addProject(pr){ ap().projects.push(pr); projects.push(pr); projectOwner.set(pr.id, ap()); }
 function removeProject(id){
@@ -3011,6 +3015,7 @@ function removeProject(id){
   if(owner) owner.projects=owner.projects.filter(function(x){return x.id!==id});
   projects=projects.filter(function(x){return x.id!==id});
   projectOwner.delete(id);
+  deleteOnServer('projects',id);
 }
 function addConsent(cs){ ap().consents.push(cs); consents.push(cs); consentOwner.set(cs.id, ap()); }
 function removeConsent(id){
@@ -3018,6 +3023,7 @@ function removeConsent(id){
   if(owner) owner.consents=owner.consents.filter(function(x){return x.id!==id});
   consents=consents.filter(function(x){return x.id!==id});
   consentOwner.delete(id);
+  deleteOnServer('consents',id);
 }
 function addDocFile(df){ ap().docFiles.push(df); docFiles.push(df); docFileOwner.set(df.id, ap()); }
 function removeDocFile(id){
@@ -3025,6 +3031,7 @@ function removeDocFile(id){
   if(owner) owner.docFiles=owner.docFiles.filter(function(x){return x.id!==id});
   docFiles=docFiles.filter(function(x){return x.id!==id});
   docFileOwner.delete(id);
+  deleteOnServer('doc-files',id);
 }
 function refreshProfileData(){
   rebuildMergedStore();
@@ -4481,7 +4488,7 @@ function savePosSale(){
   saveUserProfiles();
   closeModal();renderPosSales();showToast('Venta registrada');
 }
-function deletePosSale(id){posSales=posSales.filter(s=>s.id!==id);saveUserProfiles();renderPosSales();showToast('Venta eliminada')}
+function deletePosSale(id){posSales=posSales.filter(s=>s.id!==id);deleteOnServer('pos-sales',id);saveUserProfiles();renderPosSales();showToast('Venta eliminada')}
 
 // ==========================================
 // LIQUIDACIONES (vista previa local — Fase D)
@@ -6594,8 +6601,9 @@ function doRegister() {
   var errEl = document.getElementById('reg-err');
   clearLoginErrors();
   if (!name || !email || !pass) { errEl.textContent = 'Rellena todos los campos'; errEl.classList.add('show'); return; }
-  if (pass.length < 8) { errEl.textContent = 'Contrasena minimo 8 caracteres'; errEl.classList.add('show'); return; }
-  if (pass !== pass2) { errEl.textContent = 'Las contrasenas no coinciden'; errEl.classList.add('show'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { errEl.textContent = 'Email no válido'; errEl.classList.add('show'); return; }
+  if (pass.length < 8) { errEl.textContent = 'Contraseña mínimo 8 caracteres'; errEl.classList.add('show'); return; }
+  if (pass !== pass2) { errEl.textContent = 'Las contraseñas no coinciden'; errEl.classList.add('show'); return; }
 
   setLoginTab('post-register');
   showPostRegisterLoading();
@@ -6649,25 +6657,6 @@ function goToLoginFromPostRegister() {
   if (passInp) passInp.focus();
 }
 
-function doMagicLink() {
-  const email = document.getElementById('l-email').value.trim().toLowerCase();
-  if (!email) {
-    const errEl = document.getElementById('login-err');
-    errEl.textContent = 'Introduce tu email primero'; errEl.classList.add('show'); return;
-  }
-  document.getElementById('magic-email-shown').textContent = email;
-  setLoginTab('magic');
-  // Demo: auto-login after 2s if account exists, else create one
-  setTimeout(() => {
-    const users = getUsers();
-    let user = users.find(u => u.email === email);
-    if (!user) {
-      user = { id: 'u_' + Date.now(), email, name: email.split('@')[0], passHash: '', createdAt: new Date().toISOString() };
-      users.push(user); saveUsers(users);
-    }
-    loginSuccess(user);
-  }, 2000);
-}
 
 function doForgotPassword() { setLoginTab('forgot'); }
 
@@ -7500,6 +7489,7 @@ function loginSuccess(user) {
     fetch(API_BASE+'/api/profile/sync', { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+_authToken},
       body: JSON.stringify({ email: user.email, name: user.name }) }).catch(function(){});
   }
+  hydrateFromServer();
 }
 
 // Login independiente de un artista invitado (Fase 2 - ver loginAsInvitedArtist/accept-invite
@@ -7723,9 +7713,11 @@ function loadUserProfiles(user) {
   // In production: fetch from Supabase with user.id filter (RLS)
   // Here: load from localStorage keyed by user.id
   const key = 'tos_profiles_' + user.id;
+  _profilesFromCache = false;
   try {
     const saved = JSON.parse(lsGet(key) || 'null');
     if (saved && saved.length) {
+      _profilesFromCache = true;
       profiles = saved;
       activeProfileId = profiles[0].id;
       reseedIdCounters();
@@ -7775,9 +7767,93 @@ function saveUserProfiles() {
   }
   lsSet('tos_possales_' + currentUser.id, JSON.stringify(posSales));
   // Sync to server so admin can access this user's data
-  if (_authToken) {
+  if (_authToken && !_hydrating) {
     fetch(API_BASE+'/api/profile/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken }, body: JSON.stringify({ profiles: profilesToSync, posSales: posSales }) }).catch(function() {});
   }
+}
+
+// localStorage es solo una caché: la fuente de verdad es el servidor. Al iniciar sesión el dueño
+// descarga su cuenta (/api/my-data) y se combina con lo que hubiera en este navegador - así un
+// dispositivo nuevo o un navegador borrado ya no arrancan con la app vacía. Reglas de la mezcla:
+//  - Elementos que están en ambos lados: ganan los campos del servidor, pero se conservan los
+//    campos que el servidor no guarda (sessions/spent de clientes, etc.).
+//  - Elementos solo locales: se conservan (pueden ser cambios aún sin sincronizar).
+//  - Si el navegador no tenía nada guardado, se usan los perfiles del servidor tal cual.
+var _profilesFromCache = false;
+function normalizeServerId(id){ return (typeof id==='string' && /^\d+$/.test(id)) ? Number(id) : id; }
+function mergeById(localArr, serverArr, normalize){
+  var localById = new Map((localArr||[]).map(function(x){ return [String(x.id), x]; }));
+  var seen = new Set();
+  var out = (serverArr||[]).map(function(s){
+    var n = normalize(Object.assign({}, s));
+    n.id = normalizeServerId(n.id);
+    seen.add(String(n.id));
+    return Object.assign({}, localById.get(String(n.id)) || {}, n);
+  });
+  (localArr||[]).forEach(function(x){ if(!seen.has(String(x.id))) out.push(x); });
+  return out;
+}
+function stripDbCols(o){ delete o.user_id; delete o.profile_id; delete o.created_at; delete o.updated_at; return o; }
+var SERVER_NORMALIZERS = {
+  appts: function(a){ if(a.type==null) a.type=a.workType||''; if(a.note==null) a.note=a.notes||''; return a; },
+  clients: function(c){ stripDbCols(c); if(c.ig==null) c.ig=c.instagram||''; delete c.instagram; return c; },
+  expenses: function(e){ return e; },
+  projects: function(p){ return stripDbCols(p); },
+  consents: function(c){ return c; },
+  docFiles: function(d){ return stripDbCols(d); }
+};
+// Mientras llega /api/my-data, saveUserProfiles no sube nada: en un dispositivo nuevo lo que hay
+// en memoria es un perfil vacío por defecto, y subirlo pisaría nombre/estudio/ajustes buenos.
+var _hydrating = false;
+function hydrateFromServer() {
+  if (!_authToken || _supportSession || !currentUser) return;
+  var userId = currentUser.id;
+  _hydrating = true;
+  fetch(API_BASE + '/api/my-data', { headers: { 'Authorization': 'Bearer ' + _authToken } })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      _hydrating = false;
+      if (!data || !currentUser || currentUser.id !== userId) return;
+      var serverProfiles = data.profiles || [];
+      if (serverProfiles.length) {
+        var localById = new Map((_profilesFromCache ? profiles : []).map(function(p){ return [p.id, p]; }));
+        var merged = serverProfiles.map(function(sp) {
+          var lp = localById.get(sp.id);
+          var base = lp || {
+            id: sp.id, name: sp.name, role: sp.role, color: sp.color || 'v', isAdminProfile: sp.isAdminProfile,
+            commissionPct: sp.commissionPct, studioName: sp.studioName, waSettings: sp.waSettings || null,
+            activityLog: []
+          };
+          Object.keys(SERVER_NORMALIZERS).forEach(function(k) { base[k] = mergeById(lp && lp[k], sp[k], SERVER_NORMALIZERS[k]); });
+          if (!base.docTemplates || !base.docTemplates.length) base.docTemplates = sp.docTemplates && sp.docTemplates.length ? sp.docTemplates : base.docTemplates;
+          base.waMessages = Object.assign({}, sp.waMessages || {}, (lp && lp.waMessages) || {});
+          return base;
+        });
+        // Perfiles que solo existen en este navegador (aún sin sincronizar): se mantienen.
+        if (_profilesFromCache) profiles.forEach(function(p) { if (!serverProfiles.some(function(sp){ return sp.id === p.id; })) merged.push(p); });
+        profiles = merged;
+        if (!profiles.some(function(p){ return p.id === activeProfileId; })) activeProfileId = profiles[0].id;
+      }
+      posSales = mergeById(posSales, data.posSales || [], function(s){ return s; });
+      _profilesFromCache = true;
+      lsSet('tos_profiles_' + userId, JSON.stringify(profiles));
+      lsSet('tos_possales_' + userId, JSON.stringify(posSales));
+      reseedIdCounters();
+      refreshProfileData();
+      try { buildCalView(); buildMiniCal(); buildRP(); updateTopbar(); renderUserArea(); } catch(e) {}
+      var activePage = document.querySelector('.page.on');
+      if (activePage) {
+        var pid = activePage.id.replace('page-', '');
+        try {
+          if (pid === 'clients') renderClients();
+          if (pid === 'finance') renderFinance();
+          if (pid === 'expenses') renderExpenses();
+          if (pid === 'projects') renderProjects();
+          if (pid === 'docs') renderDocs();
+        } catch(e) {}
+      }
+    })
+    .catch(function() { _hydrating = false; /* sin red: se sigue con la caché local, como antes */ });
 }
 
 function doLogout() {

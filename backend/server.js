@@ -634,6 +634,28 @@ Promise.all([
   console.log('[DB] Migración de seguimiento por email aplicada');
 }).catch(function(e) { console.error('[DB] Error en migración de seguimiento por email:', e.message); });
 
+// Seguridad: RLS activado en todas las tablas de "public". La BD vive en Supabase, que expone
+// automáticamente cada tabla por su API REST a quien tenga la clave "anon" - y esa clave estuvo
+// publicada en el historial del repo. Sin RLS, esa clave bastaba para leer usuarios, clientes y
+// consentimientos. RLS sin políticas = la API REST no ve nada; este servidor no se ve afectado
+// porque se conecta como dueño de las tablas (el dueño se salta RLS salvo con FORCE). Solo se
+// tocan tablas cuyo dueño es el usuario actual, así nunca nos quitamos acceso a nosotros mismos.
+// Con retraso para ejecutarse después de los CREATE TABLE del arranque; es idempotente.
+setTimeout(function() {
+  db.query(`DO $$
+    DECLARE r record;
+    BEGIN
+      FOR r IN SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity
+                 AND pg_get_userbyid(c.relowner) = current_user
+      LOOP
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', r.relname);
+      END LOOP;
+    END $$`)
+    .then(function() { console.log('[DB] RLS activado en las tablas públicas'); })
+    .catch(function(e) { console.error('[DB] Error activando RLS:', e.message); });
+}, 20000);
+
 // Recuperar contraseña por email: el frontend ya tenía un formulario "¿Olvidaste tu
 // contraseña?" (pestaña "forgot" del login) pero era un stub visual que no llamaba a ningún
 // sitio - ver sendForgot() en el frontend, ahora conectado de verdad. reset_token es de un solo
@@ -825,6 +847,28 @@ app.use(function(req, res, next) {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
   next();
+});
+// Toda la API con Cache-Control: no-store. El proxy/CDN de Hostinger cachea por ruta ignorando
+// la query string (ver /api/calendar/google/callback); una respuesta con datos de un usuario
+// cacheada se serviría a cualquier otro. Hasta ahora solo lo llevaban los callbacks OAuth.
+app.use('/api', function(req, res, next) {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+// Simulador de iPhone para desarrollo: no se publica en producción.
+app.get('/_mobile-test.html', function(req, res, next) {
+  if (process.env.NODE_ENV === 'production') return res.status(404).sendFile(path.join(__dirname, '..', 'frontend', '404.html'));
+  next();
+});
+app.get('/robots.txt', function(req, res) {
+  res.type('text/plain').send('User-agent: *\nAllow: /\nDisallow: /app\nDisallow: /api/\n\nSitemap: https://tattoo-os.es/sitemap.xml\n');
+});
+app.get('/sitemap.xml', function(req, res) {
+  res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    '  <url><loc>https://tattoo-os.es/</loc></url>\n' +
+    '  <url><loc>https://tattoo-os.es/privacidad</loc></url>\n' +
+    '</urlset>\n');
 });
 app.use(express.json());
 // Modo soporte (ver PANEL SUPERADMIN más abajo): un token de sesión creado por
@@ -1042,6 +1086,7 @@ app.post('/api/auth/register', loginRateLimiter, function(req, res) {
   var pass = req.body.password || '';
   var name = (req.body.name || email.split('@')[0]).trim();
   if (!email || !pass) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Email no válido' });
   if (pass.length < 8) return res.status(400).json({ error: 'Contraseña mínimo 8 caracteres' });
   // Un email no puede ser a la vez cuenta de estudio y perfil de artista invitado en otra parte
   // (el login unificado busca por email sin saber de antemano cuál de los dos es) - se exige un
@@ -2355,7 +2400,7 @@ app.post('/api/profile/sync', authMiddleware, function(req, res) {
           var clientId = c.id !== undefined && c.id !== null ? String(c.id) : crypto.randomUUID();
           return db.query(
             'INSERT INTO clients (id,profile_id,user_id,name,phone,email,instagram,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (user_id, id) DO UPDATE SET name=$4,phone=$5,email=$6,instagram=$7,notes=$8',
-            [clientId, p.id, userId, c.name||'', c.phone||'', c.email||'', c.instagram||'', c.notes||'']
+            [clientId, p.id, userId, c.name||'', c.phone||'', c.email||'', c.ig||c.instagram||'', c.notes||'']
           ).catch(function(){});
         });
         var expenseOps = (p.expenses||[]).map(function(ex) {
@@ -3115,6 +3160,8 @@ function getFullAccountData(userId) {
         return {
           id: p.id, name: p.name, role: p.role, color: p.color,
           isAdminProfile: !!p.is_admin_profile, accessRole: p.access_role,
+          commissionPct: p.commission_pct != null ? Number(p.commission_pct) : undefined,
+          studioName: p.studio_name || undefined, waSettings: p.wa_settings || undefined,
           appts: mine(appts, p).map(mapApptRow),
           clients: mine(clients, p),
           expenses: mine(expenses, p).map(mapExpenseRow),
@@ -3137,6 +3184,41 @@ app.get('/api/admin/user-data/:userId', adminMiddleware, function(req, res) {
       if (!data.profiles.length) return res.status(404).json({ error: 'Sin datos guardados aún' });
       res.json(data);
     })
+    .catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// El dueño recupera todos los datos de su cuenta al iniciar sesión. Antes el frontend solo
+// leía de localStorage (loadUserProfiles), así que en otro dispositivo o con el navegador
+// borrado la app arrancaba vacía aunque todo estuviera guardado aquí. Solo para la sesión del
+// dueño: un artista con login propio ya tiene /api/profile/:id/data, limitado a su perfil.
+app.get('/api/my-data', authMiddleware, function(req, res) {
+  if (req.user.accessRole === 'artist') return res.status(403).json({ error: 'Solo para el dueño de la cuenta' });
+  Promise.all([
+    getFullAccountData(req.userId),
+    db.query('SELECT * FROM pos_sales WHERE user_id=$1', [req.userId]),
+  ]).then(function(results) {
+    var data = results[0];
+    data.posSales = results[1].rows.map(function(s) {
+      return { id: s.id, item: s.item, amount: Number(s.amount), method: s.method, date: s.date };
+    });
+    res.json(data);
+  }).catch(function(e) { res.status(500).json({ error: e.message }); });
+});
+
+// Borrado real de clientes, gastos, proyectos, consentimientos, documentos y ventas. Mismo
+// motivo que DELETE /api/appointments/:id: el upsert de /api/profile/sync nunca borra, así que
+// sin esto lo eliminado en el navegador seguía en la BD - y ahora que /api/my-data recarga
+// desde aquí, reaparecería. Un artista solo puede borrar filas de su propio perfil.
+var DELETABLE_TABLES = { clients: 'clients', expenses: 'expenses', projects: 'projects', consents: 'consents', 'doc-files': 'doc_files', 'pos-sales': 'pos_sales' };
+app.delete('/api/data/:kind/:id', authMiddleware, function(req, res) {
+  var table = DELETABLE_TABLES[req.params.kind];
+  if (!table) return res.status(404).json({ error: 'Tipo no válido' });
+  var isArtist = req.user.accessRole === 'artist' && req.user.profileId != null;
+  if (isArtist && table === 'pos_sales') return res.status(403).json({ error: 'No autorizado' });
+  var sql = 'DELETE FROM ' + table + ' WHERE id=$1 AND user_id=$2' + (isArtist ? ' AND profile_id=$3' : '');
+  var params = isArtist ? [String(req.params.id), req.userId, req.user.profileId] : [String(req.params.id), req.userId];
+  db.query(sql, params)
+    .then(function() { res.json({ ok: true }); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
 
@@ -3321,6 +3403,11 @@ app.get('/api/team-messages/unread-count', authMiddleware, function(req, res) {
     .then(function(r) { res.json({ count: r.rows[0].n }); })
     .catch(function(e) { res.status(500).json({ error: e.message }); });
 });
+
+// 404: siempre al final, después de todas las rutas. La API responde JSON; el resto, una página
+// propia en vez del "Cannot GET /..." por defecto de Express.
+app.use('/api', function(req, res) { res.status(404).json({ error: 'No encontrado' }); });
+app.use(function(req, res) { res.status(404).sendFile(path.join(__dirname, '..', 'frontend', '404.html')); });
 
 httpServer.listen(PORT, '0.0.0.0', function() {
   var os = require('os');
