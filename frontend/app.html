@@ -2904,6 +2904,12 @@ function reseedIdCounters(){
   expSeq=Math.max(expSeq, maxExpId+1);
   posSaleSeq=Math.max(posSaleSeq, maxPosSaleId+1);
 }
+// Id para todo lo que se crea a mano (citas, clientes, gastos, proyectos, consentimientos,
+// ventas). Los contadores de arriba son por dispositivo: el móvil y el ordenador generaban los
+// mismos números (100, 101...) y en el servidor, que guarda por (cuenta, id), una cita pisaba a
+// la otra. Con la hora en milisegundos más un aleatorio no se repiten entre dispositivos, y
+// sigue siendo un número (los onclick y las comparaciones con === lo esperan así).
+function newId(){ return Date.now()*1000 + Math.floor(Math.random()*1000); }
 
 // -- INIT DEMO DATA for profile[0] --
 function initDemoData(){
@@ -4484,7 +4490,7 @@ function savePosSale(){
   const item=document.getElementById('m-positem').value.trim();
   const amt=parseFloat(document.getElementById('m-posamt').value);
   if(!item||!amt){showToast(t('fillFields'));return}
-  posSales.push({id:posSaleSeq++,item,amount:amt,method:document.getElementById('m-posmethod').value,date:document.getElementById('m-posdate').value});
+  posSales.push({id:newId(),item,amount:amt,method:document.getElementById('m-posmethod').value,date:document.getElementById('m-posdate').value});
   saveUserProfiles();
   closeModal();renderPosSales();showToast('Venta registrada');
 }
@@ -5678,7 +5684,7 @@ function saveAppt(editId){
   const existing=editId?appts.find(x=>x.id===editId):null;
   const balancePaidNow=document.getElementById('m-balpaid').classList.contains('on');
   const a={
-    id:editId||apptSeq++,
+    id:editId||newId(),
     name:document.getElementById('m-name').value||'Cliente',
     type:document.getElementById('m-type').value||'Sesión',
     color:(document.getElementById('m-color')||{}).dataset?.val||'v',
@@ -5724,20 +5730,20 @@ function editApptById(id) {
 function saveClient(){
   const nm=document.getElementById('m-cname').value.trim();if(!nm){showToast(t('fillFields'));return}
   const COLS=['v','c','r','a','g'];
-  addClient({id:clientSeq++,name:nm,ig:document.getElementById('m-cig').value||' - ',phone:document.getElementById('m-cphone').value||' - ',email:document.getElementById('m-cemail').value.trim(),notes:document.getElementById('m-cnotes').value,sessions:0,spent:0,color:COLS[Math.floor(Math.random()*COLS.length)]});
+  addClient({id:newId(),name:nm,ig:document.getElementById('m-cig').value||' - ',phone:document.getElementById('m-cphone').value||' - ',email:document.getElementById('m-cemail').value.trim(),notes:document.getElementById('m-cnotes').value,sessions:0,spent:0,color:COLS[Math.floor(Math.random()*COLS.length)]});
   logActivity('Cliente añadido: '+nm,'c');
   closeModal();renderClients();buildRpActivity();showToast(t('clientAdded'));
 }
 function saveExpense(){
   const nm=document.getElementById('m-ename').value.trim();const amt=parseFloat(document.getElementById('m-eamt').value);
   if(!nm||!amt){showToast(t('fillFields'));return}
-  addExpense({id:expSeq++,name:nm,cat:document.getElementById('m-ecat').value,amount:amt,date:document.getElementById('m-edate').value});
+  addExpense({id:newId(),name:nm,cat:document.getElementById('m-ecat').value,amount:amt,date:document.getElementById('m-edate').value});
   logActivity('Gasto registrado: '+nm+' (€'+amt+')','a');
   closeModal();renderExpenses();buildRpActivity();showToast(t('expAdded'));
 }
 function saveProject(){
   const nm=document.getElementById('m-pname').value.trim();if(!nm){showToast(t('fillFields'));return}
-  addProject({id:projSeq++,name:nm,client:document.getElementById('m-pclient').value,tags:document.getElementById('m-ptags').value.split(',').map(s=>s.trim()).filter(Boolean),notes:document.getElementById('m-pnotes').value,images:[]});
+  addProject({id:newId(),name:nm,client:document.getElementById('m-pclient').value,tags:document.getElementById('m-ptags').value.split(',').map(s=>s.trim()).filter(Boolean),notes:document.getElementById('m-pnotes').value,images:[]});
   closeModal();renderProjects();showToast(t('projCreated'));
 }
 function saveProfile(){
@@ -6283,7 +6289,7 @@ function generateConsent() {
   const checks = getCheckboxes();
 
   const consent = {
-    id: consentSeq++, clientName, dni, dob, phone, email, address,
+    id: newId(), clientName, dni, dob, phone, email, address,
     tattooType: desc, zone, size, sessionDate, artist, price, deposit,
     medical, checks, createdAt: new Date().toISOString().split('T')[0]
   };
@@ -7777,7 +7783,9 @@ function saveUserProfiles() {
 // dispositivo nuevo o un navegador borrado ya no arrancan con la app vacía. Reglas de la mezcla:
 //  - Elementos que están en ambos lados: ganan los campos del servidor, pero se conservan los
 //    campos que el servidor no guarda (sessions/spent de clientes, etc.).
-//  - Elementos solo locales: se conservan (pueden ser cambios aún sin sincronizar).
+//  - Elementos solo locales: se conservan (pueden ser cambios aún sin sincronizar), salvo los
+//    marcados _synced: esos ya estuvieron en el servidor, así que si faltan es que se borraron
+//    desde otro dispositivo - conservarlos los haría revivir en el siguiente sync.
 //  - Si el navegador no tenía nada guardado, se usan los perfiles del servidor tal cual.
 var _profilesFromCache = false;
 function normalizeServerId(id){ return (typeof id==='string' && /^\d+$/.test(id)) ? Number(id) : id; }
@@ -7787,10 +7795,11 @@ function mergeById(localArr, serverArr, normalize){
   var out = (serverArr||[]).map(function(s){
     var n = normalize(Object.assign({}, s));
     n.id = normalizeServerId(n.id);
+    n._synced = true;
     seen.add(String(n.id));
     return Object.assign({}, localById.get(String(n.id)) || {}, n);
   });
-  (localArr||[]).forEach(function(x){ if(!seen.has(String(x.id))) out.push(x); });
+  (localArr||[]).forEach(function(x){ if(!seen.has(String(x.id)) && !x._synced) out.push(x); });
   return out;
 }
 function stripDbCols(o){ delete o.user_id; delete o.profile_id; delete o.created_at; delete o.updated_at; return o; }
@@ -7855,6 +7864,27 @@ function hydrateFromServer() {
     })
     .catch(function() { _hydrating = false; /* sin red: se sigue con la caché local, como antes */ });
 }
+
+// Antes solo se descargaba al iniciar sesión: con la app abierta en el móvil, lo que se creaba
+// en el ordenador no aparecía nunca (y viceversa). Ahora se refresca al volver a la app y cada
+// minuto mientras está visible. Primero se sube lo local y solo después se descarga, para que
+// un cambio de este dispositivo aún sin subir no lo pise la versión anterior del servidor.
+// No se hace con un formulario abierto, para no cambiar datos debajo de lo que se está editando.
+var _refreshing = false;
+function refreshFromServer() {
+  // Solo con el perfil Administrador activo: /api/my-data trae los datos de todos los perfiles,
+  // y con un artista activo (PIN) eso metería en memoria lo que ese artista no debe ver.
+  if (!_authToken || _supportSession || !currentUser || _artistLocked || !activeIsAdmin() || _hydrating || _refreshing) return;
+  if (document.visibilityState !== 'visible') return;
+  var overlay = document.getElementById('overlay');
+  if (overlay && overlay.classList.contains('open')) return;
+  _refreshing = true;
+  fetch(API_BASE + '/api/profile/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken }, body: JSON.stringify({ profiles: profiles, posSales: posSales }) })
+    .then(function(r) { _refreshing = false; if (r.ok) hydrateFromServer(); })
+    .catch(function() { _refreshing = false; });
+}
+document.addEventListener('visibilitychange', function() { if (document.visibilityState === 'visible') refreshFromServer(); });
+setInterval(refreshFromServer, 60000);
 
 function doLogout() {
   if (_authToken) fetch(API_BASE+'/api/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + _authToken } }).catch(function() {});
